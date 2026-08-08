@@ -34,11 +34,45 @@ Transaction [`be20b59464b94286cd6478483fcdf41b2eec21b2c496ed821aa004fd632e9811`]
 | Sender | `SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY` |
 | Block | 7,663,125 at 2026-04-19T16:09:45Z |
 
-**`hodlmm-inventory-balancer`, three leg rebalance.** Completed a criterion-met inventory correction on the `dlmm_1` pool with post-conditions pinned on both the send and receive legs, submitted as part of bff-skills#494.
+**`hodlmm-inventory-balancer`, criterion-met inventory correction.**
+Transaction [`0xf4f4932800a80234845a8d199556ad9c0ff4aa99874a95c819c13779b164cbc8`](https://explorer.hiro.so/txid/0xf4f4932800a80234845a8d199556ad9c0ff4aa99874a95c819c13779b164cbc8?chain=mainnet), verified 2026-08-08. A single corrective swap on the `dlmm_1` sBTC/USDCx pool, submitted as part of bff-skills#494.
 
-**`hermetica-yield-rotator`, full leveraged cycle.** Closed an end to end leveraged yield cycle on mainnet including the Hermetica silo claim path, redeeming USDh at block 7,789,631.
+| Field | Value |
+|---|---|
+| Status | success |
+| Contract | `SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-swap-router-v-1-1` |
+| Function | `swap-simple-multi` |
+| Block | 7,697,621 at 2026-04-22T04:54:59Z |
+| Post-conditions | 2, in `allow` mode: sender sends at most 6,468 `sbtc-token`, pool sends at least 4,993,915 `usdcx-token` |
+| Settled | 6,468 sats sBTC out, 5,004,174 micro-USDCx in |
 
-**Multi-transaction proof run.** A nine transaction mainnet cycle exercised every write path across the HODLMM, Granite and Hermetica skills for roughly $0.045 in total gas, surfacing the Granite post-condition bugs documented in [SAFETY.md](SAFETY.md).
+The post-condition envelope pins both the send and the receive side, which is the property the skill was reviewed on.
+
+**`hermetica-yield-rotator`, silo claim leg.**
+Transaction [`0xe1f1598b6355f9b7fbe54599ed11e0609a7d1af46265feb0c88482e145902cc5`](https://explorer.hiro.so/txid/0xe1f1598b6355f9b7fbe54599ed11e0609a7d1af46265feb0c88482e145902cc5?chain=mainnet), verified 2026-08-08. Closes the leveraged yield cycle by redeeming USDh from the Hermetica silo after the 7 day cooldown.
+
+| Field | Value |
+|---|---|
+| Status | success |
+| Contract | `SPN5AKG35QZSK2M8GAMR4AFX45659RJHDW353HSG.staking-silo-v1-1` |
+| Function | `withdraw` |
+| Block | 7,789,631 at 2026-04-29T17:27:21Z |
+
+**Multi-transaction proof run.** On 2026-04-22 a mainnet cycle exercised the write paths across the **Zest, Granite and Hermetica** skills, surfacing the Granite post-condition bugs documented in [SAFETY.md](SAFETY.md). Nine transactions are cited as proofs; the full window from block 7,702,816 to 7,703,650 contains 13 transactions including the deliberate failures, and cost 39,272 micro-STX in total, about $0.009 at the STX price on the day.
+
+| Leg | Transaction | Result |
+|---|---|---|
+| Granite redeem, pre-fix | `0x5780062068` | `abort_by_post_condition`, bug evidence |
+| Granite redeem, pre-fix | `0x60e2f84b83` | `abort_by_post_condition`, bug evidence |
+| Granite redeem, post-fix | `0xd4aa0c4ed5` | success, validates the 3 post-condition fix |
+| Zest sBTC withdraw | `0x016c3996f9` | success |
+| Zest sBTC supply | `0x315a6d54c5` | success |
+| Zest USDh borrow | `0x2b465aae05` | success |
+| Zest USDh repay | `0xd3b46ae74b` | success |
+| Zest non-USDh borrow | `0xb65535453a`, `0x0bfa434424`, `0xe388a8bdb9` | all `(err none)`, evidence for the USDh-only restriction |
+| Hermetica unstake | `0x7834cd325b` | success, opens silo claim u2157 |
+
+The earlier description of this run named HODLMM rather than Zest and put total gas at $0.045. Both were corrected on 2026-08-08 after pulling every transaction from the Hiro API. The only DLMM transaction in the window, `0x721c7c8776`, was a mid-session gas top-up swap, not a HODLMM liquidity write.
 
 ## Not selected
 
