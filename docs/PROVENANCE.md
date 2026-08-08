@@ -34,19 +34,19 @@ Transaction [`be20b59464b94286cd6478483fcdf41b2eec21b2c496ed821aa004fd632e9811`]
 | Sender | `SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY` |
 | Block | 7,663,125 at 2026-04-19T16:09:45Z |
 
-**`hodlmm-inventory-balancer`, criterion-met inventory correction.**
-Transaction [`0xf4f4932800a80234845a8d199556ad9c0ff4aa99874a95c819c13779b164cbc8`](https://explorer.hiro.so/txid/0xf4f4932800a80234845a8d199556ad9c0ff4aa99874a95c819c13779b164cbc8?chain=mainnet), verified 2026-08-08. A single corrective swap on the `dlmm_1` sBTC/USDCx pool, submitted as part of bff-skills#494.
+**`hodlmm-inventory-balancer`, three leg rebalance.** A criterion-met inventory correction on the `dlmm_1` pool, submitted as part of bff-skills#494. Three sequential transactions on 2026-04-18, each waiting for on-chain confirmation before the next, all verified 2026-08-08.
 
-| Field | Value |
-|---|---|
-| Status | success |
-| Contract | `SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-swap-router-v-1-1` |
-| Function | `swap-simple-multi` |
-| Block | 7,697,621 at 2026-04-22T04:54:59Z |
-| Post-conditions | 2, in `allow` mode: sender sends at most 6,468 `sbtc-token`, pool sends at least 4,993,915 `usdcx-token` |
-| Settled | 6,468 sats sBTC out, 5,004,174 micro-USDCx in |
+| Leg | Transaction | Function | Block, time |
+|---|---|---|---|
+| 1. Withdraw slice | [`0x89315a8b93…`](https://explorer.hiro.so/txid/0x89315a8b935b3e4db32ad753b77af4bf853f28dc5b04ca6aa25d7cca9fc1cf8a?chain=mainnet) | `withdraw-relative-liquidity-same-multi` | 7,641,869 at 03:15:29Z |
+| 2. Corrective swap | [`0x5195822ee3…`](https://explorer.hiro.so/txid/0x5195822ee36c9658ed0e17659a4fd80218da9aeb703f03ee4ee758d5a7f0d3c8?chain=mainnet) | `swap-simple-multi` | 7,641,891 at 03:18:34Z |
+| 3. Redeposit | [`0x135f490ca3…`](https://explorer.hiro.so/txid/0x135f490ca3f7b2862c3bd2eb33124bcd99e9ce2d93331865ad1dfd2065d6f53c?chain=mainnet) | `add-relative-liquidity-same-multi` | 7,641,905 at 03:20:57Z |
 
-The post-condition envelope pins both the send and the receive side, which is the property the skill was reviewed on.
+All three succeeded on `SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD`. The position moved from 0% X and 100% Y, a 50% deviation, to 49.95% X and 50.05% Y, a deviation of 0.05%, well inside the plus or minus 5% band.
+
+A separate proof swap, [`0xf4f4932800…`](https://explorer.hiro.so/txid/0xf4f4932800a80234845a8d199556ad9c0ff4aa99874a95c819c13779b164cbc8?chain=mainnet) at block 7,697,621 on 2026-04-22, demonstrates the post-condition envelope the skill was reviewed on: two conditions pinning both sides, sender sends at most 6,468 `sbtc-token` and the pool sends at least 4,993,915 `usdcx-token`, settling 6,468 sats for 5,004,174 micro-USDCx.
+
+The withdraw and redeposit legs carry no post-conditions, which is deliberate. Those router calls move liquidity across many bins, so enumerating every asset movement is impractical and fragile. The bound on those legs is enforced at the contract level instead, through `min-dlp` at 95% of input and a maximum fee of 5%, with a sender-side `willSendLte` cap on the swap leg.
 
 **`hermetica-yield-rotator`, silo claim leg.**
 Transaction [`0xe1f1598b6355f9b7fbe54599ed11e0609a7d1af46265feb0c88482e145902cc5`](https://explorer.hiro.so/txid/0xe1f1598b6355f9b7fbe54599ed11e0609a7d1af46265feb0c88482e145902cc5?chain=mainnet), verified 2026-08-08. Closes the leveraged yield cycle by redeeming USDh from the Hermetica silo after the 7 day cooldown.
