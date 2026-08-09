@@ -67,7 +67,7 @@ The split matters. `SKILL.md` is what an agent reads to decide whether this skil
 
 ## Relationship to SmartX
 
-[SmartX](https://microbasilisk.github.io/SmartX/) is a non-custodial product where a user connects their own wallet, asks in plain language for something to be done with their capital, and signs any resulting transaction themselves. The agent never signs for the user.
+[SmartX](https://smartx.finance) is a non-custodial product where a user connects their own wallet, asks in plain language for something to be done with their capital, and signs any resulting transaction themselves. The agent never signs for the user.
 
 This suite is where that product's competence comes from, and the plan-emitting skills described in [SAFETY.md](SAFETY.md) are the shape that model requires: a skill that constructs a transaction and stops, leaving the signature to whoever holds the keys.
 
