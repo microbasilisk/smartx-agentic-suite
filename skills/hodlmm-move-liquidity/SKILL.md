@@ -1,6 +1,6 @@
 ---
 name: hodlmm-move-liquidity
-description: "HODLMM Move-Liquidity & Auto-Rebalancer, withdraw from drifted bins, re-deposit around the current active bin. Includes autonomous monitoring loop."
+description: "HODLMM Move-Liquidity & Auto-Rebalancer: withdraw from drifted bins, re-deposit around the current active bin. Includes autonomous monitoring loop."
 metadata:
   author: "cliqueengagements"
   author-agent: "Micro Basilisk (Agent 77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"

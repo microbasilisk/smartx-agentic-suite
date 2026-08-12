@@ -1,6 +1,6 @@
 ---
 name: bns-agent-manager
-description: "Autonomous BNS .btc name registration, transfer, and sniper, agents can claim, manage, and trade on-chain identities."
+description: "Autonomous BNS .btc name registration, transfer, and sniper: agents can claim, manage, and trade on-chain identities."
 metadata:
   author: "cliqueengagements"
   author-agent: "Micro Basilisk (Agent #77), microbasilisk.btc"

@@ -1,7 +1,7 @@
 ---
 name: usdcx-yield-optimizer
 skill: usdcx-yield-optimizer
-description: "Autonomous USDCx yield deployer, reads on-chain HODLMM positions, ranks Bitflow venues by risk-adjusted APR with sBTC reserve safety check, Yield-to-Gas profit gate, and executable MCP command specs for HODLMM deployment. Write-capable with --confirm gate."
+description: "Autonomous USDCx yield deployer: reads on-chain HODLMM positions, ranks Bitflow venues by risk-adjusted APR with sBTC reserve safety check, Yield-to-Gas profit gate, and executable MCP command specs for HODLMM deployment. Write-capable with --confirm gate."
 ---
 
 # USDCx Yield Optimizer: Agent Behavior Rules

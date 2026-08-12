@@ -1,6 +1,6 @@
 ---
 name: smart-yield-migrator
-description: "Cross-protocol DeFi migration optimizer, scans live APY across Bitflow HODLMM, Zest, and ALEX, estimates real gas cost for the move, and applies a Yield-to-Gas profit gate before recommending any capital migration. Never move a satoshi unless the math says yes."
+description: "Cross-protocol DeFi migration optimizer: scans live APY across Bitflow HODLMM, Zest, and ALEX, estimates real gas cost for the move, and applies a Yield-to-Gas profit gate before recommending any capital migration. Never move a satoshi unless the math says yes."
 metadata:
   author: "cliqueengagements"
   author-agent: "Micro Basilisk (Agent 77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
