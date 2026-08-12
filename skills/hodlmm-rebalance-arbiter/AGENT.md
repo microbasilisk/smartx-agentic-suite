@@ -10,26 +10,26 @@ description: "Decision gate that synthesizes 2 independent signals into a single
 
 The arbiter answers one question: **"Should I rebalance right now, or wait?"**
 
-It consumes 2 signals — bin drift and sBTC peg health — and applies a priority matrix to produce a single verdict. This replaces the need for an LP to manually cross-reference independent skill outputs.
+It consumes 2 signals: bin drift and sBTC peg health, and applies a priority matrix to produce a single verdict. This replaces the need for an LP to manually cross-reference independent skill outputs.
 
 ## Decision order
 
-1. **Check data availability** — if any signal source returns ERROR, output DEGRADED. Never act on incomplete data.
-2. **Check if rebalance is needed** — if bins are in range, output IN_RANGE regardless of other signals.
-3. **Check for RED signals** — if sBTC reserve is RED, output BLOCKED with specific reason and retry_after timestamp.
-4. **Reserve YELLOW** — acceptable risk. Output REBALANCE with a note.
-5. **All clear** — if no blockers remain, output REBALANCE.
+1. **Check data availability**: if any signal source returns ERROR, output DEGRADED. Never act on incomplete data.
+2. **Check if rebalance is needed**: if bins are in range, output IN_RANGE regardless of other signals.
+3. **Check for RED signals**: if sBTC reserve is RED, output BLOCKED with specific reason and retry_after timestamp.
+4. **Reserve YELLOW**: acceptable risk. Output REBALANCE with a note.
+5. **All clear**: if no blockers remain, output REBALANCE.
 
 ## Guardrails
 
-- **Read-only** — this skill never executes transactions, never constructs transaction payloads, never moves funds. It outputs a decision for a human or executor skill to act on.
-- **Fail-safe default** — the default state is "do nothing." Missing data, malformed responses, stale data, and timeouts all push toward WAIT or DEGRADED — never toward REBALANCE.
-- **Silence locks the gate** — you need 2 positive signals to unlock a REBALANCE decision. Any gap in data blocks action.
-- **No credential access** — uses only public API endpoints. No wallet passwords, no private keys, no API keys.
-- **30-second timeout** — all API calls abort after 30 seconds. Timeouts are treated as ERROR → DEGRADED.
-- **Pool TVL gate** — ignores pools below $10,000 TVL to avoid decisions based on dust pool noise.
-- **Volume gate** — requires $10,000+ 24h volume before recommending a rebalance. Low-volume pools are not worth the gas.
-- **Slippage cap** — rebalance is blocked if active bin price deviates >0.5% from Bitflow app price.
+- **Read-only**: this skill never executes transactions, never constructs transaction payloads, never moves funds. It outputs a decision for a human or executor skill to act on.
+- **Fail-safe default**: the default state is "do nothing." Missing data, malformed responses, stale data, and timeouts all push toward WAIT or DEGRADED, never toward REBALANCE.
+- **Silence locks the gate**: you need 2 positive signals to unlock a REBALANCE decision. Any gap in data blocks action.
+- **No credential access**: uses only public API endpoints. No wallet passwords, no private keys, no API keys.
+- **30-second timeout**: all API calls abort after 30 seconds. Timeouts are treated as ERROR → DEGRADED.
+- **Pool TVL gate**: ignores pools below $10,000 TVL to avoid decisions based on dust pool noise.
+- **Volume gate**: requires $10,000+ 24h volume before recommending a rebalance. Low-volume pools are not worth the gas.
+- **Slippage cap**: rebalance is blocked if active bin price deviates >0.5% from Bitflow app price.
 
 ## Signal sources
 
@@ -52,7 +52,7 @@ It consumes 2 signals — bin drift and sBTC peg health — and applies a priori
 
 The arbiter will refuse to recommend REBALANCE when:
 - Any data source is unreachable (30s timeout)
-- sBTC reserve ratio is below 0.995 (peg instability — RED)
+- sBTC reserve ratio is below 0.995 (peg instability: RED)
 - Pool TVL is below $10,000
 - 24h volume is below $10,000
 - Price slippage exceeds 0.5%
@@ -62,6 +62,6 @@ The arbiter will refuse to recommend REBALANCE when:
 
 | Code | Meaning |
 |------|---------|
-| 0 | REBALANCE or IN_RANGE — action clear |
-| 1 | BLOCKED — safety signal preventing rebalance |
-| 3 | DEGRADED or ERROR — data sources need attention |
+| 0 | REBALANCE or IN_RANGE: action clear |
+| 1 | BLOCKED: safety signal preventing rebalance |
+| 3 | DEGRADED or ERROR: data sources need attention |

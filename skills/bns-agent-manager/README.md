@@ -1,19 +1,19 @@
-# Day 19 — BNS Agent Manager
+# Day 19: BNS Agent Manager
 
 **PR:** [BitflowFinance/bff-skills#294](https://github.com/BitflowFinance/bff-skills/pull/294)
-**Status:** Open — Day 19 submission
+**Status:** Open, Day 19 submission
 **Category:** Infrastructure (Write)
 
 ## What it does
 
 First BNS write skill in the competition. Autonomous .btc name registration, transfer, and sniper.
 
-- **register** — claim a .btc name via `claim_bns_name_fast`
-- **transfer** — send a name to another address via `transfer_nft`
-- **snipe** — watch a list of target names, auto-register when available
-- **search** — check availability + pricing for names
-- **portfolio** — list all names owned by wallet
-- **doctor** — wallet/API/balance health check
+- **register**: claim a .btc name via `claim_bns_name_fast`
+- **transfer**: send a name to another address via `transfer_nft`
+- **snipe**: watch a list of target names, auto-register when available
+- **search**: check availability + pricing for names
+- **portfolio**: list all names owned by wallet
+- **doctor**: wallet/API/balance health check
 
 ## On-chain proof
 
@@ -37,7 +37,7 @@ First BNS write skill in the competition. Autonomous .btc name registration, tra
 bns-agent-manager
 
 **Author:** cliqueengagements
-**Author Agent:** Micro Basilisk (Agent #77) — microbasilisk.btc | SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
+**Author Agent:** Micro Basilisk (Agent #77), microbasilisk.btc | SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
 ## Category
 
@@ -48,7 +48,7 @@ bns-agent-manager
 
 ## What it does
 
-First BNS write skill in the competition (291 PRs, zero BNS). Gives agents full lifecycle management of .btc names: check availability + pricing, register names via `claim_bns_name_fast`, transfer ownership via `transfer_nft`, and autonomously snipe target names when they become available. Three write actions, six commands, ten MCP tools — identity as a first-class agent capability.
+First BNS write skill in the competition (291 PRs, zero BNS). Gives agents full lifecycle management of .btc names: check availability + pricing, register names via `claim_bns_name_fast`, transfer ownership via `transfer_nft`, and autonomously snipe target names when they become available. Three write actions, six commands, ten MCP tools: identity as a first-class agent capability.
 
 ## Full Capability Breakdown
 
@@ -80,23 +80,23 @@ First BNS write skill in the competition (291 PRs, zero BNS). Gives agents full 
 ### Write Commands
 
 **`register --name <name> [--max-price <stx>] [--confirm=REGISTER]`**
-- Checks name availability first — blocks if already taken
-- Checks price against `--max-price` cap (default 50 STX) — blocks if too expensive
-- Checks wallet STX balance against name price + 2 STX gas reserve — blocks if insufficient
-- Checks 5-minute cooldown since last registration — blocks if too soon
+- Checks name availability first: blocks if already taken
+- Checks price against `--max-price` cap (default 50 STX): blocks if too expensive
+- Checks wallet STX balance against name price + 2 STX gas reserve: blocks if insufficient
+- Checks 5-minute cooldown since last registration: blocks if too soon
 - Without `--confirm`: shows dry-run preview with price, balance, projected after-balance, and MCP tool preview
 - With `--confirm=REGISTER`: outputs MCP tool call (`claim_bns_name_fast`) for agent runtime to execute
 - Records timestamp and name in state file history
 
 **`transfer --name <name> --to <SP...address> [--confirm=TRANSFER]`**
 - Validates recipient address format (must start with SP or SM)
-- Checks name exists on-chain — blocks if not registered
-- Verifies wallet owns the name — blocks if owned by someone else
+- Checks name exists on-chain: blocks if not registered
+- Verifies wallet owns the name: blocks if owned by someone else
 - Looks up NFT token ID and contract ID from portfolio
-- Checks gas reserve — blocks if below 2 STX
+- Checks gas reserve: blocks if below 2 STX
 - Without `--confirm`: shows dry-run preview with from/to, token ID, contract
 - With `--confirm=TRANSFER`: outputs MCP tool call (`transfer_nft`) for agent runtime to execute
-- Blocks if token ID cannot be resolved — guides user to run `portfolio` first
+- Blocks if token ID cannot be resolved: guides user to run `portfolio` first
 
 **`snipe [--add|--remove|--list] [--max-price <stx>] [--confirm=SNIPE]`**
 - `--add "name1,name2"`: adds names to persistent watchlist (max 20 targets), each with its own max price
@@ -113,7 +113,7 @@ First BNS write skill in the competition (291 PRs, zero BNS). Gives agents full 
 ### Safety Gates (enforced in code, not just docs)
 - `--confirm` token required on every write (REGISTER, TRANSFER, SNIPE)
 - `--max-price` cap refuses expensive names
-- 2 STX gas reserve floor — never drains wallet
+- 2 STX gas reserve floor, never drains wallet
 - 5-minute cooldown between registrations
 - Dry-run preview is always the default
 - State persisted to `~/.bns-agent-manager.json` (survives restarts)
@@ -135,7 +135,7 @@ First BNS write skill in the competition (291 PRs, zero BNS). Gives agents full 
 
 ## Does this integrate HODLMM?
 
-- [ ] No — this is an identity/infrastructure primitive. BNS names are complementary to DeFi skills: agents need discoverable identities before they can coordinate on LP, yield, or trading strategies.
+- [ ] No: this is an identity/infrastructure primitive. BNS names are complementary to DeFi skills: agents need discoverable identities before they can coordinate on LP, yield, or trading strategies.
 
 ## Registry compatibility checklist
 

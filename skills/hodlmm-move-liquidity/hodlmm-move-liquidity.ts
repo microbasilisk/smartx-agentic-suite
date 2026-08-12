@@ -1,17 +1,17 @@
 #!/usr/bin/env bun
 /**
- * hodlmm-move-liquidity — Move idle HODLMM liquidity back into earning range.
+ * hodlmm-move-liquidity: Move idle HODLMM liquidity back into earning range.
  *
  * When the active bin drifts away from your LP position, this skill moves
  * liquidity from old bins to bins centered on the current active bin.
  * One atomic transaction via move-relative-liquidity-multi.
  *
  * Commands:
- *   doctor        — check APIs, wallet, pool access
- *   scan          — show positions and in-range status across pools
- *   run           — assess + execute rebalance (dry-run unless --confirm)
- *   auto          — autonomous rebalancer loop: monitor + auto-execute on drift
- *   install-packs — no-op
+ *   doctor: check APIs, wallet, pool access
+ *   scan: show positions and in-range status across pools
+ *   run: assess + execute rebalance (dry-run unless --confirm)
+ *   auto: autonomous rebalancer loop: monitor + auto-execute on drift
+ *   install-packs, no-op
  */
 
 import { Command } from "commander";
@@ -26,7 +26,7 @@ const BITFLOW_APP = "https://bff.bitflowapis.finance/api/app/v1";
 const HIRO_API = "https://api.mainnet.hiro.so";
 const EXPLORER = "https://explorer.hiro.so/txid";
 
-// Router v-1-1 at the SM deployer — this is the current mainnet DLMM liquidity router.
+// Router v-1-1 at the SM deployer: this is the current mainnet DLMM liquidity router.
 // The Bitflow API reference documents v-0-1 at a different address (SP3ESW…), which is
 // the older deployment. Our mainnet proofs (0b4a9c7c…, 85ffba93…) succeeded against v-1-1.
 const ROUTER_ADDR = "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD";
@@ -35,7 +35,7 @@ const ROUTER_NAME = "dlmm-liquidity-router-v-1-1";
 const COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
 const BIN_SPREAD = 5; // ±5 bins around active bin = up to 11 bins
 const FETCH_TIMEOUT = 30_000;
-const CENTER_BIN_ID = 500; // NUM_OF_BINS(1001) / 2 — convert API unsigned bin IDs to contract signed IDs
+const CENTER_BIN_ID = 500; // NUM_OF_BINS(1001) / 2: convert API unsigned bin IDs to contract signed IDs
 
 const STATE_FILE = path.join(os.homedir(), ".hodlmm-move-liquidity-state.json");
 const WALLETS_FILE = path.join(os.homedir(), ".aibtc", "wallets.json");
@@ -214,7 +214,7 @@ async function fetchUserPositions(poolId: string, wallet: string): Promise<UserB
   const raw = await fetchJson<Record<string, unknown>>(
     `${BITFLOW_APP}/users/${wallet}/positions/${poolId}/bins`
   );
-  // API migrated userLiquidity/reserveX/reserveY to camelCase — read both.
+  // API migrated userLiquidity/reserveX/reserveY to camelCase: read both.
   const bins = (raw.bins ?? []) as Record<string, unknown>[];
   return bins
     .filter((b) => {
@@ -381,7 +381,7 @@ async function executeMove(
 
   // Route to move-liquidity-multi (absolute to-bin-id, list length 220) instead of
   // move-relative-liquidity-multi (relative offset, list length 208). Our positions
-  // routinely carry 209–221 bins after prior rebalances; the relative variant's
+  // routinely carry 209-221 bins after prior rebalances; the relative variant's
   // 208-cap overflows Clarity parse → BadFunctionArgument. The non-relative variant
   // fits our size exactly and takes absolute signed bin IDs (bin - CENTER_BIN_ID).
   const activeSigned = activeBin - CENTER_BIN_ID;
@@ -389,12 +389,12 @@ async function executeMove(
     const amt = BigInt(m.amount);
     // min-dlp=1n: the Clarity router enforces value conservation on-chain via
     // the dlmm-core fold (contract-call? into pool-trait for withdraw + deposit).
-    // This is NOT a placeholder — cross-bin moves legitimately produce fewer
+    // This is NOT a placeholder: cross-bin moves legitimately produce fewer
     // destination shares because DLP is bin-price-indexed (bin 460 → bin 622 at
     // very different prices conserves token value, not share count). Setting
     // min-dlp high enough to block that conservation would reject every legitimate
     // cross-bin rebalance. Proof: redeploy tx 0349cbb0... succeeded on mainnet
-    // (block 7630142) with (ok (list u257199 ...)) — the router arithmetic did
+    // (block 7630142) with (ok (list u257199 ...)): the router arithmetic did
     // the value-conservation work regardless of min-dlp=1n.
     // Follow-up (v2): price-aware min-dlp = 95% × (price_from / price_to) × amount
     // to keep per-bin slippage protection while surviving cross-bin conversions.
@@ -433,7 +433,7 @@ async function executeMove(
 
   const result = await broadcastTransaction({ transaction: tx, network: STACKS_MAINNET });
   if ("error" in result && result.error) {
-    throw new Error(`Move broadcast failed: ${result.error} — ${(result as Record<string, string>).reason ?? ""}`);
+    throw new Error(`Move broadcast failed: ${result.error}, ${(result as Record<string, string>).reason ?? ""}`);
   }
   return result.txid as string;
 }
@@ -597,7 +597,7 @@ program
       if (health.in_range && !force) {
         out("success", "run", {
           decision: "IN_RANGE",
-          reason: "Position is already in the active range — earning fees. No move needed. Use --force to recenter.",
+          reason: "Position is already in the active range, earning fees. No move needed. Use --force to recenter.",
           health,
         });
         return;
@@ -620,11 +620,11 @@ program
       const cdMs = cooldownRemaining(state, poolId);
       if (cdMs > 0) {
         const cdMin = Math.ceil(cdMs / 60_000);
-        out("blocked", "run", { cooldown_minutes: cdMin }, `Cooldown active — ${cdMin} minutes remaining`);
+        out("blocked", "run", { cooldown_minutes: cdMin }, `Cooldown active, ${cdMin} minutes remaining`);
         return;
       }
 
-      // 6. Build atomic move plan — spread across ±spread bins
+      // 6. Build atomic move plan: spread across ±spread bins
       const movePositions = buildMovePositions(userBins, activeBin, spread);
 
       const plan = {
@@ -665,11 +665,11 @@ program
 
       // 9. Validate pool contract format
       if (!pool.pool_contract.includes(".") || !pool.token_x.includes(".") || !pool.token_y.includes(".")) {
-        out("error", "run", null, `Invalid contract format for pool ${poolId} — missing deployer.name separator`);
+        out("error", "run", null, `Invalid contract format for pool ${poolId}: missing deployer.name separator`);
         return;
       }
 
-      // 10. Execute — single atomic transaction
+      // 10. Execute: single atomic transaction
       if (!opts.password) {
         out("blocked", "run", null, "--password required with --confirm");
         return;
@@ -711,7 +711,7 @@ program
 
 program
   .command("auto")
-  .description("Autonomous rebalancer — monitor all pools and auto-move when drift exceeds threshold")
+  .description("Autonomous rebalancer: monitor all pools and auto-move when drift exceeds threshold")
   .requiredOption("--wallet <address>", "STX address")
   .requiredOption("--password <pass>", "Wallet password for signing")
   .option("--interval <minutes>", "Check interval in minutes", "15")
@@ -783,13 +783,13 @@ program
 
             // Skip if in range
             if (health.in_range) {
-              log(`${pool.pool_id} (${health.pair}): in range — skip`);
+              log(`${pool.pool_id} (${health.pair}): in range, skip`);
               continue;
             }
 
             // Skip if drift below threshold
             if (health.drift < driftThreshold) {
-              log(`${pool.pool_id} (${health.pair}): drift ${health.drift} < threshold ${driftThreshold} — skip`);
+              log(`${pool.pool_id} (${health.pair}): drift ${health.drift} < threshold ${driftThreshold}, skip`);
               skipped++;
               continue;
             }
@@ -797,34 +797,34 @@ program
             // Skip if cooldown active
             const cdMs = cooldownRemaining(state, pool.pool_id);
             if (cdMs > 0) {
-              log(`${pool.pool_id}: cooldown ${Math.ceil(cdMs / 60_000)}m remaining — skip`);
+              log(`${pool.pool_id}: cooldown ${Math.ceil(cdMs / 60_000)}m remaining, skip`);
               skipped++;
               continue;
             }
 
             // Skip if zero liquidity
             if (BigInt(health.total_dlp) === 0n) {
-              log(`${pool.pool_id}: zero liquidity — skip`);
+              log(`${pool.pool_id}: zero liquidity, skip`);
               continue;
             }
 
             // Validate contract format
             if (!pool.pool_contract.includes(".") || !pool.token_x.includes(".") || !pool.token_y.includes(".")) {
-              log(`${pool.pool_id}: invalid contract format — skip`);
+              log(`${pool.pool_id}: invalid contract format, skip`);
               errors++;
               continue;
             }
 
-            // Build atomic move plan — spread across ±spread bins
+            // Build atomic move plan: spread across ±spread bins
             const movePositions = buildMovePositions(userBins, activeBin, spread);
 
             if (movePositions.length === 0) {
-              log(`${pool.pool_id}: no move positions — skip`);
+              log(`${pool.pool_id}: no move positions, skip`);
               continue;
             }
 
-            // Execute — single atomic transaction
-            log(`${pool.pool_id} (${health.pair}): drift ${health.drift} bins — MOVING (atomic, ±${spread})`);
+            // Execute: single atomic transaction
+            log(`${pool.pool_id} (${health.pair}): drift ${health.drift} bins, MOVING (atomic, ±${spread})`);
 
             const nonce = await fetchNonce(wallet);
             const moveTxId = await executeMove(keys.stxPrivateKey, pool, movePositions, nonce, activeBin);
@@ -838,7 +838,7 @@ program
             moves++;
 
           } catch (e: unknown) {
-            log(`${pool.pool_id}: error — ${(e as Error).message}`);
+            log(`${pool.pool_id}: error, ${(e as Error).message}`);
             errors++;
           }
         }

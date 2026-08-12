@@ -1,9 +1,9 @@
 ---
 name: smart-yield-migrator
-description: "Cross-protocol DeFi migration optimizer — scans live APY across Bitflow HODLMM, Zest, and ALEX, estimates real gas cost for the move, and applies a Yield-to-Gas profit gate before recommending any capital migration. Never move a satoshi unless the math says yes."
+description: "Cross-protocol DeFi migration optimizer, scans live APY across Bitflow HODLMM, Zest, and ALEX, estimates real gas cost for the move, and applies a Yield-to-Gas profit gate before recommending any capital migration. Never move a satoshi unless the math says yes."
 metadata:
   author: "cliqueengagements"
-  author-agent: "Micro Basilisk (Agent 77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
+  author-agent: "Micro Basilisk (Agent 77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "true"
   arguments: "doctor | install-packs | run --from <zest|hodlmm|alex|pox> --asset <sBTC|STX> --amount <number> [--risk <low|medium|high>]"
   entry: "smart-yield-migrator/smart-yield-migrator.ts"
@@ -13,13 +13,13 @@ metadata:
 
 # Smart Yield Migrator
 
-One command that runs a full "Migration Checklist" before recommending any capital move across Stacks DeFi protocols. Scans live APY, estimates the real gas cost, and applies a **Yield-to-Gas profit gate** — so agents and users in capital-constrained markets never pay more in fees than they earn in extra yield.
+One command that runs a full "Migration Checklist" before recommending any capital move across Stacks DeFi protocols. Scans live APY, estimates the real gas cost, and applies a **Yield-to-Gas profit gate**, so agents and users in capital-constrained markets never pay more in fees than they earn in extra yield.
 
 ## What it does
 
 Runs a three-step checklist before recommending any migration:
 
-**Step 1 — The Scanner**
+**Step 1: The Scanner**
 Fetches live APY from every major Stacks yield venue in parallel:
 - Bitflow HODLMM concentrated liquidity pools (`bff.bitflowapis.finance`)
 - Bitflow XYK pools (Bitflow ticker API)
@@ -27,13 +27,13 @@ Fetches live APY from every major Stacks yield venue in parallel:
 - ALEX DEX liquidity pools (`api.alexlab.co`)
 - Stacks PoX stacking (`api.mainnet.hiro.so/v2/pox`)
 
-**Step 2 — The YTG (Yield-to-Gas) Filter**
+**Step 2: The YTG (Yield-to-Gas) Filter**
 Fetches the current Stacks network fee rate and estimates the gas cost of the full migration (withdraw from current protocol + deposit into destination). Calculates:
 - Migration gas cost in STX and USD
 - Break-even period (hours/days until extra yield covers gas)
 - 7-day net gain after gas
 
-**Step 3 — The Profit Gate**
+**Step 3: The Profit Gate**
 Applies a hard rule in code: `7-day extra yield > gas cost × 3`
 - If passed → `MIGRATE` with exact destination, action steps, and break-even timeline
 - If failed → `STAY` with reason and estimated wait time until conditions improve
@@ -42,22 +42,22 @@ Applies a hard rule in code: `7-day extra yield > gas cost × 3`
 
 An agent optimizing yield across Stacks DeFi faces two hidden costs that existing skills ignore:
 
-1. **Gas cost** — withdrawing from Zest and depositing into HODLMM costs 2 contract calls. At current network rates that's ~0.005-0.012 STX per call. Small but non-zero.
-2. **Churn risk** — migrating for a 0.5% APY improvement that takes 6 months to break even is not optimization, it's churn. This skill prevents it.
+1. **Gas cost**: withdrawing from Zest and depositing into HODLMM costs 2 contract calls. At current network rates that's ~0.005-0.012 STX per call. Small but non-zero.
+2. **Churn risk**: migrating for a 0.5% APY improvement that takes 6 months to break even is not optimization, it's churn. This skill prevents it.
 
-Especially critical in **emerging markets** (sub-Saharan Africa, Southeast Asia) where agents may manage smaller positions — even a $0.50 gas cost matters when the position is $50.
+Especially critical in **emerging markets** (sub-Saharan Africa, Southeast Asia) where agents may manage smaller positions: even a $0.50 gas cost matters when the position is $50.
 
 ## Safety notes
 
 - **Read-only.** No transactions submitted. No wallet required.
-- **No funds moved.** Analysis only — output includes exact MCP commands for agent to execute after review.
+- **No funds moved.** Analysis only: output includes exact MCP commands for agent to execute after review.
 - **Mainnet only.** All endpoints target Stacks mainnet.
-- **Profit gate is enforced in code** — not just documented:
-  - `PROFIT_GATE_MULTIPLIER = 3` — 7d gain must exceed 3× gas cost
-  - `MIN_APY_IMPROVEMENT_PCT = 1.0` — never recommend migration for <1% APY gain
-  - `MIN_POSITION_USD = 50` — warns if position too small to benefit from any migration
-  - `MIN_DEST_TVL_USD = 100_000` — destination pool must have >$100k TVL
-  - `MAX_SLIPPAGE_PCT = 0.5` — destination pool flagged if spread >0.5%
+- **Profit gate is enforced in code**, not just documented:
+  - `PROFIT_GATE_MULTIPLIER = 3`: 7d gain must exceed 3× gas cost
+  - `MIN_APY_IMPROVEMENT_PCT = 1.0`, never recommend migration for <1% APY gain
+  - `MIN_POSITION_USD = 50`: warns if position too small to benefit from any migration
+  - `MIN_DEST_TVL_USD = 100_000`: destination pool must have >$100k TVL
+  - `MAX_SLIPPAGE_PCT = 0.5`: destination pool flagged if spread >0.5%
 - Exit codes: `0` = ok, `1` = degraded (some sources unavailable), `3` = error
 
 ## Commands
@@ -72,7 +72,7 @@ bun run smart-yield-migrator/smart-yield-migrator.ts doctor
 
 ### install-packs
 
-No additional packages required — self-contained using native `fetch`.
+No additional packages required: self-contained using native `fetch`.
 
 ```bash
 bun run smart-yield-migrator/smart-yield-migrator.ts install-packs
@@ -132,10 +132,10 @@ All outputs are strict JSON to stdout.
     "verdict": "MIGRATE"
   },
   "checklist": {
-    "yield_improvement": "PASS — HODLMM pays 7.4% more than Zest",
-    "profit_gate": "PASS — 7d gain ($98.27) > gas × 3 ($0.009)",
-    "destination_tvl": "PASS — pool TVL $1.39M > $100k minimum",
-    "position_size": "PASS — position ($69,000) above $50 minimum"
+    "yield_improvement": "PASS, HODLMM pays 7.4% more than Zest",
+    "profit_gate": "PASS, 7d gain ($98.27) > gas × 3 ($0.009)",
+    "destination_tvl": "PASS, pool TVL $1.39M > $100k minimum",
+    "position_size": "PASS, position ($69,000) above $50 minimum"
   },
   "action": "Withdraw 1.0 sBTC from Zest. Deposit into Bitflow HODLMM dlmm_6 (STX/sBTC). Gas: ~0.012 STX ($0.003). Break-even: 31 minutes.",
   "sources_used": ["alex-prices", "bitflow-hodlmm", "bitflow-xyk", "alex", "pox", "hiro-fees"],

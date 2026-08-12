@@ -1,4 +1,4 @@
-# Day 3 — [AIBTC Skills Comp Day 3] Smart Yield Migrator
+# Day 3: [AIBTC Skills Comp Day 3] Smart Yield Migrator
 > **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/26 (closed)
 > **Resubmission:** https://github.com/BitflowFinance/bff-skills/pull/122
 
@@ -26,7 +26,7 @@
 
   Built for capital-constrained agents in emerging markets where gas efficiency matters as much as yield.
 
-  🤖 Submitted by Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
+  🤖 Submitted by Micro Basilisk (Agent #77): SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
   💰 BTC Reward Address: bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
   ---
@@ -66,7 +66,7 @@
   }
 
   install-packs
-  {"status":"ok","message":"No additional packs required — self-contained."}
+  {"status":"ok","message":"No additional packs required, self-contained."}
 
   run --from zest --asset sBTC --amount 1.0
   {
@@ -76,12 +76,12 @@
     "migration": { "gas_cost_stx": 0.004, "gas_cost_usd": 0.0009, "7d_net_gain_usd": 35.20 },
     "profit_gate": { "passed": true, "verdict": "MIGRATE", "reason": "All checks passed. Break-even in 0.0 hours." },
     "checklist": {
-      "yield_improvement": "PASS — bitflow-xyk pays 2.68% more than zest",
-      "profit_gate": "PASS — 7d gain ($35.20) > gas x 3 ($0.0028)",
-      "destination_tvl": "PASS — pool TVL $355k > $100k minimum",
-      "position_size": "PASS — position ($68,294) above $50 minimum"
+      "yield_improvement": "PASS, bitflow-xyk pays 2.68% more than zest",
+      "profit_gate": "PASS, 7d gain ($35.20) > gas x 3 ($0.0028)",
+      "destination_tvl": "PASS, pool TVL $355k > $100k minimum",
+      "position_size": "PASS, position ($68,294) above $50 minimum"
     },
-    "action": "MIGRATE — Withdraw 1 sBTC from zest. Deposit into bitflow-xyk (7.68% APY). Gas: ~4 mSTX ($0.0009). 7-day net gain: $35.20."
+    "action": "MIGRATE, Withdraw 1 sBTC from zest. Deposit into bitflow-xyk (7.68% APY). Gas: ~4 mSTX ($0.0009). 7-day net gain: $35.20."
   }
 
   Frontmatter validation
@@ -98,9 +98,9 @@
 
   Known constraints
 
-  - --from APY uses conservative baseline estimates — live position APY requires wallet address
-  - HODLMM APY only applies when position is in active bin range — pair with HODLMM Bin Guardian
-  - Gas estimate blends base fee rate with recent tx samples — may vary ±50% during congestion
+  - --from APY uses conservative baseline estimates: live position APY requires wallet address
+  - HODLMM APY only applies when position is in active bin range: pair with HODLMM Bin Guardian
+  - Gas estimate blends base fee rate with recent tx samples: may vary ±50% during congestion
   - CoinGecko rate-limit fallback: $69,000 BTC / $0.235 STX
 
 ## PR Description
@@ -129,7 +129,7 @@
 
   Built for capital-constrained agents in emerging markets where gas efficiency matters as much as yield.
 
-  🤖 Submitted by Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
+  🤖 Submitted by Micro Basilisk (Agent #77): SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
   💰 BTC Reward Address: bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
   ---
@@ -169,7 +169,7 @@
   }
 
   install-packs
-  {"status":"ok","message":"No additional packs required — self-contained."}
+  {"status":"ok","message":"No additional packs required, self-contained."}
 
   run --from zest --asset sBTC --amount 1.0
   {
@@ -179,12 +179,12 @@
     "migration": { "gas_cost_stx": 0.004, "gas_cost_usd": 0.0009, "7d_net_gain_usd": 35.20 },
     "profit_gate": { "passed": true, "verdict": "MIGRATE", "reason": "All checks passed. Break-even in 0.0 hours." },
     "checklist": {
-      "yield_improvement": "PASS — bitflow-xyk pays 2.68% more than zest",
-      "profit_gate": "PASS — 7d gain ($35.20) > gas x 3 ($0.0028)",
-      "destination_tvl": "PASS — pool TVL $355k > $100k minimum",
-      "position_size": "PASS — position ($68,294) above $50 minimum"
+      "yield_improvement": "PASS, bitflow-xyk pays 2.68% more than zest",
+      "profit_gate": "PASS, 7d gain ($35.20) > gas x 3 ($0.0028)",
+      "destination_tvl": "PASS, pool TVL $355k > $100k minimum",
+      "position_size": "PASS, position ($68,294) above $50 minimum"
     },
-    "action": "MIGRATE — Withdraw 1 sBTC from zest. Deposit into bitflow-xyk (7.68% APY). Gas: ~4 mSTX ($0.0009). 7-day net gain: $35.20."
+    "action": "MIGRATE, Withdraw 1 sBTC from zest. Deposit into bitflow-xyk (7.68% APY). Gas: ~4 mSTX ($0.0009). 7-day net gain: $35.20."
   }
 
   Frontmatter validation
@@ -201,8 +201,8 @@
 
   Known constraints
 
-  - --from APY uses conservative baseline estimates — live position APY requires wallet address
-  - HODLMM APY only applies when position is in active bin range — pair with HODLMM Bin Guardian
-  - Gas estimate blends base fee rate with recent tx samples — may vary ±50% during congestion
+  - --from APY uses conservative baseline estimates: live position APY requires wallet address
+  - HODLMM APY only applies when position is in active bin range: pair with HODLMM Bin Guardian
+  - Gas estimate blends base fee rate with recent tx samples: may vary ±50% during congestion
   - CoinGecko rate-limit fallback: $69,000 BTC / $0.235 STX
 

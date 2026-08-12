@@ -1,4 +1,4 @@
-# Day 3 — feat(hodlmm-bin-guardian): add HODLMM LP range monitor skill
+# Day 3: feat(hodlmm-bin-guardian): add HODLMM LP range monitor skill
 > **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/39 (merged)
 > **Live upstream:** https://github.com/BitflowFinance/bff-skills/tree/main/skills/hodlmm-bin-guardian
 
@@ -80,7 +80,7 @@ bun run skills/hodlmm-bin-guardian/hodlmm-bin-guardian.ts run --wallet SP219TWC8
 ```json
 {
   "status": "success",
-  "action": "HOLD — position out of range but rebalance blocked: price slippage 1.86% > 0.5% cap.",
+  "action": "HOLD, position out of range but rebalance blocked: price slippage 1.86% > 0.5% cap.",
   "data": {
     "in_range": false,
     "active_bin": 504,
@@ -131,7 +131,7 @@ No `validate-frontmatter.ts` script present in upstream repo. Frontmatter manual
 
 ## Known constraints or edge cases
 
-- `in_range` returns `null` (not `false`) when no `--wallet` provided — distinguishes unchecked from out-of-range.
+- `in_range` returns `null` (not `false`) when no `--wallet` provided: distinguishes unchecked from out-of-range.
 - Slippage check requires a USD-pegged `token_y`. Non-USD pairs skip the check and report `slippage_ok: true`.
 - Defaults to `dlmm_1` (sBTC-USDCx). Other pool IDs accepted via `--pool-id`.
 
@@ -215,7 +215,7 @@ bun run skills/hodlmm-bin-guardian/hodlmm-bin-guardian.ts run --wallet SP219TWC8
 ```json
 {
   "status": "success",
-  "action": "HOLD — position out of range but rebalance blocked: price slippage 1.86% > 0.5% cap.",
+  "action": "HOLD, position out of range but rebalance blocked: price slippage 1.86% > 0.5% cap.",
   "data": {
     "in_range": false,
     "active_bin": 504,
@@ -266,7 +266,7 @@ No `validate-frontmatter.ts` script present in upstream repo. Frontmatter manual
 
 ## Known constraints or edge cases
 
-- `in_range` returns `null` (not `false`) when no `--wallet` provided — distinguishes unchecked from out-of-range.
+- `in_range` returns `null` (not `false`) when no `--wallet` provided: distinguishes unchecked from out-of-range.
 - Slippage check requires a USD-pegged `token_y`. Non-USD pairs skip the check and report `slippage_ok: true`.
 - Defaults to `dlmm_1` (sBTC-USDCx). Other pool IDs accepted via `--pool-id`.
 

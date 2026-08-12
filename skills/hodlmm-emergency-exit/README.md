@@ -1,12 +1,12 @@
-# Day 5 — [AIBTC Skills Comp Day 5] HODLMM Emergency Exit — autonomous capital protection
-> **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/100 (closed — archived here)
+# Day 5: [AIBTC Skills Comp Day 5] HODLMM Emergency Exit, autonomous capital protection
+> **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/100 (closed, archived here)
 
 ## Skill Name
 
 hodlmm-emergency-exit
 
 **Author:** cliqueengagements
-**Author Agent:** Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
+**Author Agent:** Micro Basilisk (Agent #77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
 ## Category
 
@@ -21,21 +21,21 @@ Autonomous capital protection for HODLMM LP positions. Composes `sbtc-proof-of-r
 
 ## On-chain proof
 
-Write-capable skill — generates MCP withdrawal commands. Dry-run output below (no position found, so no withdrawal triggered). The `sbtc-proof-of-reserve` import returns live mainnet data (signer address verified, reserve ratio computed from on-chain BTC balance).
+Write-capable skill: generates MCP withdrawal commands. Dry-run output below (no position found, so no withdrawal triggered). The `sbtc-proof-of-reserve` import returns live mainnet data (signer address verified, reserve ratio computed from on-chain BTC balance).
 
 ## Does this integrate HODLMM?
 
-- [x] Yes — eligible for the HODLMM bonus
+- [x] Yes: eligible for the HODLMM bonus
 
 Directly reads HODLMM pool bin state via `bff.bitflowapis.finance/api/app/v1/pools`, user position bins via `/api/app/v1/users/{addr}/positions/{pool}/bins`, and active bin via `/api/quotes/v1/bins/{poolId}`. Outputs `bitflow_hodlmm_remove_liquidity` MCP commands for emergency withdrawal.
 
-## The Trilogy — Three Skills, One Pipeline
+## The Trilogy: Three Skills, One Pipeline
 
 | Skill | Role | Status |
 |-------|------|--------|
-| `hodlmm-bin-guardian` | **Detect** — are bins in range? | Day 3 winner (bff-skills PR #39, merged; registry PR [aibtcdev/skills#265](https://github.com/aibtcdev/skills/pull/265)) |
-| `sbtc-proof-of-reserve` | **Assess** — is sBTC fully backed? | PR #97 (Arc approved) |
-| `hodlmm-emergency-exit` | **Act** — remove liquidity when unsafe | This PR |
+| `hodlmm-bin-guardian` | **Detect**: are bins in range? | Day 3 winner (bff-skills PR #39, merged; registry PR [aibtcdev/skills#265](https://github.com/aibtcdev/skills/pull/265)) |
+| `sbtc-proof-of-reserve` | **Assess**: is sBTC fully backed? | PR #97 (Arc approved) |
+| `hodlmm-emergency-exit` | **Act**: remove liquidity when unsafe | This PR |
 
 No other competitor can compose merged skills into this pipeline.
 
@@ -48,7 +48,7 @@ This skill completes the Micro Basilisk "Defense-in-Depth" strategy. It is the a
 When an EXIT decision is triggered, the skill outputs explicit, human-readable and machine-readable status codes:
 
 ```
-[CRITICAL] HODLMM Exit Triggered: Reserve signal RED — sBTC peg unsafe (reserve_ratio: 0.993, score: 0)
+[CRITICAL] HODLMM Exit Triggered: Reserve signal RED, sBTC peg unsafe (reserve_ratio: 0.993, score: 0)
 [CRITICAL] HODLMM Exit Triggered: Bins out of range for 2.5h (>2h grace). Active bin: 518, your bins: [500, 504, 508]
 ```
 
@@ -106,7 +106,7 @@ bun run hodlmm-emergency-exit/hodlmm-emergency-exit.ts run --wallet SP219TWC8G12
 {
   "status": "success",
   "decision": "HOLD",
-  "action": "HOLD — No HODLMM position found.",
+  "action": "HOLD, No HODLMM position found.",
   "data": {
     "reserve_audit": {
       "status": "ok",
@@ -128,7 +128,7 @@ bun run hodlmm-emergency-exit/hodlmm-emergency-exit.ts run --wallet SP219TWC8G12
         "sbtc_price_usd": 66784.06,
         "peg_source": "sbtc/pbtc-pool"
       },
-      "recommendation": "Reserve health degraded — minor peg deviation 0.76%. Monitor closely.",
+      "recommendation": "Reserve health degraded, minor peg deviation 0.76%. Monitor closely.",
       "alert": false
     },
     "position_check": {
@@ -169,20 +169,20 @@ Frontmatter manually verified against registry spec:
 
 ## Security notes
 
-- **Write-capable** — generates `bitflow_hodlmm_remove_liquidity` MCP commands. Can only withdraw, never deposit or swap.
-- **--confirm required** — without this flag, dry-run only (evaluates but outputs no executable commands).
+- **Write-capable**: generates `bitflow_hodlmm_remove_liquidity` MCP commands. Can only withdraw, never deposit or swap.
+- **--confirm required**, without this flag, dry-run only (evaluates but outputs no executable commands).
 - **30-minute cooldown** between exits prevents rapid-fire withdrawals from transient conditions.
-- **50 STX gas cap** — refuses to execute if gas exceeds this limit.
-- **Error = EXIT** — if reserve oracle or HODLMM API fails, defaults to EXIT. Never returns a false HOLD.
-- State persisted in `~/.hodlmm-emergency-exit-state.json` — tracks exit history and out-of-range duration.
+- **50 STX gas cap**: refuses to execute if gas exceeds this limit.
+- **Error = EXIT**: if reserve oracle or HODLMM API fails, defaults to EXIT. Never returns a false HOLD.
+- State persisted in `~/.hodlmm-emergency-exit-state.json`: tracks exit history and out-of-range duration.
 
 ## Known constraints or edge cases
 
-- Single pool per invocation — use `--pool-id` to specify. Defaults to `dlmm_1` (sBTC-USDCx).
-- `in_range` returns `null` when no position found — distinguishes unchecked from out-of-range.
+- Single pool per invocation: use `--pool-id` to specify. Defaults to `dlmm_1` (sBTC-USDCx).
+- `in_range` returns `null` when no position found: distinguishes unchecked from out-of-range.
 - Out-of-range grace period is 2 hours. Bins that drift back into range before 2h reset the timer.
 - CoinGecko rate limit (via sbtc-proof-of-reserve import): handled with 1s retry on 429.
-- MCP commands are output as JSON — the skill does NOT call Bitflow contracts directly. An orchestrator or human must execute the commands.
+- MCP commands are output as JSON: the skill does NOT call Bitflow contracts directly. An orchestrator or human must execute the commands.
 - Requires `sbtc-proof-of-reserve` co-located at `../sbtc-proof-of-reserve/` for the `runAudit()` import.
 
 ## PR Description
@@ -192,7 +192,7 @@ Frontmatter manually verified against registry spec:
 hodlmm-emergency-exit
 
 **Author:** cliqueengagements
-**Author Agent:** Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
+**Author Agent:** Micro Basilisk (Agent #77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
 ## Category
 
@@ -207,21 +207,21 @@ Autonomous capital protection for HODLMM LP positions. Composes `sbtc-proof-of-r
 
 ## On-chain proof
 
-Write-capable skill — generates MCP withdrawal commands. Dry-run output below (no position found, so no withdrawal triggered). The `sbtc-proof-of-reserve` import returns live mainnet data (signer address verified, reserve ratio computed from on-chain BTC balance).
+Write-capable skill: generates MCP withdrawal commands. Dry-run output below (no position found, so no withdrawal triggered). The `sbtc-proof-of-reserve` import returns live mainnet data (signer address verified, reserve ratio computed from on-chain BTC balance).
 
 ## Does this integrate HODLMM?
 
-- [x] Yes — eligible for the HODLMM bonus
+- [x] Yes: eligible for the HODLMM bonus
 
 Directly reads HODLMM pool bin state via `bff.bitflowapis.finance/api/app/v1/pools`, user position bins via `/api/app/v1/users/{addr}/positions/{pool}/bins`, and active bin via `/api/quotes/v1/bins/{poolId}`. Outputs `bitflow_hodlmm_remove_liquidity` MCP commands for emergency withdrawal.
 
-## The Trilogy — Three Skills, One Pipeline
+## The Trilogy: Three Skills, One Pipeline
 
 | Skill | Role | Status |
 |-------|------|--------|
-| `hodlmm-bin-guardian` | **Detect** — are bins in range? | Day 3 winner (bff-skills PR #39, merged; registry PR [aibtcdev/skills#265](https://github.com/aibtcdev/skills/pull/265)) |
-| `sbtc-proof-of-reserve` | **Assess** — is sBTC fully backed? | PR #97 (Arc approved) |
-| `hodlmm-emergency-exit` | **Act** — remove liquidity when unsafe | This PR |
+| `hodlmm-bin-guardian` | **Detect**: are bins in range? | Day 3 winner (bff-skills PR #39, merged; registry PR [aibtcdev/skills#265](https://github.com/aibtcdev/skills/pull/265)) |
+| `sbtc-proof-of-reserve` | **Assess**: is sBTC fully backed? | PR #97 (Arc approved) |
+| `hodlmm-emergency-exit` | **Act**: remove liquidity when unsafe | This PR |
 
 No other competitor can compose merged skills into this pipeline.
 
@@ -234,7 +234,7 @@ This skill completes the Micro Basilisk "Defense-in-Depth" strategy. It is the a
 When an EXIT decision is triggered, the skill outputs explicit, human-readable and machine-readable status codes:
 
 ```
-[CRITICAL] HODLMM Exit Triggered: Reserve signal RED — sBTC peg unsafe (reserve_ratio: 0.993, score: 0)
+[CRITICAL] HODLMM Exit Triggered: Reserve signal RED, sBTC peg unsafe (reserve_ratio: 0.993, score: 0)
 [CRITICAL] HODLMM Exit Triggered: Bins out of range for 2.5h (>2h grace). Active bin: 518, your bins: [500, 504, 508]
 ```
 
@@ -292,7 +292,7 @@ bun run hodlmm-emergency-exit/hodlmm-emergency-exit.ts run --wallet SP219TWC8G12
 {
   "status": "success",
   "decision": "HOLD",
-  "action": "HOLD — No HODLMM position found.",
+  "action": "HOLD, No HODLMM position found.",
   "data": {
     "reserve_audit": {
       "status": "ok",
@@ -314,7 +314,7 @@ bun run hodlmm-emergency-exit/hodlmm-emergency-exit.ts run --wallet SP219TWC8G12
         "sbtc_price_usd": 66784.06,
         "peg_source": "sbtc/pbtc-pool"
       },
-      "recommendation": "Reserve health degraded — minor peg deviation 0.76%. Monitor closely.",
+      "recommendation": "Reserve health degraded, minor peg deviation 0.76%. Monitor closely.",
       "alert": false
     },
     "position_check": {
@@ -355,20 +355,20 @@ Frontmatter manually verified against registry spec:
 
 ## Security notes
 
-- **Write-capable** — generates `bitflow_hodlmm_remove_liquidity` MCP commands. Can only withdraw, never deposit or swap.
-- **--confirm required** — without this flag, dry-run only (evaluates but outputs no executable commands).
+- **Write-capable**: generates `bitflow_hodlmm_remove_liquidity` MCP commands. Can only withdraw, never deposit or swap.
+- **--confirm required**, without this flag, dry-run only (evaluates but outputs no executable commands).
 - **30-minute cooldown** between exits prevents rapid-fire withdrawals from transient conditions.
-- **50 STX gas cap** — refuses to execute if gas exceeds this limit.
-- **Error = EXIT** — if reserve oracle or HODLMM API fails, defaults to EXIT. Never returns a false HOLD.
-- State persisted in `~/.hodlmm-emergency-exit-state.json` — tracks exit history and out-of-range duration.
+- **50 STX gas cap**: refuses to execute if gas exceeds this limit.
+- **Error = EXIT**: if reserve oracle or HODLMM API fails, defaults to EXIT. Never returns a false HOLD.
+- State persisted in `~/.hodlmm-emergency-exit-state.json`: tracks exit history and out-of-range duration.
 
 ## Known constraints or edge cases
 
-- Single pool per invocation — use `--pool-id` to specify. Defaults to `dlmm_1` (sBTC-USDCx).
-- `in_range` returns `null` when no position found — distinguishes unchecked from out-of-range.
+- Single pool per invocation: use `--pool-id` to specify. Defaults to `dlmm_1` (sBTC-USDCx).
+- `in_range` returns `null` when no position found: distinguishes unchecked from out-of-range.
 - Out-of-range grace period is 2 hours. Bins that drift back into range before 2h reset the timer.
 - CoinGecko rate limit (via sbtc-proof-of-reserve import): handled with 1s retry on 429.
-- MCP commands are output as JSON — the skill does NOT call Bitflow contracts directly. An orchestrator or human must execute the commands.
+- MCP commands are output as JSON: the skill does NOT call Bitflow contracts directly. An orchestrator or human must execute the commands.
 - Requires `sbtc-proof-of-reserve` co-located at `../sbtc-proof-of-reserve/` for the `runAudit()` import.
 
 

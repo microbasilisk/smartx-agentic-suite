@@ -166,7 +166,7 @@ function weeklyEarnUsd(amount: number, assetPriceUsd: number, apyPct: number): n
   return (amount * assetPriceUsd * apyPct) / 100 / 52;
 }
 
-// ── Price fetching (from ALEX tickers — no external oracle needed) ────────────
+// ── Price fetching (from ALEX tickers, no external oracle needed) ────────────
 async function fetchPricesFromAlex(): Promise<Record<string, number>> {
   const tickers = await fetchJson<AlexTicker[]>(ALEX_TICKERS);
   let btc = 0;
@@ -246,7 +246,7 @@ async function fetchHodlmmVenues(priceMap: Record<string, number>): Promise<Yiel
     let tvlUsd = ticker ? parseFloat(ticker.liquidity_in_usd ?? "0") || 0 : 0;
     let volume24hUsd = 0;
 
-    // Special case: dlmm_6 is STX/sBTC — use XYK ticker as TVL proxy
+    // Special case: dlmm_6 is STX/sBTC, use XYK ticker as TVL proxy
     if (tvlUsd < MIN_DEST_TVL_USD && pool.pool_id === "dlmm_6") {
       const xykTicker = tickers.find((t) =>
         (t.base_currency ?? "").toLowerCase().includes("sbtc") && t.target_currency === "Stacks"
@@ -416,7 +416,7 @@ async function runDoctor(): Promise<void> {
   console.log(JSON.stringify({
     status: allOk ? "ok" : "degraded",
     checks,
-    message: allOk ? "All sources reachable. Ready to run." : "Some sources unavailable — gas estimate or APY data may be incomplete.",
+    message: allOk ? "All sources reachable. Ready to run." : "Some sources unavailable, gas estimate or APY data may be incomplete.",
   }, null, 2));
   if (!allOk) process.exit(1);
 }
@@ -442,7 +442,7 @@ async function runMigration(opts: {
   };
 
   try {
-    // ── Step 0: Prices (from ALEX tickers — no external oracle) ────────────────
+    // ── Step 0: Prices (from ALEX tickers, no external oracle) ────────────────
     let priceMap: Record<string, number> = { btc: 100_000, stx: 0.40 };
     try {
       priceMap = await fetchPricesFromAlex();
@@ -487,7 +487,7 @@ async function runMigration(opts: {
     else result.sources_failed.push("pox");
 
     if (result.sources_failed.length > 0) result.status = "degraded";
-    if (allVenues.length === 0) throw new Error("All protocol sources failed — cannot compare yields.");
+    if (allVenues.length === 0) throw new Error("All protocol sources failed: cannot compare yields.");
 
     // ── Step 3: Estimate gas cost ──────────────────────────────────────────────
     let gasCostStx = (FALLBACK_FEE_UESTX * GAS_CALLS_PER_MIGRATION) / 1_000_000;
@@ -545,20 +545,20 @@ async function runMigration(opts: {
     const tvlOk          = best.tvl_usd >= MIN_DEST_TVL_USD;
     const positionOk     = positionValueUsd >= MIN_POSITION_USD;
     const gatePrint      = gatePassed
-      ? `PASS — 7d gain ($${extra7dUsd.toFixed(2)}) > gas × ${PROFIT_GATE_MULTIPLIER} ($${threshold.toFixed(4)})`
-      : `FAIL — 7d gain ($${extra7dUsd.toFixed(2)}) < gas × ${PROFIT_GATE_MULTIPLIER} ($${threshold.toFixed(4)})`;
+      ? `PASS: 7d gain ($${extra7dUsd.toFixed(2)}) > gas × ${PROFIT_GATE_MULTIPLIER} ($${threshold.toFixed(4)})`
+      : `FAIL, 7d gain ($${extra7dUsd.toFixed(2)}) < gas × ${PROFIT_GATE_MULTIPLIER} ($${threshold.toFixed(4)})`;
 
     result.checklist = {
       yield_improvement: improvementOk
-        ? `PASS — ${best.protocol} pays ${apyImprovement.toFixed(2)}% more than ${opts.from}`
-        : `FAIL — improvement (${apyImprovement.toFixed(2)}%) below ${MIN_APY_IMPROVEMENT_PCT}% minimum`,
+        ? `PASS: ${best.protocol} pays ${apyImprovement.toFixed(2)}% more than ${opts.from}`
+        : `FAIL, improvement (${apyImprovement.toFixed(2)}%) below ${MIN_APY_IMPROVEMENT_PCT}% minimum`,
       profit_gate:    gatePrint,
       destination_tvl: tvlOk
-        ? `PASS — ${best.pool} TVL $${(best.tvl_usd / 1000).toFixed(0)}k > $${MIN_DEST_TVL_USD / 1000}k minimum`
-        : `FAIL — pool TVL $${(best.tvl_usd / 1000).toFixed(0)}k below $${MIN_DEST_TVL_USD / 1000}k minimum`,
+        ? `PASS: ${best.pool} TVL $${(best.tvl_usd / 1000).toFixed(0)}k > $${MIN_DEST_TVL_USD / 1000}k minimum`
+        : `FAIL, pool TVL $${(best.tvl_usd / 1000).toFixed(0)}k below $${MIN_DEST_TVL_USD / 1000}k minimum`,
       position_size: positionOk
-        ? `PASS — position ($${positionValueUsd.toFixed(2)}) above $${MIN_POSITION_USD} minimum`
-        : `WARN — position ($${positionValueUsd.toFixed(2)}) is small; gas proportionally higher`,
+        ? `PASS: position ($${positionValueUsd.toFixed(2)}) above $${MIN_POSITION_USD} minimum`
+        : `WARN, position ($${positionValueUsd.toFixed(2)}) is small; gas proportionally higher`,
     };
 
     // ── Step 7: Verdict ────────────────────────────────────────────────────────
@@ -589,13 +589,13 @@ async function runMigration(opts: {
 
     // ── Step 8: Action string ──────────────────────────────────────────────────
     if (result.verdict === "MIGRATE") {
-      result.action = `MIGRATE — Withdraw ${opts.amount} ${opts.asset} from ${opts.from}. ` +
+      result.action = `MIGRATE: Withdraw ${opts.amount} ${opts.asset} from ${opts.from}. ` +
         `Deposit into ${best.protocol} ${best.pool} (${best.apy_pct}% APY). ` +
         `Gas: ~${(gasCostStx * 1000).toFixed(3)} mSTX ($${gasCostUsd.toFixed(4)}). ` +
         `Break-even: ${breakEvenHours < 1 ? `${Math.round(breakEvenHours * 60)} min` : `${breakEvenHours.toFixed(1)} hrs`}. ` +
         `7-day net gain: $${netGain7dUsd.toFixed(2)}.`;
     } else {
-      result.action = `STAY — Keep ${opts.amount} ${opts.asset} in ${opts.from}. Reason: ${reason}`;
+      result.action = `STAY: Keep ${opts.amount} ${opts.asset} in ${opts.from}. Reason: ${reason}`;
     }
 
     console.log(JSON.stringify(result, null, 2));
@@ -617,7 +617,7 @@ const program = new Command();
 
 program
   .name("smart-yield-migrator")
-  .description("Cross-protocol DeFi migration optimizer for Stacks — scans HODLMM, Zest, ALEX, PoX")
+  .description("Cross-protocol DeFi migration optimizer for Stacks: scans HODLMM, Zest, ALEX, PoX")
   .version("1.0.0");
 
 program
@@ -629,9 +629,9 @@ program
 
 program
   .command("install-packs")
-  .description("No additional packs required — self-contained")
+  .description("No additional packs required: self-contained")
   .action(() => {
-    console.log(JSON.stringify({ status: "ok", message: "No additional packs required — self-contained." }));
+    console.log(JSON.stringify({ status: "ok", message: "No additional packs required, self-contained." }));
   });
 
 program

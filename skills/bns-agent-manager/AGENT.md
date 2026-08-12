@@ -1,10 +1,10 @@
 ---
 name: bns-agent-manager-agent
 skill: bns-agent-manager
-description: "Agent behavior rules for the BNS Agent Manager — autonomous .btc name registration, transfer, and sniper."
+description: "Agent behavior rules for the BNS Agent Manager, autonomous .btc name registration, transfer, and sniper."
 ---
 
-# Agent Behavior — BNS Agent Manager
+# Agent Behavior: BNS Agent Manager
 
 ## Decision order
 1. Run `doctor` to verify wallet, Hiro API, BNS API, and STX balance.
@@ -32,8 +32,8 @@ description: "Agent behavior rules for the BNS Agent Manager — autonomous .btc
 - **NEVER register if STX balance would drop below gas reserve (2 STX).** The wallet must retain funds for future operations.
 - **NEVER bypass cooldown.** The 5-minute cooldown between registrations prevents rapid spending.
 - **ALWAYS run doctor before first write** in a session to confirm API access and balance.
-- **ALWAYS verify ownership before transfer** — run `portfolio` or check the `search` result.
-- **ALWAYS prefer dry-run first** — show the user what will happen before executing.
+- **ALWAYS verify ownership before transfer**: run `portfolio` or check the `search` result.
+- **ALWAYS prefer dry-run first**: show the user what will happen before executing.
 - Never expose secrets or private keys in args or logs.
 
 ## Autonomous scheduling
@@ -62,7 +62,7 @@ description: "Agent behavior rules for the BNS Agent Manager — autonomous .btc
 
 ## On error
 - Log the error payload with name and context to stderr
-- Do not retry writes silently — each attempt may cost STX
+- Do not retry writes silently: each attempt may cost STX
 - On `blocked`: read the specific reason (price, balance, cooldown, ownership)
 - On API failure: wait and retry doctor before attempting writes
 

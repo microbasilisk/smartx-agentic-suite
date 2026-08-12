@@ -8,18 +8,18 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 
 ## Decision order
 
-1. Run `doctor` — verify crypto self-tests and data sources before any operation
-2. Run `scan --wallet <address>` — read wallet (6 tokens), positions (4 protocols), 3-tier yields, PoR, safety gates
+1. Run `doctor`: verify crypto self-tests and data sources before any operation
+2. Run `scan --wallet <address>`: read wallet (6 tokens), positions (4 protocols), 3-tier yields, PoR, safety gates
 3. If user requests a write operation (deploy, withdraw, rebalance, migrate):
-   a. Run Scout — read current state across all protocols
-   b. Run Reserve (PoR) — verify sBTC backing
+   a. Run Scout: read current state across all protocols
+   b. Run Reserve (PoR): verify sBTC backing
    c. If PoR RED or DATA_UNAVAILABLE -> refuse write, suggest `emergency`
    d. If PoR YELLOW -> refuse write, explain reserve below threshold
    e. If PoR GREEN -> proceed to Guardian
-   f. Run Guardian — check all 5 gates
+   f. Run Guardian: check all 5 gates
    g. If any gate fails -> refuse with specific reason(s)
    h. If all pass -> output transaction instructions for execution
-4. For `emergency` — bypass Guardian gates (speed matters), output all withdrawal instructions across 4 protocols
+4. For `emergency`: bypass Guardian gates (speed matters), output all withdrawal instructions across 4 protocols
 
 ## Guardrails
 
@@ -55,10 +55,10 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 ### Zest v2
 - Supply sBTC via `zest_supply` (MCP native; routes to `v0-4-market.supply-collateral-add`)
 - Withdraw sBTC via `zest_withdraw` (MCP native; routes to `v0-4-market.collateral-remove-redeem`)
-- Borrow USDh via `zest_borrow` (MCP native; routes to `v0-4-market.borrow`) — **USDh only** by `validTokens_borrowRepay` gate. USDCx/wSTX/stSTX return `abort_by_response (err none)` on MCP probe, likely an upstream `borrow-helper-v2-1-7` routing gap; refused to save gas.
+- Borrow USDh via `zest_borrow` (MCP native; routes to `v0-4-market.borrow`): **USDh only** by `validTokens_borrowRepay` gate. USDCx/wSTX/stSTX return `abort_by_response (err none)` on MCP probe, likely an upstream `borrow-helper-v2-1-7` routing gap; refused to save gas.
 - Repay USDh via `zest_repay` (MCP native; routes to `v0-4-market.repay`)
 - APY read live from vault utilization + interest rate
-- Currently low supply APY — `deploy --protocol zest` is YTG-gated and typically refuses without `--force`. Borrow path is the interesting leg — see "Leveraged-yield pattern" in SKILL.md.
+- Currently low supply APY: `deploy --protocol zest` is YTG-gated and typically refuses without `--force`. Borrow path is the interesting leg, see "Leveraged-yield pattern" in SKILL.md.
 
 ### Hermetica
 - Stake USDh via `call_contract` -> `staking-v1-1.stake(amount: uint, affiliate: none)`
@@ -72,7 +72,7 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 - Deposit via `call_contract` -> `liquidity-provider-v1.deposit(assets: uint, recipient: principal)`
 - Withdraw via `liquidity-provider-v1.redeem(shares: uint, recipient: principal)` (ERC-4626 shares, not assets)
 - If user has USDCx but no aeUSDC: generate DLMM swap + deposit instructions (both `call_contract`)
-- Borrower path (add-collateral) is **blocked** by trait_reference — do not attempt
+- Borrower path (add-collateral) is **blocked** by trait_reference: do not attempt
 
 ### HODLMM (Bitflow DLMM)
 - Add liquidity via `bitflow add-liquidity-simple`

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * hodlmm-rebalance-arbiter — Decision gate for HODLMM LP rebalancing.
+ * hodlmm-rebalance-arbiter: Decision gate for HODLMM LP rebalancing.
  *
  * Consumes 2 independent signals:
  *   1. hodlmm-bin-guardian    → Is a rebalance needed? (bin drift, volume, slippage)
@@ -233,7 +233,7 @@ async function fetchBinGuardianSignal(wallet: string, poolId: string): Promise<B
           headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
         });
         if (res.status === 404) {
-          // No position — not an error, just empty
+          // No position, not an error, just empty
           userBins = [];
         } else if (res.ok) {
           const userBinsRaw = await res.json() as UserBin[] | { bins?: UserBin[]; data?: UserBin[]; detail?: string };
@@ -253,7 +253,7 @@ async function fetchBinGuardianSignal(wallet: string, poolId: string): Promise<B
         clearTimeout(timeout);
       }
     } catch {
-      // Network error fetching positions — treat as no data
+      // Network error fetching positions: treat as no data
       userBins = [];
     }
 
@@ -297,17 +297,17 @@ async function fetchBinGuardianSignal(wallet: string, poolId: string): Promise<B
     const slippageOk = slippagePct <= MAX_SLIPPAGE_PCT;
 
     let color: SignalColor = "GREEN";
-    let action = "HOLD — position in range";
+    let action = "HOLD: position in range";
     if (inRange === null) {
       color = "YELLOW";
-      action = "No position data — cannot determine range";
+      action = "No position data: cannot determine range";
     } else if (!inRange) {
       if (!volumeOk || !slippageOk) {
         color = "YELLOW";
         action = `Out of range but blocked: ${!volumeOk ? "low volume" : ""}${!slippageOk ? " high slippage" : ""}`.trim();
       } else {
         color = "RED";
-        action = `REBALANCE — out of range (active bin ${activeBin}, position ${userBinRange?.min}–${userBinRange?.max})`;
+        action = `REBALANCE: out of range (active bin ${activeBin}, position ${userBinRange?.min}-${userBinRange?.max})`;
       }
     }
 
@@ -340,11 +340,11 @@ async function fetchReserveSignal(): Promise<ReserveSignal> {
     sbtc_circulating: null,
     btc_reserve: null,
     signer_address: null,
-    recommendation: "Cannot fetch reserve data — treat as RED.",
+    recommendation: "Cannot fetch reserve data, treat as RED.",
   };
 
   try {
-    // We need tiny-secp256k1 for taproot derivation — but to keep this skill
+    // We need tiny-secp256k1 for taproot derivation, but to keep this skill
     // self-contained without importing from sbtc-proof-of-reserve, we use
     // the simpler approach: fetch supply and use Bitflow ticker for peg ratio.
 
@@ -503,7 +503,7 @@ function arbiterDecision(
   if (blockers.length > 0) {
     return {
       decision: "DEGRADED",
-      reason: `Cannot make decision — ${blockers.length} signal(s) unavailable. Fix data sources before retrying.`,
+      reason: `Cannot make decision, ${blockers.length} signal(s) unavailable. Fix data sources before retrying.`,
       blockers,
       retryAfter: null,
     };
@@ -521,13 +521,13 @@ function arbiterDecision(
     };
   }
 
-  // Rebalance needed — check sBTC reserve safety
+  // Rebalance needed: check sBTC reserve safety
   if (reserve.color === "RED") {
     const retryAt = new Date(Date.now() + 3600 * 1000).toISOString();
-    blockers.push(`sbtc_reserve: RED — reserve ratio ${reserve.reserve_ratio?.toFixed(4) ?? "unknown"}, peg unhealthy`);
+    blockers.push(`sbtc_reserve: RED, reserve ratio ${reserve.reserve_ratio?.toFixed(4) ?? "unknown"}, peg unhealthy`);
     return {
       decision: "BLOCKED",
-      reason: `Rebalance needed but blocked — sBTC peg unhealthy (ratio: ${reserve.reserve_ratio?.toFixed(4) ?? "unknown"}). Moving capital during de-peg risks value loss. Earning zero fees in a safe position is better than rebalancing into instability.`,
+      reason: `Rebalance needed but blocked, sBTC peg unhealthy (ratio: ${reserve.reserve_ratio?.toFixed(4) ?? "unknown"}). Moving capital during de-peg risks value loss. Earning zero fees in a safe position is better than rebalancing into instability.`,
       blockers,
       retryAfter: retryAt,
     };
@@ -536,7 +536,7 @@ function arbiterDecision(
   if (reserve.color === "YELLOW") {
     return {
       decision: "REBALANCE",
-      reason: `Bins out of range (active: ${bin.active_bin}, position: ${bin.user_bin_range?.min ?? "?"}–${bin.user_bin_range?.max ?? "?"}). sBTC reserve at YELLOW — acceptable risk. Safe to rebalance.`,
+      reason: `Bins out of range (active: ${bin.active_bin}, position: ${bin.user_bin_range?.min ?? "?"}-${bin.user_bin_range?.max ?? "?"}). sBTC reserve at YELLOW: acceptable risk. Safe to rebalance.`,
       blockers: [],
       retryAfter: null,
     };
@@ -545,7 +545,7 @@ function arbiterDecision(
   // All GREEN → REBALANCE
   return {
     decision: "REBALANCE",
-    reason: `All signals aligned. Bins out of range (active: ${bin.active_bin}, position: ${bin.user_bin_range?.min ?? "?"}–${bin.user_bin_range?.max ?? "?"}). Safe to rebalance.`,
+    reason: `All signals aligned. Bins out of range (active: ${bin.active_bin}, position: ${bin.user_bin_range?.min ?? "?"}-${bin.user_bin_range?.max ?? "?"}). Safe to rebalance.`,
     blockers: [],
     retryAfter: null,
   };
@@ -582,7 +582,7 @@ async function runDoctor(): Promise<void> {
     checks.push({ name: "Bitflow Bins API", ok: false, detail: e instanceof Error ? e.message : String(e) });
   }
 
-  // 4. Hiro Stacks API (node info — used by sBTC reserve)
+  // 4. Hiro Stacks API (node info: used by sBTC reserve)
   try {
     const info = await fetchJson<{ stacks_tip_height: number; burn_block_height: number }>(`${HIRO_BASE}/v2/info`);
     checks.push({ name: "Hiro Stacks API", ok: info.stacks_tip_height > 0, detail: `stacks=${info.stacks_tip_height}, btc=${info.burn_block_height}` });
@@ -667,7 +667,7 @@ async function runDoctor(): Promise<void> {
       return hrp + "1" + [...witnessData, ...checksum].map(d => CHARSET[d]).join("");
     }
 
-    // BIP-350 test vectors — https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki
+    // BIP-350 test vectors: https://github.com/bitcoin/bips/blob/master/bip-0350.mediawiki
     const vectors: { programHex: string; witnessVersion: number; hrp: string; expected: string }[] = [
       { hrp: "bc", witnessVersion: 1, programHex: "751e76e8199196d454941c45d1b3a323f1433bd6751e76e8199196d454941c45d1b3a323f1433bd6", expected: "bc1pw508d6qejxtdg4y5r3zarvary0c5xw7kw508d6qejxtdg4y5r3zarvary0c5xw7kt5nd6y" },
       { hrp: "bc", witnessVersion: 1, programHex: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798", expected: "bc1p0xlxvlhemja6c4dqv22uapctqupfhlxm9h8z3k2e72q4k9hcz7vqzk5jj0" },
@@ -772,7 +772,7 @@ const program = new Command();
 
 program
   .name("hodlmm-rebalance-arbiter")
-  .description("Decision gate for HODLMM LP rebalancing — consumes bin drift and sBTC reserve signals")
+  .description("Decision gate for HODLMM LP rebalancing: consumes bin drift and sBTC reserve signals")
   .version("1.0.0");
 
 program

@@ -1,4 +1,4 @@
-# Day 6 — [AIBTC Skills Comp Day 6] USDCx Yield Optimizer
+# Day 6: [AIBTC Skills Comp Day 6] USDCx Yield Optimizer
 > **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/118
 > **Status:** Open
 
@@ -9,7 +9,7 @@
 usdcx-yield-optimizer
 
 **Author:** cliqueengagements
-**Author Agent:** Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
+**Author Agent:** Micro Basilisk (Agent #77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
 ## Category
 
@@ -20,27 +20,27 @@ usdcx-yield-optimizer
 
 ## What it does
 
-**One question:** "I'm holding USDCx — where should it be earning yield right now, and is it safe?"
+**One question:** "I'm holding USDCx, where should it be earning yield right now, and is it safe?"
 
 The first skill that treats USDCx as a primary yield asset. Scans every live USDCx venue on Bitflow (7 HODLMM pools + XYK), risk-tags each one, applies a Yield-to-Gas profit gate, and outputs executable MCP command specs to deploy USDCx to the highest-yielding HODLMM pool. Reads on-chain positions directly from HODLMM pool contracts. Suggests Hermetica sUSDh as a cross-protocol route when swap yields beat direct venues.
 
 **Five problems, one skill:**
 
-1. **Where is my USDCx now?** → `position` reads on-chain — which pool, which bins, in-range or not
+1. **Where is my USDCx now?** → `position` reads on-chain, which pool, which bins, in-range or not
 2. **What are all my options?** → `run` scans 7 HODLMM pools + XYK + Hermetica in one call
 3. **Which option is safest?** → Risk-tags each venue (stablecoin=low, STX=medium, sBTC=depends on reserve health)
 4. **Is moving worth it?** → Profit gate: "will 7 days of extra yield cover 3x the gas to migrate?"
 5. **How do I execute?** → Generates the exact contract call spec for the winning pool
 
-Write-ready — generates complete `call_contract` deployment specs for `add-liquidity-multi` on the HODLMM liquidity router with `--confirm`. Currently spec-only because MCP `call_contract` doesn't support `trait_reference` args (documented honestly with exact fix path).
+Write-ready: generates complete `call_contract` deployment specs for `add-liquidity-multi` on the HODLMM liquidity router with `--confirm`. Currently spec-only because MCP `call_contract` doesn't support `trait_reference` args (documented honestly with exact fix path).
 
 ### On-chain position reader
 
-The `position` command reads HODLMM liquidity positions directly from on-chain pool contracts via `call-read-only`. Scans 3 unique pool contracts (sBTC/USDCx, STX/USDCx, aeUSDC/USDCx), returning bin placements, balances, active bin distance, and in-range status. No signing required — pure read-only Clarity calls. Encodes principals as Clarity hex (type 05 + version + hash160).
+The `position` command reads HODLMM liquidity positions directly from on-chain pool contracts via `call-read-only`. Scans 3 unique pool contracts (sBTC/USDCx, STX/USDCx, aeUSDC/USDCx), returning bin placements, balances, active bin distance, and in-range status. No signing required: pure read-only Clarity calls. Encodes principals as Clarity hex (type 05 + version + hash160).
 
 ## On-chain proof
 
-**Deposit tx:** [`0xf2ffb41e...bab9e315`](https://explorer.hiro.so/txid/0xf2ffb41e1f29a5c5ee5fa0df628a700e21bf14a4aabbd334b5f49b98bab9e315?chain=mainnet) — add-relative-liquidity-same-multi on sBTC/USDCx HODLMM pool, block 7,423,687.
+**Deposit tx:** [`0xf2ffb41e...bab9e315`](https://explorer.hiro.so/txid/0xf2ffb41e1f29a5c5ee5fa0df628a700e21bf14a4aabbd334b5f49b98bab9e315?chain=mainnet), add-relative-liquidity-same-multi on sBTC/USDCx HODLMM pool, block 7,423,687.
 
 The `position` command detects this deposit on-chain via `call-read-only`:
 
@@ -57,7 +57,7 @@ Live mainnet output below from 7 data sources (including on-chain HODLMM pool re
 
 ## Does this integrate HODLMM?
 
-- [x] Yes — eligible for the HODLMM bonus
+- [x] Yes: eligible for the HODLMM bonus
 
 Scans all 7 USDCx HODLMM concentrated liquidity pools via the Bitflow App API (`/api/app/v1/pools`), reads positions directly from on-chain pool contracts via `call-read-only`, extracts live APR/TVL/volume, classifies each by pair type (stablecoin vs volatile), and generates deployment specs targeting the HODLMM liquidity router (`dlmm-liquidity-router-v-1-2.add-liquidity-multi`).
 
@@ -73,7 +73,7 @@ Scans all 7 USDCx HODLMM concentrated liquidity pools via the Bitflow App API (`
 
 ## Write Capability Status
 
-Generates complete `call_contract` specs for `add-liquidity-multi` on the HODLMM liquidity router with `--confirm` gate, 5000 USDCx cap, active bin fetch. **Spec-only** because MCP `call_contract` doesn't support `trait_reference` arguments (required for `pool-trait`, `x-token-trait`, `y-token-trait`). Once MCP adds trait_reference support — a one-line type addition in the Clarity argument encoder — the skill becomes fully autonomous with zero code changes.
+Generates complete `call_contract` specs for `add-liquidity-multi` on the HODLMM liquidity router with `--confirm` gate, 5000 USDCx cap, active bin fetch. **Spec-only** because MCP `call_contract` doesn't support `trait_reference` arguments (required for `pool-trait`, `x-token-trait`, `y-token-trait`). Once MCP adds trait_reference support: a one-line type addition in the Clarity argument encoder, the skill becomes fully autonomous with zero code changes.
 
 ## v2 Changelog
 
@@ -98,7 +98,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
 
 ## Smoke test results
 
-**doctor** — 7/7 sources green (includes on-chain HODLMM reads)
+**doctor**: 7/7 sources green (includes on-chain HODLMM reads)
 
 ```json
 {
@@ -144,7 +144,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
 }
 ```
 
-**position** — on-chain HODLMM position detected (real deposit, 221 bins)
+**position**: on-chain HODLMM position detected (real deposit, 221 bins)
 
 ```json
 {
@@ -174,7 +174,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
 }
 ```
 
-**run** — DEPLOY decision, 4 venues ranked, sBTC/USDCx tops at 31.34% APR
+**run**: DEPLOY decision, 4 venues ranked, sBTC/USDCx tops at 31.34% APR
 
 ```json
 {
@@ -189,7 +189,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
       "apr_pct": 31.34,
       "tvl_usd": 179317,
       "risk": "medium",
-      "risk_factors": ["sBTC exposure — check reserve signal"]
+      "risk_factors": ["sBTC exposure, check reserve signal"]
     },
     {
       "rank": 2,
@@ -199,7 +199,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
       "apr_pct": 9.46,
       "tvl_usd": 347170,
       "risk": "medium",
-      "risk_factors": ["passive LP — lower capital efficiency than HODLMM"]
+      "risk_factors": ["passive LP, lower capital efficiency than HODLMM"]
     },
     {
       "rank": 3,
@@ -209,7 +209,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
       "apr_pct": 3.62,
       "tvl_usd": 1032415,
       "risk": "medium",
-      "risk_factors": ["STX volatility — impermanent loss risk"]
+      "risk_factors": ["STX volatility, impermanent loss risk"]
     },
     {
       "rank": 4,
@@ -230,14 +230,14 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
   },
   "profit_gate": null,
   "mcp_commands": [],
-  "action": "DEPLOY — USDCx to hodlmm dlmm_1 (sBTC/USDCx). 31.34% APR, $179k TVL, medium risk.",
+  "action": "DEPLOY, USDCx to hodlmm dlmm_1 (sBTC/USDCx). 31.34% APR, $179k TVL, medium risk.",
   "sources_used": ["bitflow-prices", "sbtc-reserve-signal", "bitflow-hodlmm", "bitflow-xyk", "hermetica"],
   "sources_failed": [],
   "timestamp": "2026-03-31T15:14:00.800Z"
 }
 ```
 
-**run --risk low** — conservative mode, stablecoin pairs only
+**run --risk low**: conservative mode, stablecoin pairs only
 
 ```json
 {
@@ -273,7 +273,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
   },
   "profit_gate": null,
   "mcp_commands": [],
-  "action": "DEPLOY — USDCx to hodlmm dlmm_7 (aeUSDC/USDCx). 0.02% APR, $99k TVL, low risk. | Higher yield available via Hermetica sUSDh vault (19.7% net APY after swap cost) — use hermetica-yield-rotator to execute.",
+  "action": "DEPLOY, USDCx to hodlmm dlmm_7 (aeUSDC/USDCx). 0.02% APR, $99k TVL, low risk. | Higher yield available via Hermetica sUSDh vault (19.7% net APY after swap cost): use hermetica-yield-rotator to execute.",
   "sources_used": ["bitflow-prices", "sbtc-reserve-signal", "bitflow-hodlmm", "bitflow-xyk", "hermetica"],
   "sources_failed": [],
   "timestamp": "2026-03-31T15:14:03.107Z"
@@ -293,13 +293,13 @@ Frontmatter manually verified against registry spec:
 
 ## Security notes
 
-- **Write-ready with `--confirm` gate** — without flag, analysis only, no deployment specs generated
-- **On-chain reads via `call-read-only`** — position command requires no signing, no wallet unlock
-- **Deployment cap: 5,000 USDCx** per operation — enforced in code (`MAX_DEPLOY_USDCX = 5000`)
-- **Profit gate enforced in code** — `PROFIT_GATE_MULTIPLIER = 3`, `MIN_APY_IMPROVEMENT_PCT = 1.0`, `MIN_TVL_USD = 50,000`, `MAX_SANE_APR = 500`, `SBTC_DEV_GREEN_PCT = 0.5`
-- **Mainnet only** — all endpoints target Stacks and Bitcoin mainnet
-- **No external oracles** — all prices from Bitflow pool data (zero CoinGecko, zero external dependencies)
-- **Graceful degradation** — if any source unavailable, continues with available data, reports `sources_failed`, status becomes `"degraded"`
+- **Write-ready with `--confirm` gate**, without flag, analysis only, no deployment specs generated
+- **On-chain reads via `call-read-only`**: position command requires no signing, no wallet unlock
+- **Deployment cap: 5,000 USDCx** per operation, enforced in code (`MAX_DEPLOY_USDCX = 5000`)
+- **Profit gate enforced in code**: `PROFIT_GATE_MULTIPLIER = 3`, `MIN_APY_IMPROVEMENT_PCT = 1.0`, `MIN_TVL_USD = 50,000`, `MAX_SANE_APR = 500`, `SBTC_DEV_GREEN_PCT = 0.5`
+- **Mainnet only**: all endpoints target Stacks and Bitcoin mainnet
+- **No external oracles**: all prices from Bitflow pool data (zero CoinGecko, zero external dependencies)
+- **Graceful degradation**: if any source unavailable, continues with available data, reports `sources_failed`, status becomes `"degraded"`
 - Exit codes: `0` = ok, `1` = degraded, `3` = error
 
 ## Known constraints
@@ -308,8 +308,8 @@ Frontmatter manually verified against registry spec:
 - sBTC reserve signal is a price-deviation proxy (not full on-chain audit). For high-value decisions, pair with `sbtc-proof-of-reserve`.
 - HODLMM APR based on last 24h trading volume. Actual returns depend on active bin range.
 - Write capability is spec-only until MCP adds `trait_reference` support. Exact fix path documented.
-- On-chain active bin IDs use Clarity signed int128 — decoded correctly via two's complement.
-- Position reader skips per-bin balance fetches (avoids 221 API calls) — uses overall balance instead.
+- On-chain active bin IDs use Clarity signed int128: decoded correctly via two's complement.
+- Position reader skips per-bin balance fetches (avoids 221 API calls): uses overall balance instead.
 
 ## PR Description
 
@@ -320,7 +320,7 @@ Frontmatter manually verified against registry spec:
 usdcx-yield-optimizer
 
 **Author:** cliqueengagements
-**Author Agent:** Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
+**Author Agent:** Micro Basilisk (Agent #77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
 ## Category
 
@@ -328,27 +328,27 @@ usdcx-yield-optimizer
 
 ## What it does
 
-**One question:** "I'm holding USDCx — where should it be earning yield right now, and is it safe?"
+**One question:** "I'm holding USDCx, where should it be earning yield right now, and is it safe?"
 
 The first skill that treats USDCx as a primary yield asset. Scans every live USDCx venue on Bitflow (7 HODLMM pools + XYK), risk-tags each one, applies a Yield-to-Gas profit gate, and outputs executable MCP command specs to deploy USDCx to the highest-yielding HODLMM pool. Reads on-chain positions directly from HODLMM pool contracts. Suggests Hermetica sUSDh as a cross-protocol route when swap yields beat direct venues.
 
 **Five problems, one skill:**
 
-1. **Where is my USDCx now?** → `position` reads on-chain — which pool, which bins, in-range or not
+1. **Where is my USDCx now?** → `position` reads on-chain, which pool, which bins, in-range or not
 2. **What are all my options?** → `run` scans 7 HODLMM pools + XYK + Hermetica in one call
 3. **Which option is safest?** → Risk-tags each venue (stablecoin=low, STX=medium, sBTC=depends on reserve health)
 4. **Is moving worth it?** → Profit gate: "will 7 days of extra yield cover 3x the gas to migrate?"
 5. **How do I execute?** → Generates the exact contract call spec for the winning pool
 
-Write-ready — generates complete `call_contract` deployment specs for `add-liquidity-multi` on the HODLMM liquidity router with `--confirm`. Currently spec-only because MCP `call_contract` doesn't support `trait_reference` args (documented honestly with exact fix path).
+Write-ready: generates complete `call_contract` deployment specs for `add-liquidity-multi` on the HODLMM liquidity router with `--confirm`. Currently spec-only because MCP `call_contract` doesn't support `trait_reference` args (documented honestly with exact fix path).
 
 ### On-chain position reader
 
-The `position` command reads HODLMM liquidity positions directly from on-chain pool contracts via `call-read-only`. Scans 3 unique pool contracts (sBTC/USDCx, STX/USDCx, aeUSDC/USDCx), returning bin placements, balances, active bin distance, and in-range status. No signing required — pure read-only Clarity calls. Encodes principals as Clarity hex (type 05 + version + hash160).
+The `position` command reads HODLMM liquidity positions directly from on-chain pool contracts via `call-read-only`. Scans 3 unique pool contracts (sBTC/USDCx, STX/USDCx, aeUSDC/USDCx), returning bin placements, balances, active bin distance, and in-range status. No signing required: pure read-only Clarity calls. Encodes principals as Clarity hex (type 05 + version + hash160).
 
 ## On-chain proof
 
-**Deposit tx:** [`0xf2ffb41e...bab9e315`](https://explorer.hiro.so/txid/0xf2ffb41e1f29a5c5ee5fa0df628a700e21bf14a4aabbd334b5f49b98bab9e315?chain=mainnet) — add-relative-liquidity-same-multi on sBTC/USDCx HODLMM pool, block 7,423,687.
+**Deposit tx:** [`0xf2ffb41e...bab9e315`](https://explorer.hiro.so/txid/0xf2ffb41e1f29a5c5ee5fa0df628a700e21bf14a4aabbd334b5f49b98bab9e315?chain=mainnet), add-relative-liquidity-same-multi on sBTC/USDCx HODLMM pool, block 7,423,687.
 
 The `position` command detects this deposit on-chain via `call-read-only`:
 
@@ -365,7 +365,7 @@ Live mainnet output below from 7 data sources (including on-chain HODLMM pool re
 
 ## Does this integrate HODLMM?
 
-- [x] Yes — eligible for the HODLMM bonus
+- [x] Yes: eligible for the HODLMM bonus
 
 Scans all 7 USDCx HODLMM concentrated liquidity pools via the Bitflow App API (`/api/app/v1/pools`), reads positions directly from on-chain pool contracts via `call-read-only`, extracts live APR/TVL/volume, classifies each by pair type (stablecoin vs volatile), and generates deployment specs targeting the HODLMM liquidity router (`dlmm-liquidity-router-v-1-2.add-liquidity-multi`).
 
@@ -381,7 +381,7 @@ Scans all 7 USDCx HODLMM concentrated liquidity pools via the Bitflow App API (`
 
 ## Write Capability Status
 
-Generates complete `call_contract` specs for `add-liquidity-multi` on the HODLMM liquidity router with `--confirm` gate, 5000 USDCx cap, active bin fetch. **Spec-only** because MCP `call_contract` doesn't support `trait_reference` arguments (required for `pool-trait`, `x-token-trait`, `y-token-trait`). Once MCP adds trait_reference support — a one-line type addition in the Clarity argument encoder — the skill becomes fully autonomous with zero code changes.
+Generates complete `call_contract` specs for `add-liquidity-multi` on the HODLMM liquidity router with `--confirm` gate, 5000 USDCx cap, active bin fetch. **Spec-only** because MCP `call_contract` doesn't support `trait_reference` arguments (required for `pool-trait`, `x-token-trait`, `y-token-trait`). Once MCP adds trait_reference support: a one-line type addition in the Clarity argument encoder, the skill becomes fully autonomous with zero code changes.
 
 ## v2 Changelog
 
@@ -406,7 +406,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
 
 ## Smoke test results
 
-**doctor** — 7/7 sources green (includes on-chain HODLMM reads)
+**doctor**: 7/7 sources green (includes on-chain HODLMM reads)
 
 ```json
 {
@@ -452,7 +452,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
 }
 ```
 
-**position** — on-chain HODLMM position detected (real deposit, 221 bins)
+**position**: on-chain HODLMM position detected (real deposit, 221 bins)
 
 ```json
 {
@@ -482,7 +482,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
 }
 ```
 
-**run** — DEPLOY decision, 4 venues ranked, sBTC/USDCx tops at 31.34% APR
+**run**: DEPLOY decision, 4 venues ranked, sBTC/USDCx tops at 31.34% APR
 
 ```json
 {
@@ -497,7 +497,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
       "apr_pct": 31.34,
       "tvl_usd": 179317,
       "risk": "medium",
-      "risk_factors": ["sBTC exposure — check reserve signal"]
+      "risk_factors": ["sBTC exposure, check reserve signal"]
     },
     {
       "rank": 2,
@@ -507,7 +507,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
       "apr_pct": 9.46,
       "tvl_usd": 347170,
       "risk": "medium",
-      "risk_factors": ["passive LP — lower capital efficiency than HODLMM"]
+      "risk_factors": ["passive LP, lower capital efficiency than HODLMM"]
     },
     {
       "rank": 3,
@@ -517,7 +517,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
       "apr_pct": 3.62,
       "tvl_usd": 1032415,
       "risk": "medium",
-      "risk_factors": ["STX volatility — impermanent loss risk"]
+      "risk_factors": ["STX volatility, impermanent loss risk"]
     },
     {
       "rank": 4,
@@ -538,14 +538,14 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
   },
   "profit_gate": null,
   "mcp_commands": [],
-  "action": "DEPLOY — USDCx to hodlmm dlmm_1 (sBTC/USDCx). 31.34% APR, $179k TVL, medium risk.",
+  "action": "DEPLOY, USDCx to hodlmm dlmm_1 (sBTC/USDCx). 31.34% APR, $179k TVL, medium risk.",
   "sources_used": ["bitflow-prices", "sbtc-reserve-signal", "bitflow-hodlmm", "bitflow-xyk", "hermetica"],
   "sources_failed": [],
   "timestamp": "2026-03-31T15:14:00.800Z"
 }
 ```
 
-**run --risk low** — conservative mode, stablecoin pairs only
+**run --risk low**: conservative mode, stablecoin pairs only
 
 ```json
 {
@@ -581,7 +581,7 @@ First submission for this skill. Builds on ecosystem knowledge from 3 prior PRs:
   },
   "profit_gate": null,
   "mcp_commands": [],
-  "action": "DEPLOY — USDCx to hodlmm dlmm_7 (aeUSDC/USDCx). 0.02% APR, $99k TVL, low risk. | Higher yield available via Hermetica sUSDh vault (19.7% net APY after swap cost) — use hermetica-yield-rotator to execute.",
+  "action": "DEPLOY, USDCx to hodlmm dlmm_7 (aeUSDC/USDCx). 0.02% APR, $99k TVL, low risk. | Higher yield available via Hermetica sUSDh vault (19.7% net APY after swap cost): use hermetica-yield-rotator to execute.",
   "sources_used": ["bitflow-prices", "sbtc-reserve-signal", "bitflow-hodlmm", "bitflow-xyk", "hermetica"],
   "sources_failed": [],
   "timestamp": "2026-03-31T15:14:03.107Z"
@@ -601,13 +601,13 @@ Frontmatter manually verified against registry spec:
 
 ## Security notes
 
-- **Write-ready with `--confirm` gate** — without flag, analysis only, no deployment specs generated
-- **On-chain reads via `call-read-only`** — position command requires no signing, no wallet unlock
-- **Deployment cap: 5,000 USDCx** per operation — enforced in code (`MAX_DEPLOY_USDCX = 5000`)
-- **Profit gate enforced in code** — `PROFIT_GATE_MULTIPLIER = 3`, `MIN_APY_IMPROVEMENT_PCT = 1.0`, `MIN_TVL_USD = 50,000`, `MAX_SANE_APR = 500`, `SBTC_DEV_GREEN_PCT = 0.5`
-- **Mainnet only** — all endpoints target Stacks and Bitcoin mainnet
-- **No external oracles** — all prices from Bitflow pool data (zero CoinGecko, zero external dependencies)
-- **Graceful degradation** — if any source unavailable, continues with available data, reports `sources_failed`, status becomes `"degraded"`
+- **Write-ready with `--confirm` gate**, without flag, analysis only, no deployment specs generated
+- **On-chain reads via `call-read-only`**: position command requires no signing, no wallet unlock
+- **Deployment cap: 5,000 USDCx** per operation, enforced in code (`MAX_DEPLOY_USDCX = 5000`)
+- **Profit gate enforced in code**: `PROFIT_GATE_MULTIPLIER = 3`, `MIN_APY_IMPROVEMENT_PCT = 1.0`, `MIN_TVL_USD = 50,000`, `MAX_SANE_APR = 500`, `SBTC_DEV_GREEN_PCT = 0.5`
+- **Mainnet only**: all endpoints target Stacks and Bitcoin mainnet
+- **No external oracles**: all prices from Bitflow pool data (zero CoinGecko, zero external dependencies)
+- **Graceful degradation**: if any source unavailable, continues with available data, reports `sources_failed`, status becomes `"degraded"`
 - Exit codes: `0` = ok, `1` = degraded, `3` = error
 
 ## Known constraints
@@ -616,6 +616,6 @@ Frontmatter manually verified against registry spec:
 - sBTC reserve signal is a price-deviation proxy (not full on-chain audit). For high-value decisions, pair with `sbtc-proof-of-reserve`.
 - HODLMM APR based on last 24h trading volume. Actual returns depend on active bin range.
 - Write capability is spec-only until MCP adds `trait_reference` support. Exact fix path documented.
-- On-chain active bin IDs use Clarity signed int128 — decoded correctly via two's complement.
-- Position reader skips per-bin balance fetches (avoids 221 API calls) — uses overall balance instead.
+- On-chain active bin IDs use Clarity signed int128: decoded correctly via two's complement.
+- Position reader skips per-bin balance fetches (avoids 221 API calls): uses overall balance instead.
 

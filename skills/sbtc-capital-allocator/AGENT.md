@@ -4,7 +4,7 @@ skill: sbtc-capital-allocator
 description: "Autonomous sBTC capital allocator that routes between HODLMM and Zest based on risk-adjusted yield, with DCA execution mode triggered by market risk signals."
 ---
 
-# Agent Behavior — sBTC Capital Allocator
+# Agent Behavior: sBTC Capital Allocator
 
 ## Decision order
 
@@ -37,7 +37,7 @@ description: "Autonomous sBTC capital allocator that routes between HODLMM and Z
 ## On error
 
 - Log the full error payload with code, message, and suggested next action.
-- Do not retry silently — surface to the user with the `next` field as guidance.
+- Do not retry silently: surface to the user with the `next` field as guidance.
 - If oracle is unavailable, degrade to read-only mode (scan/monitor only, no execute).
 - If Bitflow API is down, report Zest-only data rather than failing entirely.
 

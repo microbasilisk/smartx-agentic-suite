@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * sbtc-capital-allocator — Multi-protocol sBTC yield router.
+ * sbtc-capital-allocator: Multi-protocol sBTC yield router.
  *
  * Compares real-time APY across HODLMM pools and Zest lending, with DCA
  * execution mode triggered by risk signals. Detects stale pricing via Pyth
@@ -8,12 +8,12 @@
  * and routes capital to the highest risk-adjusted yield.
  *
  * Commands:
- *   install-packs       — install @stacks/transactions, @stacks/network, commander
- *   doctor              — pre-flight checks (wallet, APIs, oracles, mempool)
- *   scan                — live APY across HODLMM + Zest, normalised to annual %
- *   monitor             — oracle price gate, range drift, whale signals
- *   recommend           — two-layer decision: WHERE (protocol) + HOW (lump_sum/dca)
- *   execute             — move capital (requires --confirm)
+ *   install-packs: install @stacks/transactions, @stacks/network, commander
+ *   doctor: pre-flight checks (wallet, APIs, oracles, mempool)
+ *   scan: live APY across HODLMM + Zest, normalised to annual %
+ *   monitor: oracle price gate, range drift, whale signals
+ *   recommend: two-layer decision: WHERE (protocol) + HOW (lump_sum/dca)
+ *   execute: move capital (requires --confirm)
  *
  * Output: JSON { status, action, data, error }
  */
@@ -46,7 +46,7 @@ const SBTC_FT_KEY = `${SBTC_TOKEN}::sbtc-token`;
 // Zest Protocol v2 contracts
 const ZEST_POOL_BORROW = "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-borrow-v2-3";
 
-// HODLMM pools (sBTC pairs) — contracts verified in knowledge-base.md
+// HODLMM pools (sBTC pairs): contracts verified in knowledge-base.md
 const HODLMM_SBTC_POOLS = ["dlmm_1", "dlmm_2", "dlmm_6"] as const;
 const HODLMM_POOL_CONTRACTS: Record<string, string> = {
   dlmm_1: "dlmm-pool-sbtc-usdcx-v-1-bps-10",
@@ -133,7 +133,7 @@ interface ProtocolYield {
   apy_pct: number;
   tvl_usd: number;
   volume_24h_usd: number;
-  risk_score: number;       // 1 (low) – 5 (high)
+  risk_score: number;       // 1 (low), 5 (high)
   risk_label: string;
   fees_24h_usd: number;
   source: string;
@@ -372,7 +372,7 @@ async function getWhaleSignals(limit: number = 50): Promise<WhaleSignal[]> {
         signals.push({
           token: contractId.includes("dlmm") ? "HODLMM-LP" : contractId.includes("pool-borrow") ? "Zest" : "sBTC",
           direction,
-          usd_value: 0, // mempool doesn't expose value — the signal is the action itself
+          usd_value: 0, // mempool doesn't expose value, the signal is the action itself
           timestamp: new Date().toISOString(),
           relevance: isBtcRelated ? "direct" : "indirect",
         });
@@ -408,7 +408,7 @@ function computeHodlmmApyFromApi(pool: BitflowPool): number {
   //   1. Our computed: 7-day smoothed from feesUsd7d / tvlUsd
   //   2. API full-period apr: Bitflow's own `apr` (longer-term, not the 24h spike)
   // If they agree within 30%, trust our computed value.
-  // If they diverge >30%, something is off — use the lower as conservative.
+  // If they diverge >30%, something is off: use the lower as conservative.
   const computed = computeHodlmmApy(pool);
   const apiApr = sanitiseApy(pool.apr, `HODLMM-API ${pool.poolId}`);
 
@@ -418,7 +418,7 @@ function computeHodlmmApyFromApi(pool: BitflowPool): number {
   const ratio = Math.abs(computed - apiApr) / Math.max(computed, apiApr);
   if (ratio > 0.3) {
     // >30% divergence between our 7d calc and Bitflow's full-period rate
-    // Something is off — take the conservative (lower) value
+    // Something is off: take the conservative (lower) value
     return Math.min(computed, apiApr);
   }
   return computed;
@@ -519,7 +519,7 @@ async function cmdDoctor(wallet: string): Promise<void> {
     checks.push({
       name: "wallet",
       ok: bal.stx_ustx >= MIN_STX_GAS_USTX,
-      detail: `sBTC: ${sbtcHuman.toFixed(8)}, STX: ${stxHuman.toFixed(6)}${bal.stx_ustx < MIN_STX_GAS_USTX ? " — insufficient gas" : ""}`,
+      detail: `sBTC: ${sbtcHuman.toFixed(8)}, STX: ${stxHuman.toFixed(6)}${bal.stx_ustx < MIN_STX_GAS_USTX ? ", insufficient gas" : ""}`,
     });
   } catch (e) {
     checks.push({ name: "wallet", ok: false, detail: `Failed: ${(e as Error).message}` });
@@ -553,7 +553,7 @@ async function cmdDoctor(wallet: string): Promise<void> {
     checks.push({
       name: "pyth_oracle",
       ok: ageS < 120,
-      detail: `BTC: $${btc.price_usd.toFixed(2)}, age: ${ageS}s${ageS >= 120 ? " — STALE" : ""}`,
+      detail: `BTC: $${btc.price_usd.toFixed(2)}, age: ${ageS}s${ageS >= 120 ? ", STALE" : ""}`,
     });
   } catch (e) {
     checks.push({ name: "pyth_oracle", ok: false, detail: `Failed: ${(e as Error).message}` });
@@ -579,7 +579,7 @@ async function cmdDoctor(wallet: string): Promise<void> {
 async function cmdScan(wallet: string): Promise<void> {
   const yields: ProtocolYield[] = [];
 
-  // 1. HODLMM pools — real APY from fees/TVL
+  // 1. HODLMM pools: real APY from fees/TVL
   try {
     const pools = await getAllPools();
     for (const pool of pools) {
@@ -605,7 +605,7 @@ async function cmdScan(wallet: string): Promise<void> {
     return;
   }
 
-  // 2. Zest lending — on-chain rate
+  // 2. Zest lending: on-chain rate
   try {
     const zestApy = await getZestApyFromChain();
     yields.push({
@@ -654,7 +654,7 @@ async function cmdScan(wallet: string): Promise<void> {
 }
 
 async function cmdMonitor(wallet: string): Promise<void> {
-  // 1. Oracle price check — Pyth vs HODLMM pool implied price
+  // 1. Oracle price check: Pyth vs HODLMM pool implied price
   let oracle: OracleCheck | null = null;
   try {
     const pythBtc = await getPythPrice(PYTH_BTC_FEED);
@@ -681,10 +681,10 @@ async function cmdMonitor(wallet: string): Promise<void> {
       divergence_pct: parseFloat(divergence.toFixed(3)),
       stale: divergence > STALE_PRICE_THRESHOLD_PCT || ageS > 120,
       verdict: divergence > STALE_PRICE_THRESHOLD_PCT
-        ? `STALE — ${divergence.toFixed(2)}% divergence exceeds ${STALE_PRICE_THRESHOLD_PCT}% threshold`
+        ? `STALE: ${divergence.toFixed(2)}% divergence exceeds ${STALE_PRICE_THRESHOLD_PCT}% threshold`
         : ageS > 120
-          ? `STALE — Pyth data is ${ageS}s old`
-          : "FRESH — prices aligned",
+          ? `STALE: Pyth data is ${ageS}s old`
+          : "FRESH, prices aligned",
     };
   } catch (e) {
     oracle = {
@@ -693,11 +693,11 @@ async function cmdMonitor(wallet: string): Promise<void> {
       pool_implied_btc_usd: 0,
       divergence_pct: 0,
       stale: true,
-      verdict: `UNAVAILABLE — ${(e as Error).message}`,
+      verdict: `UNAVAILABLE, ${(e as Error).message}`,
     };
   }
 
-  // 2. Range drift — check LP position proximity to edge
+  // 2. Range drift: check LP position proximity to edge
   const rangeDrifts: RangeDrift[] = [];
   for (const poolId of HODLMM_SBTC_POOLS) {
     try {
@@ -731,7 +731,7 @@ async function cmdMonitor(wallet: string): Promise<void> {
     } catch { /* pool not available or no position */ }
   }
 
-  // 3. Whale signals — recent large sBTC/STX trades
+  // 3. Whale signals: recent large sBTC/STX trades
   const whaleSignals = await getWhaleSignals(20);
   const sbtcWhales = whaleSignals.filter(w => w.relevance === "direct");
   const netWhaleDirection = sbtcWhales.length > 0
@@ -853,7 +853,7 @@ async function cmdRecommend(wallet: string): Promise<void> {
 
   if (oracleResult.stale) {
     action = "wait";
-    reason = `Oracle price is stale (${oracleResult.divergence.toFixed(2)}% divergence) — unsafe to commit capital`;
+    reason = `Oracle price is stale (${oracleResult.divergence.toFixed(2)}% divergence): unsafe to commit capital`;
   } else if (currentProtocol && currentApy !== null) {
     const improvement = best.apy_pct - currentApy;
     if (best.protocol === currentProtocol && best.pool === (currentProtocol === "hodlmm" ? best.pool : "sbtc-lending")) {
@@ -864,22 +864,22 @@ async function cmdRecommend(wallet: string): Promise<void> {
       reason = `${best.protocol}/${best.pool} offers ${improvement.toFixed(2)}% higher APY than current ${currentProtocol} (${best.apy_pct}% vs ${currentApy}%)`;
     } else {
       action = "stay";
-      reason = `APY improvement (${improvement.toFixed(2)}%) below 2% threshold — gas cost not justified`;
+      reason = `APY improvement (${improvement.toFixed(2)}%) below 2% threshold: gas cost not justified`;
     }
   } else {
     action = "move";
-    reason = `No current position — deploy to ${best.protocol}/${best.pool} at ${best.apy_pct}% APY`;
+    reason = `No current position: deploy to ${best.protocol}/${best.pool} at ${best.apy_pct}% APY`;
   }
 
-  // Fee spike = do not move — execute would block anyway
+  // Fee spike = do not move: execute would block anyway
   if (best.fee_spike && action === "move") {
     action = "wait";
-    reason = `${best.protocol}/${best.pool} is in a fee spike (1-day fees > 3x 7-day avg) — yield is unsustainable, wait for normalization`;
+    reason = `${best.protocol}/${best.pool} is in a fee spike (1-day fees > 3x 7-day avg): yield is unsustainable, wait for normalization`;
   }
 
   // Warn on sell pressure
   if (whalePressure === "sell_pressure" && action === "move" && best.protocol === "hodlmm") {
-    reason += `. NOTE: whale sell pressure detected on sBTC — HODLMM LP may face impermanent loss`;
+    reason += `. NOTE: whale sell pressure detected on sBTC, HODLMM LP may face impermanent loss`;
   }
 
   // Decision: HOW to deploy (lump_sum vs dca)
@@ -931,7 +931,7 @@ async function cmdRecommend(wallet: string): Promise<void> {
     action,
     execution_mode: executionMode,
     dca_intervals: dcaIntervals ?? 0,
-    dca_reason: dcaReason ?? "No risk signals — deploying immediately",
+    dca_reason: dcaReason ?? "No risk signals, deploying immediately",
     reason,
   };
 
@@ -955,10 +955,10 @@ async function cmdRecommend(wallet: string): Promise<void> {
 async function cmdExecute(wallet: string, confirm: boolean, amount?: string): Promise<void> {
   // Gate: --confirm required
   if (!confirm) {
-    // Dry run — preview what would happen, including execution mode
+    // Dry run: preview what would happen, including execution mode
     const state = loadState();
 
-    // Compute risk signals for preview — same checks as confirmed execute
+    // Compute risk signals for preview: same checks as confirmed execute
     const previewRiskSignals: string[] = [];
     try {
       const pyth = await getPythPrice(PYTH_BTC_FEED);
@@ -1028,7 +1028,7 @@ async function cmdExecute(wallet: string, confirm: boolean, amount?: string): Pr
   } catch { /* oracle unavailable = not safe */ }
 
   if (!oracleSafe) {
-    blocked("oracle_stale", "Oracle price is stale or unavailable — refusing to execute", "run monitor to check oracle status");
+    blocked("oracle_stale", "Oracle price is stale or unavailable: refusing to execute", "run monitor to check oracle status");
     return;
   }
 
@@ -1102,9 +1102,9 @@ async function cmdExecute(wallet: string, confirm: boolean, amount?: string): Pr
     return;
   }
 
-  // Block execution into a fee spike — yield is likely unsustainable
+  // Block execution into a fee spike: yield is likely unsustainable
   if (target.fee_spike) {
-    blocked("fee_spike", `${target.protocol}/${target.pool} is in a fee spike (1-day fees > 3x 7-day avg) — refusing to chase unsustainable yield`, "wait for spike to normalize or run recommend to check alternatives");
+    blocked("fee_spike", `${target.protocol}/${target.pool} is in a fee spike (1-day fees > 3x 7-day avg): refusing to chase unsustainable yield`, "wait for spike to normalize or run recommend to check alternatives");
     return;
   }
 
@@ -1121,7 +1121,7 @@ async function cmdExecute(wallet: string, confirm: boolean, amount?: string): Pr
       const deployUsd = (Number(executeSats) / 1e8) * btcPriceUsd;
       const impactPct = (deployUsd / target.tvl_usd) * 100;
       if (impactPct > MAX_TVL_IMPACT_PCT) {
-        blocked("tvl_impact", `Deploy amount ($${deployUsd.toFixed(0)}) is ${impactPct.toFixed(1)}% of pool TVL ($${target.tvl_usd.toFixed(0)}) — exceeds ${MAX_TVL_IMPACT_PCT}% slippage safety limit`, "reduce amount or choose a deeper pool");
+        blocked("tvl_impact", `Deploy amount ($${deployUsd.toFixed(0)}) is ${impactPct.toFixed(1)}% of pool TVL ($${target.tvl_usd.toFixed(0)}): exceeds ${MAX_TVL_IMPACT_PCT}% slippage safety limit`, "reduce amount or choose a deeper pool");
         return;
       }
     }
@@ -1215,7 +1215,7 @@ async function cmdExecute(wallet: string, confirm: boolean, amount?: string): Pr
       return;
     }
 
-    // Add liquidity at offset 0 (active bin) — single position, simplest entry
+    // Add liquidity at offset 0 (active bin): single position, simplest entry
     // Safety: min-dlp ≥ 95%, max fees ≤ 5% per knowledge-base.md
     const amount = BigInt(perIntervalSats);
     const minDlp = amount * 95n / 100n;
@@ -1298,7 +1298,7 @@ async function cmdExecute(wallet: string, confirm: boolean, amount?: string): Pr
     cooldown_until: new Date(Date.now() + EXECUTE_COOLDOWN_MS).toISOString(),
     note: executionMode === "dca"
       ? `DCA mode: deploy ${perIntervalSats} sats now (interval 1/${DCA_INTERVALS}). Re-run execute for each subsequent interval. Agent must call mcp_commands[0] to complete this interval.`
-      : "Agent must call the MCP tool in mcp_commands[0] to complete execution. auto_execute is false — human approval required.",
+      : "Agent must call the MCP tool in mcp_commands[0] to complete execution. auto_execute is false: human approval required.",
   });
 }
 
@@ -1308,7 +1308,7 @@ const program = new Command();
 
 program
   .name("sbtc-capital-allocator")
-  .description("Multi-protocol sBTC yield router — compares HODLMM, Zest, and DCA in real-time");
+  .description("Multi-protocol sBTC yield router: compares HODLMM, Zest, and DCA in real-time");
 
 program
   .command("install-packs")
@@ -1361,7 +1361,7 @@ program
 
 program
   .command("recommend")
-  .description("Decision function — optimal yield route")
+  .description("Decision function: optimal yield route")
   .requiredOption("--wallet <address>", "STX wallet address")
   .action(async (opts: { wallet: string }) => {
     try {

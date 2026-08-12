@@ -35,7 +35,7 @@ const SBTC_DEV_YELLOW_PCT      = 2.0;       // price deviation < 2% = YELLOW, el
 const HERMETICA_SWAP_COST_PCT  = 0.3;       // estimated swap cost USDCx -> sBTC
 const USDCX_CONTRACT           = "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx";
 
-// ── API endpoints (Bitflow-native — no external price oracles) ─────────────
+// ── API endpoints (Bitflow-native, no external price oracles) ─────────────
 const BITFLOW_APP_POOLS  = "https://bff.bitflowapis.finance/api/app/v1/pools";
 const BITFLOW_TICKER     = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.gateway.dev/ticker";
 const HIRO_API           = "https://api.mainnet.hiro.so";
@@ -146,7 +146,7 @@ function riskFromTvl(tvl: number): RiskLevel {
 
 interface Prices { btc: number; stx: number; sbtcPriceBtc: number }
 
-// Prices extracted from Bitflow App API pool data — no external oracle needed.
+// Prices extracted from Bitflow App API pool data, no external oracle needed.
 // The HODLMM pool tokens include priceUsd and priceBtc from Bitflow's own feed.
 let _cachedPrices: Prices | null = null;
 
@@ -233,10 +233,10 @@ async function fetchHodlmmUsdcxPools(): Promise<DirectVenue[]> {
       risk = "low";
     } else if (isSbtcPair) {
       risk = "medium"; // upgraded to high later if reserve not GREEN
-      riskFactors.push("sBTC exposure — check reserve signal");
+      riskFactors.push("sBTC exposure: check reserve signal");
     } else if (isStxPair) {
       risk = "medium";
-      riskFactors.push("STX volatility — impermanent loss risk");
+      riskFactors.push("STX volatility: impermanent loss risk");
     }
 
     // TVL-based risk adjustment (stablecoin pairs get more lenient TVL threshold)
@@ -307,7 +307,7 @@ async function fetchBitflowXykUsdcx(prices: Prices): Promise<DirectVenue[]> {
       apr_pct:  sanitiseApr(aprPct, "xyk"),
       tvl_usd:  Math.round(tvlUsd),
       risk:     "medium",
-      risk_factors: ["passive LP — lower capital efficiency than HODLMM"],
+      risk_factors: ["passive LP, lower capital efficiency than HODLMM"],
     });
   }
 
@@ -339,7 +339,7 @@ async function fetchHermeticaRate(): Promise<number | null> {
     // Exchange rate > 1.0 means yield has accrued since inception
     // If rate is exactly 1.0, staking may have just reset or no yield yet
     if (exchangeRate <= 1.001) {
-      // Rate too close to 1.0 — use Hermetica's historical APY as estimate
+      // Rate too close to 1.0: use Hermetica's historical APY as estimate
       // Hermetica sUSDh historically yields ~15-25% APY
       return 20.0; // conservative mid-range estimate
     }
@@ -373,7 +373,7 @@ async function getCachedTickers(): Promise<TickerEntry[]> {
 }
 
 async function fetchSbtcPriceSignal(prices: Prices): Promise<ReserveCheck> {
-  // Bitflow App API provides priceBtc for sBTC — direct peg ratio, no external oracle.
+  // Bitflow App API provides priceBtc for sBTC: direct peg ratio, no external oracle.
   // priceBtc = 1.0 means perfect peg. Deviation = abs(1 - priceBtc) * 100.
   const sbtcPriceBtc = prices.sbtcPriceBtc;
   if (sbtcPriceBtc <= 0) {
@@ -466,7 +466,7 @@ function buildDeployCommands(
           "x-token-trait":       poolInfo.tokenX,
           "y-token-trait":       poolInfo.tokenY,
         }],
-        note: "SPEC ONLY — requires trait_reference support in call_contract MCP tool. See SKILL.md 'Write Capability Status' for details.",
+        note: "SPEC ONLY, requires trait_reference support in call_contract MCP tool. See SKILL.md 'Write Capability Status' for details.",
       },
     });
   }
@@ -489,7 +489,7 @@ function buildDirectVenues(
     const isSbtcPair = v.pair.toLowerCase().includes("sbtc");
     if (isSbtcPair && reserveSignal !== "GREEN") {
       v.risk = "high";
-      v.risk_factors.push(`sBTC reserve ${reserveSignal} — elevated peg risk`);
+      v.risk_factors.push(`sBTC reserve ${reserveSignal}: elevated peg risk`);
     }
   }
 
@@ -535,7 +535,7 @@ function buildSuggestedRoutes(
         net_apy_pct:       Math.round(netApy * 100) / 100,
         risk,
         note: reserveSignal !== "GREEN"
-          ? `Requires sBTC exposure. Reserve signal ${reserveSignal} — elevated risk.`
+          ? `Requires sBTC exposure. Reserve signal ${reserveSignal}: elevated risk.`
           : "Requires sBTC exposure. Use hermetica-yield-rotator skill to execute.",
       });
     }
@@ -629,7 +629,7 @@ interface PositionResult {
   error?:       string;
 }
 
-// Decode Clarity value from hex result — handles uint128 (01) and int128 (00)
+// Decode Clarity value from hex result: handles uint128 (01) and int128 (00)
 function decodeClarityInt(hex: string): bigint {
   let h = hex.replace(/^0x/, "");
   // Strip ok wrapper (07) if present
@@ -641,11 +641,11 @@ function decodeClarityInt(hex: string): bigint {
   const raw = BigInt("0x" + h);
 
   if (typeByte === "00") {
-    // int128 — signed, two's complement
+    // int128: signed, two's complement
     const MAX_INT128 = (BigInt(1) << BigInt(127)) - BigInt(1);
     return raw > MAX_INT128 ? raw - (BigInt(1) << BigInt(128)) : raw;
   }
-  // uint128 (01) or unknown — treat as unsigned
+  // uint128 (01) or unknown: treat as unsigned
   return raw;
 }
 
@@ -723,7 +723,7 @@ async function readOnChainCall(contractId: string, fn: string, fnArgs: { type: s
     if (!resp.okay || !resp.result) return null;
     return resp.result as string;
   } catch (e: unknown) {
-    // Silently fail for position reads — logged in caller
+    // Silently fail for position reads: logged in caller
     return null;
   }
 }
@@ -798,7 +798,7 @@ async function runPosition(wallet: string): Promise<void> {
         result.sources_used.push(`on-chain:${pool.contract.split(".")[1]}`);
       } else if (r.status === "fulfilled" && !r.value) {
         result.sources_used.push(`on-chain:${pool.contract.split(".")[1]}`);
-        // No position — not a failure
+        // No position, not a failure
       } else {
         result.sources_failed.push(`on-chain:${pool.contract.split(".")[1]}`);
       }
@@ -903,7 +903,7 @@ async function runDoctor(): Promise<void> {
     checks,
     message: allOk
       ? "All sources reachable. USDCx venue scan ready."
-      : "Some sources unavailable — output may be incomplete.",
+      : "Some sources unavailable, output may be incomplete.",
   }, null, 2));
 
   if (!allOk) process.exit(1);
@@ -934,7 +934,7 @@ async function runOptimizer(opts: {
     _cachedTickers = null;
     _cachedPrices = null;
 
-    // Step 1: Prices (from Bitflow pool data — no external oracle)
+    // Step 1: Prices (from Bitflow pool data, no external oracle)
     let prices: Prices = { btc: 0, stx: 0, sbtcPriceBtc: 1 };
     try {
       prices = await fetchPrices();
@@ -946,14 +946,14 @@ async function runOptimizer(opts: {
     if (prices.btc <= 0 || prices.stx <= 0) {
       result.status = "error";
       result.decision = "AVOID";
-      result.error = "Price data unavailable — cannot compute yields.";
-      result.action = "AVOID — Price feeds down. Retry later.";
+      result.error = "Price data unavailable: cannot compute yields.";
+      result.action = "AVOID: Price feeds down. Retry later.";
       console.log(JSON.stringify(result, null, 2));
       process.exit(3);
       return;
     }
 
-    // Step 2: sBTC reserve signal (computed from Bitflow prices — no extra API call)
+    // Step 2: sBTC reserve signal (computed from Bitflow prices, no extra API call)
     const reserveCheck = await fetchSbtcPriceSignal(prices);
     result.sources_used.push("sbtc-reserve-signal");
 
@@ -1009,7 +1009,7 @@ async function runOptimizer(opts: {
     for (const v of result.direct_venues) {
       if (v.pair.toLowerCase().includes("sbtc") && reserveCheck.signal !== "GREEN") {
         result.risk_assessment.flagged_pools.push(
-          `${v.pool_id}: sBTC reserve ${reserveCheck.signal} — ${reserveCheck.deviation_pct.toFixed(2)}% price deviation`
+          `${v.pool_id}: sBTC reserve ${reserveCheck.signal}, ${reserveCheck.deviation_pct.toFixed(2)}% price deviation`
         );
       }
     }
@@ -1032,16 +1032,16 @@ async function runOptimizer(opts: {
     // Step 7: Decision + MCP commands
     if (result.direct_venues.length === 0) {
       result.decision = "AVOID";
-      result.action = "AVOID — No USDCx venues meet risk and TVL criteria. Hold USDCx or lower risk tolerance.";
+      result.action = "AVOID, No USDCx venues meet risk and TVL criteria. Hold USDCx or lower risk tolerance.";
     } else if (opts.from && result.profit_gate && !result.profit_gate.passed) {
       result.decision = "HOLD";
-      result.action = `HOLD — Stay in ${opts.from}. ${result.profit_gate.reason}`;
+      result.action = `HOLD: Stay in ${opts.from}. ${result.profit_gate.reason}`;
     } else {
       const best = result.direct_venues[0];
       result.decision = "DEPLOY";
 
       const deployAmount = opts.amount > 0 ? Math.min(opts.amount, MAX_DEPLOY_USDCX) : 0;
-      result.action = `DEPLOY — ${deployAmount > 0 ? `${deployAmount} ` : ""}USDCx to ${best.protocol} ${best.pool_id} (${best.pair}). ` +
+      result.action = `DEPLOY: ${deployAmount > 0 ? `${deployAmount} ` : ""}USDCx to ${best.protocol} ${best.pool_id} (${best.pair}). ` +
         `${best.apr_pct}% APR, $${(best.tvl_usd / 1000).toFixed(0)}k TVL, ${best.risk} risk.`;
 
       // Generate MCP commands if --confirm and amount specified
@@ -1049,16 +1049,16 @@ async function runOptimizer(opts: {
         const activeBin = await fetchActiveBin(best.pool_id);
         result.mcp_commands = buildDeployCommands(best, deployAmount, activeBin);
         if (result.mcp_commands.length > 0) {
-          result.action += ` [EXECUTABLE — ${result.mcp_commands.length} MCP command(s) ready]`;
+          result.action += ` [EXECUTABLE: ${result.mcp_commands.length} MCP command(s) ready]`;
         }
       } else if (!opts.confirm && deployAmount > 0 && best.protocol === "hodlmm") {
-        result.action += " [DRY RUN — add --confirm to generate executable MCP commands]";
+        result.action += " [DRY RUN: add --confirm to generate executable MCP commands]";
       }
 
       // Add suggested route hint if it beats direct
       if (result.suggested_routes.length > 0) {
         const route = result.suggested_routes[0];
-        result.action += ` | Higher yield available via ${route.destination} (${route.net_apy_pct}% net APY after swap cost) — use hermetica-yield-rotator to execute.`;
+        result.action += ` | Higher yield available via ${route.destination} (${route.net_apy_pct}% net APY after swap cost): use hermetica-yield-rotator to execute.`;
       }
     }
 
@@ -1082,7 +1082,7 @@ const program = new Command();
 
 program
   .name("usdcx-yield-optimizer")
-  .description("Autonomous USDCx yield deployer for Bitflow — scans HODLMM pools, XYK, and Hermetica")
+  .description("Autonomous USDCx yield deployer for Bitflow: scans HODLMM pools, XYK, and Hermetica")
   .version("1.0.0");
 
 program
@@ -1094,9 +1094,9 @@ program
 
 program
   .command("install-packs")
-  .description("No additional packs required — self-contained")
+  .description("No additional packs required: self-contained")
   .action(() => {
-    console.log(JSON.stringify({ status: "ok", message: "No additional packs required — self-contained." }));
+    console.log(JSON.stringify({ status: "ok", message: "No additional packs required, self-contained." }));
   });
 
 program

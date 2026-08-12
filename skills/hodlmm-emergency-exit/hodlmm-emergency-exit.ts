@@ -262,7 +262,7 @@ function makeDecision(
   if (signal === "RED" || signal === "DATA_UNAVAILABLE") {
     return {
       decision: "EXIT",
-      reason: `Reserve signal ${signal} — sBTC peg unsafe (reserve_ratio: ${audit.reserve_ratio ?? "null"}, score: ${audit.score})`,
+      reason: `Reserve signal ${signal}, sBTC peg unsafe (reserve_ratio: ${audit.reserve_ratio ?? "null"}, score: ${audit.score})`,
     };
   }
 
@@ -275,7 +275,7 @@ function makeDecision(
   if (signal === "YELLOW") {
     return {
       decision: "WARN",
-      reason: `Reserve signal YELLOW — peg degraded (reserve_ratio: ${audit.reserve_ratio}, score: ${audit.score}). Hold position, do not add liquidity.`,
+      reason: `Reserve signal YELLOW, peg degraded (reserve_ratio: ${audit.reserve_ratio}, score: ${audit.score}). Hold position, do not add liquidity.`,
     };
   }
 
@@ -420,12 +420,12 @@ export async function evaluateExit(opts: {
 
     const blocked = decision === "EXIT" && refusalReasons.length > 0;
     const actionText = blocked
-      ? `EXIT BLOCKED — ${refusalReasons.join("; ")}`
+      ? `EXIT BLOCKED: ${refusalReasons.join("; ")}`
       : decision === "EXIT"
         ? `[CRITICAL] HODLMM Exit Triggered: ${reason}`
         : decision === "WARN"
-          ? `WARN — ${reason}`
-          : `HOLD — ${reason}`;
+          ? `WARN: ${reason}`
+          : `HOLD, ${reason}`;
 
     return {
       status:   blocked ? "blocked" : "success",
@@ -458,7 +458,7 @@ function errorResult(code: string, message: string, poolId: string, wallet: stri
   return {
     status:   "error",
     decision: "EXIT",
-    action:   `[CRITICAL] HODLMM Exit Triggered: ${code} — ${message}. Treat as EXIT — do not proceed with HODLMM operations.`,
+    action:   `[CRITICAL] HODLMM Exit Triggered: ${code}, ${message}. Treat as EXIT: do not proceed with HODLMM operations.`,
     data: {
       reserve_audit: null, position_check: null,
       exit_reason: `${code}: ${message}`,
@@ -535,7 +535,7 @@ async function runDoctor(): Promise<void> {
     checks,
     message: allOk
       ? "All systems operational. Emergency exit pipeline ready."
-      : "One or more checks failed — exit pipeline may be degraded.",
+      : "One or more checks failed, exit pipeline may be degraded.",
   }, null, 2));
 }
 
@@ -544,7 +544,7 @@ const program = new Command();
 
 program
   .name("hodlmm-emergency-exit")
-  .description("HODLMM Emergency Exit — autonomous capital protection for LP positions")
+  .description("HODLMM Emergency Exit: autonomous capital protection for LP positions")
   .version("1.0.0");
 
 program

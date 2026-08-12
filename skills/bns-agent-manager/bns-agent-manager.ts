@@ -1,17 +1,17 @@
 #!/usr/bin/env bun
 /**
- * bns-agent-manager — Autonomous BNS Name Registration, Transfer & Sniper
+ * bns-agent-manager: Autonomous BNS Name Registration, Transfer & Sniper
  *
  * First write-capable BNS skill. Agents can register .btc names, transfer
  * ownership, and autonomously snipe expiring names with price + gas safety gates.
  *
  * Commands:
- *   doctor     — check wallet, API access, STX balance, gas adequacy
- *   search     — check availability + price for name(s)
- *   portfolio  — list all BNS names owned by wallet
- *   register   — register a .btc name via claim_bns_name_fast
- *   transfer   — send a name to another address via transfer_nft
- *   snipe      — watch names, auto-register when available
+ *   doctor: check wallet, API access, STX balance, gas adequacy
+ *   search: check availability + price for name(s)
+ *   portfolio: list all BNS names owned by wallet
+ *   register: register a .btc name via claim_bns_name_fast
+ *   transfer: send a name to another address via transfer_nft
+ *   snipe: watch names, auto-register when available
  */
 
 import { Command } from "commander";
@@ -255,7 +255,7 @@ async function getPortfolio(address: string): Promise<PortfolioEntry[]> {
     log("BNS v1 lookup error:", err);
   }
 
-  // BNS V2 NFT lookup — names are NFTs in V2
+  // BNS V2 NFT lookup: names are NFTs in V2
   try {
     const nftData = await fetchJson<NftHoldingsResponse>(
       `${HIRO_API}/extended/v1/tokens/nft/holdings?principal=${address}&limit=50`
@@ -334,7 +334,7 @@ async function doctorCmd(): Promise<void> {
     checks.hiro_api = "failed";
   }
 
-  // BNS API — test with a known name
+  // BNS API: test with a known name
   try {
     await fetchJson<HiroNameInfo>(`${HIRO_API}/v1/names/satoshi.btc`);
     checks.bns_api = "ok";
@@ -455,7 +455,7 @@ async function registerCmd(
       name: info.full_name,
       owner: info.owner,
       status: info.status,
-    }, `${info.full_name} is not available — owned by ${info.owner}`);
+    }, `${info.full_name} is not available: owned by ${info.owner}`);
     return;
   }
 
@@ -568,7 +568,7 @@ async function transferCmd(
   const info = await checkAvailability(name);
   if (info.available) {
     out("error", "transfer", { name: fullName },
-      `${fullName} is not registered — cannot transfer.`);
+      `${fullName} is not registered: cannot transfer.`);
     return;
   }
 

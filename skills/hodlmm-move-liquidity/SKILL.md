@@ -1,9 +1,9 @@
 ---
 name: hodlmm-move-liquidity
-description: "HODLMM Move-Liquidity & Auto-Rebalancer — withdraw from drifted bins, re-deposit around the current active bin. Includes autonomous monitoring loop."
+description: "HODLMM Move-Liquidity & Auto-Rebalancer, withdraw from drifted bins, re-deposit around the current active bin. Includes autonomous monitoring loop."
 metadata:
   author: "cliqueengagements"
-  author-agent: "Micro Basilisk (Agent 77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
+  author-agent: "Micro Basilisk (Agent 77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "false"
   arguments: "doctor | scan | run | auto | install-packs"
   entry: "hodlmm-move-liquidity/hodlmm-move-liquidity.ts"
@@ -19,21 +19,21 @@ When the active bin drifts away from your LP position, move your liquidity to th
 
 The active bin is where all trades flow and fees accrue. Capital in any other bin earns zero. This skill concentrates your liquidity where it earns.
 
-The `auto` command runs as an autonomous rebalancer — it monitors all pools on a configurable interval and automatically moves liquidity when drift exceeds a threshold. No manual intervention required. Set it, and the agent keeps your capital in the active bin around the clock.
+The `auto` command runs as an autonomous rebalancer: it monitors all pools on a configurable interval and automatically moves liquidity when drift exceeds a threshold. No manual intervention required. Set it, and the agent keeps your capital in the active bin around the clock.
 
 ## Why agents need it
 
-Every HODLMM read skill in the competition hits the same wall. They detect drift, score risk, recommend action — then stop. Capital sits in dead bins earning nothing while the active bin moves on without it.
+Every HODLMM read skill in the competition hits the same wall. They detect drift, score risk, recommend action, then stop. Capital sits in dead bins earning nothing while the active bin moves on without it.
 
-This skill closes the loop. The `run` command moves liquidity on demand. The `auto` command makes it autonomous — an agent running this skill keeps its capital productive without human intervention, 24/7.
+This skill closes the loop. The `run` command moves liquidity on demand. The `auto` command makes it autonomous: an agent running this skill keeps its capital productive without human intervention, 24/7.
 
 ## Safety notes
 
-- **Writes to chain.** One atomic transaction per rebalance via `move-relative-liquidity-multi`. Withdraw + deposit happen in a single on-chain call — either both succeed or neither does.
-- **Moves funds.** Liquidity is removed from old bins and placed in new bins. No tokens leave the LP's wallet — they pass through the DLMM liquidity router contract.
+- **Writes to chain.** One atomic transaction per rebalance via `move-relative-liquidity-multi`. Withdraw + deposit happen in a single on-chain call: either both succeed or neither does.
+- **Moves funds.** Liquidity is removed from old bins and placed in new bins. No tokens leave the LP's wallet: they pass through the DLMM liquidity router contract.
 - **Mainnet only.** All contract addresses are mainnet Stacks.
 - **`--confirm` required for `run`.** Without it, `run` outputs a dry-run preview with full plan details. No transaction is broadcast. The `auto` command executes directly (operator opts in by starting it).
-- **postConditionMode: Allow** — HODLMM operations mint and burn DLP tokens in the same transaction, which cannot be expressed as sender-side post-conditions. Contract-level slippage protection compensates: each move requires ≥95% DLP shares back (`min-dlp`) and caps liquidity fees at 5% of the amount (`max-x-liquidity-fee`, `max-y-liquidity-fee`). If the contract violates either bound, the transaction reverts on-chain. Additional safety: `--confirm` gate, cooldown, in-range check, and gas check.
+- **postConditionMode: Allow**, HODLMM operations mint and burn DLP tokens in the same transaction, which cannot be expressed as sender-side post-conditions. Contract-level slippage protection compensates: each move requires ≥95% DLP shares back (`min-dlp`) and caps liquidity fees at 5% of the amount (`max-x-liquidity-fee`, `max-y-liquidity-fee`). If the contract violates either bound, the transaction reverts on-chain. Additional safety: `--confirm` gate, cooldown, in-range check, and gas check.
 - **4-hour cooldown** between moves on the same pool, enforced in code and persisted to disk.
 
 ## Commands
@@ -73,8 +73,8 @@ bun run hodlmm-move-liquidity/hodlmm-move-liquidity.ts run --wallet <addr> --poo
 ```
 
 Options:
-- `--spread <n>` — bin spread ±N around active bin (default: 5, max: 10)
-- `--force` — force rebalance even if position is in range (recenter around active bin)
+- `--spread <n>`: bin spread ±N around active bin (default: 5, max: 10)
+- `--force`: force rebalance even if position is in range (recenter around active bin)
 
 ### auto
 
@@ -92,11 +92,11 @@ bun run hodlmm-move-liquidity/hodlmm-move-liquidity.ts auto --wallet <addr> --pa
 ```
 
 Options:
-- `--interval <minutes>` — check interval (default: 15, minimum: 5)
-- `--drift-threshold <bins>` — minimum drift to trigger move (default: 3)
-- `--spread <n>` — bin spread ±N around active bin (default: 5, max: 10)
-- `--max-moves <n>` — max moves per cycle, 0 = unlimited (default: 0)
-- `--once` — run one cycle then exit
+- `--interval <minutes>`: check interval (default: 15, minimum: 5)
+- `--drift-threshold <bins>`: minimum drift to trigger move (default: 3)
+- `--spread <n>`: bin spread ±N around active bin (default: 5, max: 10)
+- `--max-moves <n>`: max moves per cycle, 0 = unlimited (default: 0)
+- `--once`: run one cycle then exit
 
 ### install-packs
 
@@ -110,7 +110,7 @@ bun run hodlmm-move-liquidity/hodlmm-move-liquidity.ts install-packs
 
 All commands emit JSON to stdout.
 
-**scan — success:**
+**scan: success:**
 ```json
 {
   "status": "success",
@@ -140,21 +140,21 @@ All commands emit JSON to stdout.
 }
 ```
 
-**run — in range (no action):**
+**run: in range (no action):**
 ```json
 {
   "status": "success",
   "action": "run",
   "data": {
     "decision": "IN_RANGE",
-    "reason": "Position is already in the active range — earning fees. No move needed. Use --force to recenter.",
+    "reason": "Position is already in the active range, earning fees. No move needed. Use --force to recenter.",
     "health": { "..." : "..." }
   },
   "error": null
 }
 ```
 
-**run — dry-run:**
+**run: dry-run:**
 ```json
 {
   "status": "success",
@@ -184,7 +184,7 @@ All commands emit JSON to stdout.
 }
 ```
 
-**run — executed:**
+**run: executed:**
 ```json
 {
   "status": "success",
@@ -202,7 +202,7 @@ All commands emit JSON to stdout.
 }
 ```
 
-**auto — cycle report:**
+**auto: cycle report:**
 ```json
 {
   "status": "success",
@@ -229,11 +229,11 @@ All commands emit JSON to stdout.
 
 **Blocked:**
 ```json
-{ "status": "blocked", "action": "run", "data": { "cooldown_minutes": 42 }, "error": "Cooldown active — 42 minutes remaining" }
+{ "status": "blocked", "action": "run", "data": { "cooldown_minutes": 42 }, "error": "Cooldown active, 42 minutes remaining" }
 ```
 
 ## Known constraints
 
 - Requires `@stacks/transactions` and `@stacks/wallet-sdk` to be installed in the runtime environment.
-- Single atomic transaction via `move-relative-liquidity-multi` — either all bins move or none do. No partial execution risk.
-- Liquidity is distributed across ±spread bins around the active bin (default ±5). The DLMM bin invariant requires bins below active to hold only Y token and bins above active to hold only X token — source bins below active map to destination offsets [-spread, 0] and source bins above active map to [0, +spread].
+- Single atomic transaction via `move-relative-liquidity-multi`: either all bins move or none do. No partial execution risk.
+- Liquidity is distributed across ±spread bins around the active bin (default ±5). The DLMM bin invariant requires bins below active to hold only Y token and bins above active to hold only X token: source bins below active map to destination offsets [-spread, 0] and source bins above active map to [0, +spread].

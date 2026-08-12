@@ -1,4 +1,4 @@
-# Day 4 — [AIBTC Skills Comp Day 4] Hermetica Yield Rotator
+# Day 4: [AIBTC Skills Comp Day 4] Hermetica Yield Rotator
 > **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/56 (merged)
 > **Live upstream:** https://github.com/BitflowFinance/bff-skills/tree/main/skills/hermetica-yield-rotator
 
@@ -13,10 +13,10 @@ hermetica-yield-rotator
 - [ ] Infrastructure
 - [ ] Signals
 
-**HODLMM integration?** Yes — eligible for the +$1,000 sBTC bonus pool
+**HODLMM integration?** Yes: eligible for the +$1,000 sBTC bonus pool
 
 ## What it does
-Cross-protocol yield rotator for Stacks mainnet. Monitors Hermetica USDh staking APY against Bitflow HODLMM dlmm_1 APR from live on-chain data — querying five Hermetica contracts and the Bitflow App API — and executes capital rotation to the higher-yielding protocol when the differential exceeds a 2% threshold.
+Cross-protocol yield rotator for Stacks mainnet. Monitors Hermetica USDh staking APY against Bitflow HODLMM dlmm_1 APR from live on-chain data: querying five Hermetica contracts and the Bitflow App API, and executes capital rotation to the higher-yielding protocol when the differential exceeds a 2% threshold.
 
 Features write-capable MCP command outputs for stake, unstake, withdraw-claim, and rotate actions with guardrails including --confirm gates, 500 USDh spend cap, STX gas verification, and preflight checks.
 
@@ -26,7 +26,7 @@ Features write-capable MCP command outputs for stake, unstake, withdraw-claim, a
 Skill outputs MCP commands via `npx @aibtc/mcp-server@latest` without direct transaction broadcasting. All five Hermetica mainnet contracts confirmed reachable. Includes balance guards, confirms requirements, and enforces spend limit with documented error responses.
 
 ## Does this integrate HODLMM?
-Yes — eligible for +$1,000 sBTC bonus pool. Fetches live dlmm_1 APR and active bin per run, outputs `bitflow_swap` (USDh → USDCx), `bitflow_hodlmm_add_liquidity`, and `bitflow_hodlmm_remove_liquidity` MCP commands as part of the rotation pipeline. The swap step ensures correct token denomination for dlmm_1.
+Yes: eligible for +$1,000 sBTC bonus pool. Fetches live dlmm_1 APR and active bin per run, outputs `bitflow_swap` (USDh → USDCx), `bitflow_hodlmm_add_liquidity`, and `bitflow_hodlmm_remove_liquidity` MCP commands as part of the rotation pipeline. The swap step ensures correct token denomination for dlmm_1.
 
 
 **Balance guard (live mainnet):**
@@ -85,7 +85,7 @@ Doctor checks confirm all data sources reachable; install-packs shows no externa
 ```json
 {
   "status": "success",
-  "action": "CHECK — staking enabled, protocol healthy. Provide --wallet to check position.",
+  "action": "CHECK, staking enabled, protocol healthy. Provide --wallet to check position.",
   "data": {
     "staking_enabled": true,
     "exchange_rate": 1,
@@ -97,7 +97,7 @@ Doctor checks confirm all data sources reachable; install-packs shows no externa
     "hodlmm_apr_pct": 31.77,
     "hodlmm_tvl_usd": 43969.25,
     "hodlmm_active_bin": 506,
-    "yield_comparison": "HODLMM dlmm_1 APR: 31.77% | USDh staking APY: tracking started — check again in ≥1h",
+    "yield_comparison": "HODLMM dlmm_1 APR: 31.77% | USDh staking APY: tracking started, check again in ≥1h",
     "user_usdh": 0,
     "user_susdh": 0,
     "user_susdh_value_usdh": 0,
@@ -117,9 +117,9 @@ Doctor checks confirm all data sources reachable; install-packs shows no externa
 
 All three issues raised by @arc0btc have been implemented and verified:
 
-1. **`decodeBool` wrapper stripping** — added `0x07` (response-ok) / `0x08` (response-err) prefix handling, matching `decodeUint128` behavior. Previously would throw on `(ok true)` responses.
-2. **Rotation cooldown no-op guard** — `last_rotation_at` now only updates when commands are actually generated (`cmds.length > 0`), preserving the 30-min window on no-op rotations.
-3. **USDh→USDCx token mismatch** — added `TOKEN_USDCX` constant, `swapUsdhToUsdcxCmd()` builder, and swap step before `addLiquidityCmd` in the HODLMM path. dlmm_1 accepts USDCx, not USDh — without this, MCP commands would fail on-chain.
+1. **`decodeBool` wrapper stripping**: added `0x07` (response-ok) / `0x08` (response-err) prefix handling, matching `decodeUint128` behavior. Previously would throw on `(ok true)` responses.
+2. **Rotation cooldown no-op guard**: `last_rotation_at` now only updates when commands are actually generated (`cmds.length > 0`), preserving the 30-min window on no-op rotations.
+3. **USDh→USDCx token mismatch**: added `TOKEN_USDCX` constant, `swapUsdhToUsdcxCmd()` builder, and swap step before `addLiquidityCmd` in the HODLMM path. dlmm_1 accepts USDCx, not USDh, without this, MCP commands would fail on-chain.
 
 Documentation fixes per @TheBigMacBTC:
 - Renamed "Safety model" → "Safety notes" in SKILL.md
@@ -129,13 +129,13 @@ Documentation fixes per @TheBigMacBTC:
 ### Security notes
 
 - **Hardcoded 500 USDh autonomous spend cap** enforced in code at `MAX_AUTONOMOUS_STAKE_USDH = 500`
-- **Doctor-first preflight** — write actions abort with `PREFLIGHT_FAILED` if Hermetica contracts unreachable
-- **All write actions require `--confirm`** — stake, unstake, withdraw-claim, rotate
-- **STX gas check** — refused if wallet STX < 10,000 µSTX
-- **Post-conditions** — sUSDh credit FT `gte` post-condition with 1% slippage; tx reverts on-chain if short
+- **Doctor-first preflight**: write actions abort with `PREFLIGHT_FAILED` if Hermetica contracts unreachable
+- **All write actions require `--confirm`**: stake, unstake, withdraw-claim, rotate
+- **STX gas check**: refused if wallet STX < 10,000 µSTX
+- **Post-conditions**: sUSDh credit FT `gte` post-condition with 1% slippage; tx reverts on-chain if short
 - **2% rotation threshold** + **30-min cooldown** prevent churn
 - **USDh→USDCx swap** before HODLMM deposit (dlmm_1 accepts USDCx, not USDh)
-- Mainnet-only. State in `~/.hermetica-yield-rotator-state.json` — no keys, no sensitive data
+- Mainnet-only. State in `~/.hermetica-yield-rotator-state.json`, no keys, no sensitive data
 
 ## Frontmatter validation
 
@@ -152,7 +152,7 @@ Skills validated: 1 | Errors: 0 | Warnings: 0 | ALL PASSED ✅
 
 ### Bug fix: wrong unstake function names (2026-04-06)
 
-The original merged PR #56 used `initiate-unstake` and `complete-unstake` as on-chain function names — **these functions do not exist** on the Hermetica staking-v1 contract. The actual on-chain interface is:
+The original merged PR #56 used `initiate-unstake` and `complete-unstake` as on-chain function names: **these functions do not exist** on the Hermetica staking-v1 contract. The actual on-chain interface is:
 
 | Action | Wrong (PR #56) | Correct (fixed) |
 |--------|---------------|-----------------|
@@ -160,8 +160,8 @@ The original merged PR #56 used `initiate-unstake` and `complete-unstake` as on-
 | Withdraw USDh | `staking-v1.complete-unstake()` | `staking-silo-v1-1.withdraw(claim-id)` |
 
 The fix changes:
-- `initiateUnstakeCmd` → `unstakeCmd` — calls `staking-v1.unstake(uint)`, which burns sUSDh and creates a claim in `staking-silo-v1-1`
-- `completeUnstakeCmd` → `withdrawClaimCmd` — calls `staking-silo-v1-1.withdraw(claim-id)` (different contract), which returns USDh after the 7-day cooldown
+- `initiateUnstakeCmd` → `unstakeCmd`: calls `staking-v1.unstake(uint)`, which burns sUSDh and creates a claim in `staking-silo-v1-1`
+- `completeUnstakeCmd` → `withdrawClaimCmd`: calls `staking-silo-v1-1.withdraw(claim-id)` (different contract), which returns USDh after the 7-day cooldown
 - CLI actions renamed: `initiate-unstake` → `unstake`, `complete-unstake` → `withdraw-claim`
 - All state tracking, rotate handler references, and docs updated
 
@@ -197,10 +197,10 @@ hermetica-yield-rotator
 - [ ] Infrastructure
 - [ ] Signals
 
-**HODLMM integration?** Yes — eligible for the +$1,000 sBTC bonus pool
+**HODLMM integration?** Yes: eligible for the +$1,000 sBTC bonus pool
 
 ## What it does
-Cross-protocol yield rotator for Stacks mainnet. Monitors Hermetica USDh staking APY against Bitflow HODLMM dlmm_1 APR from live on-chain data — querying five Hermetica contracts and the Bitflow App API — and executes capital rotation to the higher-yielding protocol when the differential exceeds a 2% threshold.
+Cross-protocol yield rotator for Stacks mainnet. Monitors Hermetica USDh staking APY against Bitflow HODLMM dlmm_1 APR from live on-chain data: querying five Hermetica contracts and the Bitflow App API, and executes capital rotation to the higher-yielding protocol when the differential exceeds a 2% threshold.
 
 Features write-capable MCP command outputs for stake, initiate-unstake, complete-unstake, and rotate actions with guardrails including --confirm gates, 500 USDh spend cap, STX gas verification, and preflight checks.
 
@@ -210,7 +210,7 @@ Features write-capable MCP command outputs for stake, initiate-unstake, complete
 Skill outputs MCP commands via `npx @aibtc/mcp-server@latest` without direct transaction broadcasting. All five Hermetica mainnet contracts confirmed reachable. Includes balance guards, confirms requirements, and enforces spend limit with documented error responses.
 
 ## Does this integrate HODLMM?
-Yes — eligible for +$1,000 sBTC bonus pool. Fetches live dlmm_1 APR and active bin per run, outputs `bitflow_swap` (USDh → USDCx), `bitflow_hodlmm_add_liquidity`, and `bitflow_hodlmm_remove_liquidity` MCP commands as part of the rotation pipeline. The swap step ensures correct token denomination for dlmm_1.
+Yes: eligible for +$1,000 sBTC bonus pool. Fetches live dlmm_1 APR and active bin per run, outputs `bitflow_swap` (USDh → USDCx), `bitflow_hodlmm_add_liquidity`, and `bitflow_hodlmm_remove_liquidity` MCP commands as part of the rotation pipeline. The swap step ensures correct token denomination for dlmm_1.
 
 
 **Balance guard (live mainnet):**
@@ -269,7 +269,7 @@ Doctor checks confirm all data sources reachable; install-packs shows no externa
 ```json
 {
   "status": "success",
-  "action": "CHECK — staking enabled, protocol healthy. Provide --wallet to check position.",
+  "action": "CHECK, staking enabled, protocol healthy. Provide --wallet to check position.",
   "data": {
     "staking_enabled": true,
     "exchange_rate": 1,
@@ -281,7 +281,7 @@ Doctor checks confirm all data sources reachable; install-packs shows no externa
     "hodlmm_apr_pct": 31.77,
     "hodlmm_tvl_usd": 43969.25,
     "hodlmm_active_bin": 506,
-    "yield_comparison": "HODLMM dlmm_1 APR: 31.77% | USDh staking APY: tracking started — check again in ≥1h",
+    "yield_comparison": "HODLMM dlmm_1 APR: 31.77% | USDh staking APY: tracking started, check again in ≥1h",
     "user_usdh": 0,
     "user_susdh": 0,
     "user_susdh_value_usdh": 0,
@@ -301,9 +301,9 @@ Doctor checks confirm all data sources reachable; install-packs shows no externa
 
 All three issues raised by @arc0btc have been implemented and verified:
 
-1. **`decodeBool` wrapper stripping** — added `0x07` (response-ok) / `0x08` (response-err) prefix handling, matching `decodeUint128` behavior. Previously would throw on `(ok true)` responses.
-2. **Rotation cooldown no-op guard** — `last_rotation_at` now only updates when commands are actually generated (`cmds.length > 0`), preserving the 30-min window on no-op rotations.
-3. **USDh→USDCx token mismatch** — added `TOKEN_USDCX` constant, `swapUsdhToUsdcxCmd()` builder, and swap step before `addLiquidityCmd` in the HODLMM path. dlmm_1 accepts USDCx, not USDh — without this, MCP commands would fail on-chain.
+1. **`decodeBool` wrapper stripping**: added `0x07` (response-ok) / `0x08` (response-err) prefix handling, matching `decodeUint128` behavior. Previously would throw on `(ok true)` responses.
+2. **Rotation cooldown no-op guard**: `last_rotation_at` now only updates when commands are actually generated (`cmds.length > 0`), preserving the 30-min window on no-op rotations.
+3. **USDh→USDCx token mismatch**: added `TOKEN_USDCX` constant, `swapUsdhToUsdcxCmd()` builder, and swap step before `addLiquidityCmd` in the HODLMM path. dlmm_1 accepts USDCx, not USDh, without this, MCP commands would fail on-chain.
 
 Documentation fixes per @TheBigMacBTC:
 - Renamed "Safety model" → "Safety notes" in SKILL.md
@@ -313,13 +313,13 @@ Documentation fixes per @TheBigMacBTC:
 ### Security notes
 
 - **Hardcoded 500 USDh autonomous spend cap** enforced in code at `MAX_AUTONOMOUS_STAKE_USDH = 500`
-- **Doctor-first preflight** — write actions abort with `PREFLIGHT_FAILED` if Hermetica contracts unreachable
-- **All write actions require `--confirm`** — stake, initiate-unstake, complete-unstake, rotate
-- **STX gas check** — refused if wallet STX < 10,000 µSTX
-- **Post-conditions** — sUSDh credit FT `gte` post-condition with 1% slippage; tx reverts on-chain if short
+- **Doctor-first preflight**: write actions abort with `PREFLIGHT_FAILED` if Hermetica contracts unreachable
+- **All write actions require `--confirm`**: stake, initiate-unstake, complete-unstake, rotate
+- **STX gas check**: refused if wallet STX < 10,000 µSTX
+- **Post-conditions**: sUSDh credit FT `gte` post-condition with 1% slippage; tx reverts on-chain if short
 - **2% rotation threshold** + **30-min cooldown** prevent churn
 - **USDh→USDCx swap** before HODLMM deposit (dlmm_1 accepts USDCx, not USDh)
-- Mainnet-only. State in `~/.hermetica-yield-rotator-state.json` — no keys, no sensitive data
+- Mainnet-only. State in `~/.hermetica-yield-rotator-state.json`, no keys, no sensitive data
 
 ## Frontmatter validation
 

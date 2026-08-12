@@ -1,9 +1,9 @@
 ---
 name: bns-agent-manager
-description: "Autonomous BNS .btc name registration, transfer, and sniper — agents can claim, manage, and trade on-chain identities."
+description: "Autonomous BNS .btc name registration, transfer, and sniper, agents can claim, manage, and trade on-chain identities."
 metadata:
   author: "cliqueengagements"
-  author-agent: "Micro Basilisk (Agent #77) — microbasilisk.btc"
+  author-agent: "Micro Basilisk (Agent #77), microbasilisk.btc"
   user-invocable: "false"
   arguments: "doctor | search | portfolio | register | transfer | snipe | install-packs"
   entry: "bns-agent-manager/bns-agent-manager.ts"
@@ -14,10 +14,10 @@ metadata:
 # BNS Agent Manager
 
 ## What it does
-Gives agents full lifecycle management of BNS .btc names: check availability and pricing, register names via `claim_bns_name_fast`, transfer ownership via `transfer_nft`, and autonomously snipe target names when they become available. Three write actions, seven commands, two MCP write tools (`claim_bns_name_fast`, `transfer_nft`) plus direct Hiro BNS API reads — the first BNS write skill in the competition.
+Gives agents full lifecycle management of BNS .btc names: check availability and pricing, register names via `claim_bns_name_fast`, transfer ownership via `transfer_nft`, and autonomously snipe target names when they become available. Three write actions, seven commands, two MCP write tools (`claim_bns_name_fast`, `transfer_nft`) plus direct Hiro BNS API reads: the first BNS write skill in the competition.
 
 ## Why agents need it
-Every AIBTC agent operates with a bare Stacks address. A .btc name is the on-chain identity primitive — `microbasilisk.btc` is discoverable, memorable, and composable across Nostr, BNS lookups, and agent-to-agent messaging. Without this skill, agents cannot register names, transfer them, or watch for expiring names to claim. This unlocks identity as a first-class agent capability.
+Every AIBTC agent operates with a bare Stacks address. A .btc name is the on-chain identity primitive: `microbasilisk.btc` is discoverable, memorable, and composable across Nostr, BNS lookups, and agent-to-agent messaging. Without this skill, agents cannot register names, transfer them, or watch for expiring names to claim. This unlocks identity as a first-class agent capability.
 
 ## Safety notes
 - **Writes to chain**: `register` burns STX to mint a BNS V2 NFT. `transfer` moves the NFT to another address. Both are irreversible.
@@ -128,10 +128,10 @@ All outputs are JSON to stdout. Logs go to stderr.
 ```
 
 ## Known constraints
-- Mainnet only — BNS V2 is not deployed on testnet
+- Mainnet only: BNS V2 is not deployed on testnet
 - Hiro BNS API may not list BNS V2 names in the v1 endpoint; skill cross-references NFT holdings
 - Name pricing endpoint may return estimates for some names; length-based fallback pricing is used
-- Transfer requires NFT token ID resolution — if portfolio lookup fails to resolve the token ID, transfer is blocked with guidance
+- Transfer requires NFT token ID resolution: if portfolio lookup fails to resolve the token ID, transfer is blocked with guidance
 - Snipe command runs a single scan per invocation; for continuous sniping, schedule via cron or agent loop
 - Registration confirmation takes ~5 seconds (1 Stacks block post-Nakamoto)
 - BNS V2 contract address is configurable but defaults to the canonical deployment

@@ -1,22 +1,22 @@
 ---
 name: hodlmm-bin-guardian
 skill: hodlmm-bin-guardian
-description: "Autonomous LP range monitor for Bitflow HODLMM pools. Checks if a wallet's position is in the active earning bin and recommends HOLD or REBALANCE based on live Bitflow price data, gas estimates, and cooldown state. Read-only — all write actions require human approval."
+description: "Autonomous LP range monitor for Bitflow HODLMM pools. Checks if a wallet's position is in the active earning bin and recommends HOLD or REBALANCE based on live Bitflow price data, gas estimates, and cooldown state. Read-only: all write actions require human approval."
 ---
 
-# HODLMM Bin Guardian — Agent Safety Rules
+# HODLMM Bin Guardian: Agent Safety Rules
 
 ## Decision order
 - Maximum estimated gas per rebalance: **50 STX** (2 contract calls: withdraw + add)
-- Slippage cap: **0.5%** — measured as deviation between HODLMM active-bin price and Bitflow app reported token price
+- Slippage cap: **0.5%**, measured as deviation between HODLMM active-bin price and Bitflow app reported token price
 - Cooldown between rebalances: **4 hours** (state tracked in `~/.hodlmm-guardian-state.json`)
 
 ## Guardrails
 Refuse to recommend REBALANCE if ANY of the following are true:
-1. **24h pool volume < $10,000 USD** — insufficient activity to justify rebalance cost
-2. **Slippage > 0.5%** — HODLMM bin price deviates too far from Bitflow app token price
-3. **Estimated gas > 50 STX** — transaction cost exceeds the spend limit
-4. **Cooldown has not elapsed** — last rebalance was < 4 hours ago
+1. **24h pool volume < $10,000 USD**: insufficient activity to justify rebalance cost
+2. **Slippage > 0.5%**: HODLMM bin price deviates too far from Bitflow app token price
+3. **Estimated gas > 50 STX**: transaction cost exceeds the spend limit
+4. **Cooldown has not elapsed**: last rebalance was < 4 hours ago
 
 ## In-Range Check
 The real in-range check requires a `--wallet` address. Without it, `in_range` is `null` and no REBALANCE recommendation is made.
@@ -27,13 +27,13 @@ When `--wallet` is provided:
 - `in_range = true` if `active_bin_id` is within the user's liquidity bins
 
 ## Autonomous Actions Allowed
-- Fetch public API data (Bitflow HODLMM, Bitflow ticker, Hiro) — always allowed
-- Compute and output JSON recommendation — always allowed
-- Read/write cooldown state file (`~/.hodlmm-guardian-state.json`) — always allowed
+- Fetch public API data (Bitflow HODLMM, Bitflow ticker, Hiro): always allowed
+- Compute and output JSON recommendation: always allowed
+- Read/write cooldown state file (`~/.hodlmm-guardian-state.json`): always allowed
 
 ## Actions Requiring Human Approval
-- `add-liquidity-simple` — any transaction adding liquidity
-- `withdraw-liquidity-simple` — any transaction withdrawing liquidity
+- `add-liquidity-simple`: any transaction adding liquidity
+- `withdraw-liquidity-simple`: any transaction withdrawing liquidity
 - Any transaction spending STX or sBTC
 
 ## Output Contract

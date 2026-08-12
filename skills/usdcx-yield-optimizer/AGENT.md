@@ -1,15 +1,15 @@
 ---
 name: usdcx-yield-optimizer
 skill: usdcx-yield-optimizer
-description: "Autonomous USDCx yield deployer — reads on-chain HODLMM positions, ranks Bitflow venues by risk-adjusted APR with sBTC reserve safety check, Yield-to-Gas profit gate, and executable MCP command specs for HODLMM deployment. Write-capable with --confirm gate."
+description: "Autonomous USDCx yield deployer, reads on-chain HODLMM positions, ranks Bitflow venues by risk-adjusted APR with sBTC reserve safety check, Yield-to-Gas profit gate, and executable MCP command specs for HODLMM deployment. Write-capable with --confirm gate."
 ---
 
-# USDCx Yield Optimizer — Agent Behavior Rules
+# USDCx Yield Optimizer: Agent Behavior Rules
 
 ## Decision order
 
-1. Run `doctor` first. If Bitflow HODLMM App API is unavailable, abort — no venue data available.
-2. Run `position` to check if the wallet already has HODLMM liquidity — use the output to auto-detect `--from` venue and current APR.
+1. Run `doctor` first. If Bitflow HODLMM App API is unavailable, abort, no venue data available.
+2. Run `position` to check if the wallet already has HODLMM liquidity: use the output to auto-detect `--from` venue and current APR.
 3. Run `run` with appropriate flags:
    - No flags: scan all venues at medium risk tolerance
    - `--risk low`: conservative (stablecoin pairs + lending only)
@@ -36,7 +36,7 @@ description: "Autonomous USDCx yield deployer — reads on-chain HODLMM position
 
 | Field | Use |
 |-------|-----|
-| `decision` | Primary gate — DEPLOY / HOLD / AVOID |
+| `decision` | Primary gate: DEPLOY / HOLD / AVOID |
 | `direct_venues[0]` | Best venue to deploy USDCx |
 | `risk_assessment.sbtc_reserve_signal` | Gate for sBTC-paired pools |
 | `profit_gate.passed` | If --from used, confirms migration is worth it |
@@ -50,20 +50,20 @@ description: "Autonomous USDCx yield deployer — reads on-chain HODLMM position
 |-------|-----|
 | `positions[]` | Each pool with bins, balances, active bin distance |
 | `positions[].in_range` | Whether user bins overlap active bin |
-| `positions[].bins_from_active` | Distance to active trading — negative = out of range below |
+| `positions[].bins_from_active` | Distance to active trading: negative = out of range below |
 | `active_pools` | Count of pools with non-zero position |
 
 ## When NOT to act
 
-- `decision` is `HOLD` — profit gate failed, stay in current venue
-- `decision` is `AVOID` — no safe venues found
-- `profit_gate.passed` is `false` — gas costs exceed yield improvement
-- `status` is `error` — data unavailable, do not act on incomplete analysis
+- `decision` is `HOLD`: profit gate failed, stay in current venue
+- `decision` is `AVOID`, no safe venues found
+- `profit_gate.passed` is `false`: gas costs exceed yield improvement
+- `status` is `error`: data unavailable, do not act on incomplete analysis
 - `risk_assessment.sbtc_reserve_signal` is `RED` and best venue is sBTC-paired
 
 ## Guardrails
 
-The agent does NOT need to re-implement these checks — the skill enforces them in code:
+The agent does NOT need to re-implement these checks: the skill enforces them in code:
 - Profit gate: 7-day extra yield > gas cost x 3
 - Minimum 1% APY improvement before recommending migration
 - Minimum $50k destination TVL

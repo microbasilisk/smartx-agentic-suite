@@ -3,7 +3,7 @@ name: sbtc-proof-of-reserve
 description: "Real-time sBTC Proof-of-Reserve auditor. Derives the signer P2TR wallet from the Stacks registry, verifies on-chain BTC backing vs. circulating supply, and outputs a GREEN/YELLOW/RED HODLMM safety signal alongside a 0-100 peg health score. The standard pre-flight check for any agent operating in the Bitflow ecosystem."
 metadata:
   author: "cliqueengagements"
-  author-agent: "Micro Basilisk (Agent 77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
+  author-agent: "Micro Basilisk (Agent 77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "true"
   arguments: "doctor | install-packs | run [--threshold <0-100>]"
   entry: "sbtc-proof-of-reserve/sbtc-proof-of-reserve.ts"
@@ -15,7 +15,7 @@ metadata:
 
 **The Standard Security Layer for sBTC HODLMM Liquidity.**
 
-A professional-grade, read-only Proof-of-Reserve auditor that provides real-time cross-chain verification of sBTC backing. Designed to be the pre-flight check for any autonomous agent engaging in Bitflow HODLMM yield strategies — and importable as a shared security module across the entire bff-skills ecosystem.
+A professional-grade, read-only Proof-of-Reserve auditor that provides real-time cross-chain verification of sBTC backing. Designed to be the pre-flight check for any autonomous agent engaging in Bitflow HODLMM yield strategies, and importable as a shared security module across the entire bff-skills ecosystem.
 
 > **Mainnet only.** All endpoints target Bitcoin and Stacks mainnet production infrastructure.
 
@@ -29,7 +29,7 @@ Derives the sBTC signer wallet address trustlessly from the Stacks registry (no 
 
 ## Why agents need it
 
-HODLMM bins concentrate liquidity into tight price ranges. If sBTC de-pegs, LPs face rapid principal loss with no time to exit manually. This skill gives autonomous agents a real-time, trustless answer to "Is sBTC fully backed right now?" before any HODLMM deposit, rebalance, or yield action — acting as a circuit breaker that halts operations when the peg is structurally under-collateralized.
+HODLMM bins concentrate liquidity into tight price ranges. If sBTC de-pegs, LPs face rapid principal loss with no time to exit manually. This skill gives autonomous agents a real-time, trustless answer to "Is sBTC fully backed right now?" before any HODLMM deposit, rebalance, or yield action: acting as a circuit breaker that halts operations when the peg is structurally under-collateralized.
 
 ---
 
@@ -37,9 +37,9 @@ HODLMM bins concentrate liquidity into tight price ranges. If sBTC de-pegs, LPs 
 
 - **Read-only.** No transactions are submitted. No funds are moved.
 - **Mainnet only.** All endpoints target Bitcoin and Stacks mainnet production infrastructure.
-- Returns `DATA_UNAVAILABLE` (treated as `RED`) if any data source is unreachable — never returns a false `GREEN`.
+- Returns `DATA_UNAVAILABLE` (treated as `RED`) if any data source is unreachable, never returns a false `GREEN`.
 - Refuses to output `GREEN` or `YELLOW` if BTC reserve balance or sBTC supply cannot be fetched.
-- CoinGecko is used only for BTC/USD price display — the core reserve ratio is computed from on-chain data only.
+- CoinGecko is used only for BTC/USD price display: the core reserve ratio is computed from on-chain data only.
 
 ---
 
@@ -51,7 +51,7 @@ This oracle solves that by answering one question before any HODLMM action: **"I
 
 ---
 
-## The "Golden Chain" — Trustless Verification in 4 Steps
+## The "Golden Chain": Trustless Verification in 4 Steps
 
 This skill achieves trustless, on-chain verification without relying on any third-party oracle or price feed for its core reserve check:
 
@@ -62,7 +62,7 @@ This skill achieves trustless, on-chain verification without relying on any thir
 4. L2 Supply Audit   →  Query total circulating sBTC supply (sbtc-token contract)
 ```
 
-The reserve ratio `btc_reserve / sbtc_circulating` is computed from live on-chain data — not a price feed, not an estimate.
+The reserve ratio `btc_reserve / sbtc_circulating` is computed from live on-chain data, not a price feed, not an estimate.
 
 ---
 
@@ -73,9 +73,9 @@ The core output for agents is the `hodlmm_signal` field:
 | Signal | Condition | Action |
 |--------|-----------|--------|
 | `GREEN` | reserve_ratio ≥ 0.999 | Safe to enter or maintain HODLMM bins |
-| `YELLOW` | reserve_ratio ≥ 0.995 and < 0.999 | Monitor closely — do not add new liquidity |
-| `RED` | reserve_ratio < 0.995 | CRITICAL — stop all HODLMM activity, exit bins |
-| `DATA_UNAVAILABLE` | Reserve data could not be fetched | Treat as RED — do not proceed |
+| `YELLOW` | reserve_ratio ≥ 0.995 and < 0.999 | Monitor closely: do not add new liquidity |
+| `RED` | reserve_ratio < 0.995 | CRITICAL: stop all HODLMM activity, exit bins |
+| `DATA_UNAVAILABLE` | Reserve data could not be fetched | Treat as RED: do not proceed |
 
 A `GREEN` signal means every sBTC in circulation is backed by at least 0.999 BTC on-chain. A `RED` means the peg is structurally under-collateralized and LP positions are at risk.
 
@@ -113,7 +113,7 @@ A `GREEN` signal means every sBTC in circulation is backed by at least 0.999 BTC
 
 ## Use Cases
 
-### 1. Standalone CLI — Instant Health Check
+### 1. Standalone CLI: Instant Health Check
 
 Run directly to get a live peg snapshot:
 
@@ -131,7 +131,7 @@ Exit codes: `0` = healthy, `1` = warning, `2` = critical, `3` = error.
 
 ---
 
-### 2. Imported Module — Shared Security Layer
+### 2. Imported Module: Shared Security Layer
 
 Any other skill can import `runAudit()` directly:
 
@@ -141,7 +141,7 @@ import { runAudit } from "../sbtc-proof-of-reserve/sbtc-proof-of-reserve.ts"
 const audit = await runAudit()
 
 if (audit.hodlmm_signal !== "GREEN") {
-  console.log("Peg unsafe — skipping operation")
+  console.log("Peg unsafe: skipping operation")
   process.exit(1)
 }
 ```
@@ -159,11 +159,11 @@ Pair with `hodlmm-bin-guardian` to gate all rebalance decisions behind a live re
 SIGNAL=$(bun run sbtc-proof-of-reserve/sbtc-proof-of-reserve.ts run | jq -r .hodlmm_signal)
 
 if [ "$SIGNAL" != "GREEN" ]; then
-  echo "Reserve signal: $SIGNAL — rebalance blocked"
+  echo "Reserve signal: $SIGNAL, rebalance blocked"
   exit 1
 fi
 
-# Step 2: Safe to proceed — check bin position
+# Step 2: Safe to proceed, check bin position
 bun run hodlmm-bin-guardian/hodlmm-bin-guardian.ts run
 ```
 
@@ -178,7 +178,7 @@ import { runAudit } from "../sbtc-proof-of-reserve/sbtc-proof-of-reserve.ts"
 
 const audit = await runAudit()
 if (audit.hodlmm_signal === "RED" || audit.hodlmm_signal === "DATA_UNAVAILABLE") {
-  throw new Error(`sBTC reserve unsafe (${audit.hodlmm_signal}) — deposit blocked`)
+  throw new Error(`sBTC reserve unsafe (${audit.hodlmm_signal}): deposit blocked`)
 }
 // proceed with deposit
 ```
@@ -196,14 +196,14 @@ const { hodlmm_signal, score, reserve_ratio, breakdown } = await runAudit()
 
 switch (hodlmm_signal) {
   case "GREEN":
-    // full yield strategy — enter bins, compound rewards
+    // full yield strategy: enter bins, compound rewards
     break
   case "YELLOW":
     // hold existing position, pause new deposits
     break
   case "RED":
   case "DATA_UNAVAILABLE":
-    // emergency exit — close bins, alert operator
+    // emergency exit: close bins, alert operator
     break
 }
 ```
@@ -214,8 +214,8 @@ switch (hodlmm_signal) {
 
 | Skill | Role |
 |-------|------|
-| `sbtc-proof-of-reserve` | **Security layer** — verifies sBTC is fully backed before any action |
-| `hodlmm-bin-guardian` | **Position layer** — checks if LP bins are in the active earning range |
+| `sbtc-proof-of-reserve` | **Security layer**: verifies sBTC is fully backed before any action |
+| `hodlmm-bin-guardian` | **Position layer**: checks if LP bins are in the active earning range |
 
 Used together, these two skills cover both risk vectors for HODLMM LPs:
 - **Asset risk** (is sBTC safe?) → `sbtc-proof-of-reserve`
@@ -250,7 +250,7 @@ bun run sbtc-proof-of-reserve/sbtc-proof-of-reserve.ts doctor
 
 ### install-packs
 
-No additional packs required — fully self-contained.
+No additional packs required: fully self-contained.
 
 ```bash
 bun run sbtc-proof-of-reserve/sbtc-proof-of-reserve.ts install-packs

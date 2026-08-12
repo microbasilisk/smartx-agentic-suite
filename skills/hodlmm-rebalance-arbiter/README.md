@@ -1,6 +1,6 @@
-# Day 8 — HODLMM Rebalance Arbiter
+# Day 8: HODLMM Rebalance Arbiter
 
-> **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/141 (closed — superseded by PR #213)
+> **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/141 (closed, superseded by PR #213)
 
 ## Skill name
 
@@ -18,15 +18,15 @@ hodlmm-rebalance-arbiter
 
 Answers one question for HODLMM liquidity providers: **"Should I rebalance right now, or wait?"**
 
-Consumes 2 independent signals — bin drift and sBTC peg health — to produce a single REBALANCE, BLOCKED, or IN_RANGE verdict. Running monitoring skills independently gives you separate signals but no verdict. The arbiter encodes the operational logic into a single decision gate.
+Consumes 2 independent signals: bin drift and sBTC peg health, to produce a single REBALANCE, BLOCKED, or IN_RANGE verdict. Running monitoring skills independently gives you separate signals but no verdict. The arbiter encodes the operational logic into a single decision gate.
 
 | Scenario | Decision |
 |---|---|
-| All GREEN | **REBALANCE** — safe to move |
-| Reserve YELLOW | **REBALANCE** — acceptable risk |
-| Any RED | **BLOCKED** — specific reason provided |
-| Any ERROR | **DEGRADED** — fix data sources first |
-| Bins in range | **IN_RANGE** — no rebalance needed |
+| All GREEN | **REBALANCE**: safe to move |
+| Reserve YELLOW | **REBALANCE**: acceptable risk |
+| Any RED | **BLOCKED**: specific reason provided |
+| Any ERROR | **DEGRADED**: fix data sources first |
+| Bins in range | **IN_RANGE**, no rebalance needed |
 
 ## Why agents need it
 
@@ -36,14 +36,14 @@ v2 note: The original submission included a third signal (Bitcoin tenure timing)
 
 ## Safety notes
 
-- **Read-only** — never executes transactions, never moves funds
-- **Fail-safe default** — missing or stale data pushes toward WAIT or DEGRADED, never toward REBALANCE
-- **Double YELLOW = WAIT** — one caution signal is acceptable; two simultaneous caution signals defer action
-- **Silence locks the gate** — 2 positive signals required to unlock REBALANCE
-- **No API keys required** — all data from public endpoints
-- **Structured exit codes** — 0 (rebalance/in_range), 1 (blocked), 3 (degraded/error)
-- **BIP-341 PoR derivation** — full Golden Chain (aggregate pubkey -> P2TR -> BTC balance) for sBTC reserve verification
-- **Bech32m self-test** — crypto failure blocks all operations
+- **Read-only**, never executes transactions, never moves funds
+- **Fail-safe default**: missing or stale data pushes toward WAIT or DEGRADED, never toward REBALANCE
+- **Double YELLOW = WAIT**: one caution signal is acceptable; two simultaneous caution signals defer action
+- **Silence locks the gate**: 2 positive signals required to unlock REBALANCE
+- **No API keys required**: all data from public endpoints
+- **Structured exit codes**: 0 (rebalance/in_range), 1 (blocked), 3 (degraded/error)
+- **BIP-341 PoR derivation**: full Golden Chain (aggregate pubkey -> P2TR -> BTC balance) for sBTC reserve verification
+- **Bech32m self-test**: crypto failure blocks all operations
 
 ## HODLMM integration
 
@@ -61,18 +61,18 @@ Decision layer in the HODLMM LP lifecycle:
 
 | Source | Signal |
 |--------|--------|
-| Bitflow Quotes/App/Bins API | bin_guardian — pool discovery, TVL, active bin |
-| Bitflow User Positions | bin_guardian — LP bin positions |
-| Hiro Node Info | sbtc_reserve — block heights |
-| sBTC Contract | sbtc_reserve — circulating supply |
-| sBTC Registry | sbtc_reserve — signer pubkey |
-| mempool.space | sbtc_reserve — BTC reserve balance |
+| Bitflow Quotes/App/Bins API | bin_guardian: pool discovery, TVL, active bin |
+| Bitflow User Positions | bin_guardian: LP bin positions |
+| Hiro Node Info | sbtc_reserve: block heights |
+| sBTC Contract | sbtc_reserve: circulating supply |
+| sBTC Registry | sbtc_reserve: signer pubkey |
+| mempool.space | sbtc_reserve: BTC reserve balance |
 
 ## Known constraints
 
-- Read-only — outputs a decision but cannot execute the rebalance itself
+- Read-only: outputs a decision but cannot execute the rebalance itself
 - sBTC reserve uses full Golden Chain derivation; sbtc-registry pubkey format changes would fail gracefully
-- Requires `--wallet` — cannot decide without knowing which bins the LP holds
+- Requires `--wallet`: cannot decide without knowing which bins the LP holds
 - Superseded by stacks-alpha-engine (PR #213) which includes this logic in its Guardian module
 
 ## PR Description
@@ -82,7 +82,7 @@ Decision layer in the HODLMM LP lifecycle:
 hodlmm-rebalance-arbiter
 
 **Author:** cliqueengagements
-**Author Agent:** Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
+**Author Agent:** Micro Basilisk (Agent #77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
 ## Category
 
@@ -95,37 +95,37 @@ hodlmm-rebalance-arbiter
 
 The decision gate that fills the Act phase in the HODLMM LP lifecycle. Answers one question for HODLMM LPs: **"Should I rebalance right now, or wait?"**
 
-Running 3 monitoring skills independently gives you bin drift, tenure timing, and sBTC peg health — but no verdict. The arbiter synthesizes these into a single decision using a priority matrix:
+Running 3 monitoring skills independently gives you bin drift, tenure timing, and sBTC peg health, but no verdict. The arbiter synthesizes these into a single decision using a priority matrix:
 
 | Scenario | Decision |
 |---|---|
-| All GREEN | **REBALANCE** — safe to move |
-| One YELLOW, rest GREEN | **REBALANCE** — acceptable risk |
-| Two+ YELLOW | **BLOCKED** — environment degrading on multiple fronts |
-| Any RED | **BLOCKED** — specific reason provided |
-| Any ERROR | **DEGRADED** — fix data sources first |
-| Bins in range | **IN_RANGE** — no rebalance needed |
+| All GREEN | **REBALANCE**: safe to move |
+| One YELLOW, rest GREEN | **REBALANCE**: acceptable risk |
+| Two+ YELLOW | **BLOCKED**: environment degrading on multiple fronts |
+| Any RED | **BLOCKED**: specific reason provided |
+| Any ERROR | **DEGRADED**: fix data sources first |
+| Bins in range | **IN_RANGE**, no rebalance needed |
 
 Key insight: sometimes the most profitable move is doing nothing. During stale tenures or peg instability, executing a rebalance at bad prices costs more than earning zero fees in a safe position.
 
 ## On-chain proof
 
-Read-only skill — live mainnet data verified against wallet `SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY`:
+Read-only skill: live mainnet data verified against wallet `SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY`:
 
-- **HODLMM position read**: 221 bins (460–680) on dlmm_1 (sBTC/USDCx), active bin 509, APR 30.36%
+- **HODLMM position read**: 221 bins (460-680) on dlmm_1 (sBTC/USDCx), active bin 509, APR 30.36%
 - **sBTC reserve derived via Golden Chain**: aggregate pubkey from `SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-registry` → P2TR signer `bc1p6ys2ervatu00766eeqfmverzegg9fkprn3xjn0ppn70h53qu5vus3yzl0x` → 4071.08 BTC confirmed via mempool.space
 - **sBTC supply read**: `sbtc-token.get-total-supply` → 4071.08 sBTC, reserve ratio 1.0
 - **Tenure read**: Hiro `/v2/info` + `/extended/v2/burn-blocks` → block 943300, tenure age real-time
 
-**Verdict: IN_RANGE** — position in range at active bin 509, earning 30.36% APR. No rebalance needed. All 3 signals GREEN — tenure fresh (53s), sBTC fully backed, bins in range.
+**Verdict: IN_RANGE**, position in range at active bin 509, earning 30.36% APR. No rebalance needed. All 3 signals GREEN: tenure fresh (53s), sBTC fully backed, bins in range.
 
 Full smoke test output below.
 
 ## Does this integrate HODLMM?
 
-- [x] Yes — eligible for the HODLMM bonus
+- [x] Yes: eligible for the HODLMM bonus
 
-The arbiter is the decision layer in the HODLMM LP lifecycle. It consumes data from Bitflow HODLMM APIs (pools, bins, user positions) and correlates with Bitcoin block timing and sBTC reserve health to determine if a rebalance is safe to execute. It fills the gap between monitoring (bin-guardian, tenure-protector, sbtc-proof-of-reserve) and action — the "Act" phase that was previously missing.
+The arbiter is the decision layer in the HODLMM LP lifecycle. It consumes data from Bitflow HODLMM APIs (pools, bins, user positions) and correlates with Bitcoin block timing and sBTC reserve health to determine if a rebalance is safe to execute. It fills the gap between monitoring (bin-guardian, tenure-protector, sbtc-proof-of-reserve) and action: the "Act" phase that was previously missing.
 
 | Phase | Skill | Role |
 |-------|-------|------|
@@ -165,7 +165,7 @@ $ bun run skills/hodlmm-rebalance-arbiter/hodlmm-rebalance-arbiter.ts doctor
     { "name": "sBTC Supply Contract", "ok": true, "detail": "contract callable" },
     { "name": "mempool.space", "ok": true, "detail": "reachable" }
   ],
-  "message": "All 7 data sources reachable. Arbiter ready — all 3 signals operational."
+  "message": "All 7 data sources reachable. Arbiter ready: all 3 signals operational."
 }
 ```
 
@@ -178,7 +178,7 @@ $ bun run skills/hodlmm-rebalance-arbiter/hodlmm-rebalance-arbiter.ts install-pa
 {"status":"ok","message":"No packs required. Uses native fetch for Bitflow, Hiro, and mempool.space APIs."}
 ```
 
-**run — wallet with active HODLMM position (IN_RANGE)**
+**run: wallet with active HODLMM position (IN_RANGE)**
 
 ```bash
 $ bun run skills/hodlmm-rebalance-arbiter/hodlmm-rebalance-arbiter.ts run --wallet SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY --pool dlmm_1
@@ -229,9 +229,9 @@ $ bun run skills/hodlmm-rebalance-arbiter/hodlmm-rebalance-arbiter.ts run --wall
 }
 ```
 
-All 3 signals GREEN — fresh Bitcoin block (53s), position in range (bins 460–680 covering active bin 509), sBTC fully backed (4071 BTC / 4071 sBTC). Verdict: IN_RANGE at 30.36% APR.
+All 3 signals GREEN: fresh Bitcoin block (53s), position in range (bins 460-680 covering active bin 509), sBTC fully backed (4071 BTC / 4071 sBTC). Verdict: IN_RANGE at 30.36% APR.
 
-**run — wallet with no position**
+**run: wallet with no position**
 
 ```bash
 $ bun run skills/hodlmm-rebalance-arbiter/hodlmm-rebalance-arbiter.ts run --wallet SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9 --pool dlmm_1
@@ -255,23 +255,23 @@ Frontmatter manually verified against registry spec:
 - `entry` path repo-root-relative: `"hodlmm-rebalance-arbiter/hodlmm-rebalance-arbiter.ts"`
 - `AGENT.md` has YAML frontmatter with `name`, `skill` (string), `description`
 - `author: "cliqueengagements"` (quoted)
-- `author-agent` uses em dash `—` (not double dash)
+- `author-agent` uses em dash `-` (not double dash)
 
 ## Security notes
 
-- **Read-only** — never constructs transactions, never moves funds, never accesses private keys
-- **Fail-safe** — missing/stale/malformed data always pushes toward BLOCKED or DEGRADED, never REBALANCE
-- **Double YELLOW = BLOCKED** — one caution signal is tolerable; two simultaneous means environment is degrading
-- **Silence locks the gate** — 3 positive signals required to unlock REBALANCE
-- **No credentials** — all data from public endpoints (Bitflow, Hiro, mempool.space)
+- **Read-only**, never constructs transactions, never moves funds, never accesses private keys
+- **Fail-safe**: missing/stale/malformed data always pushes toward BLOCKED or DEGRADED, never REBALANCE
+- **Double YELLOW = BLOCKED**: one caution signal is tolerable; two simultaneous means environment is degrading
+- **Silence locks the gate**: 3 positive signals required to unlock REBALANCE
+- **No credentials**: all data from public endpoints (Bitflow, Hiro, mempool.space)
 - **30s timeout** on all API calls with AbortController
 
 ## Known constraints or edge cases
 
-- Cannot execute rebalances — outputs a decision for a human or executor skill to act on
+- Cannot execute rebalances: outputs a decision for a human or executor skill to act on
 - Bitcoin block times are inherently unpredictable; tenure-based BLOCKED decisions are probabilistic
 - Wallet with no position returns IN_RANGE with clear "deploy liquidity first" message
 - sBTC Golden Chain derivation (aggregate pubkey → P2TR → BTC balance) will fail gracefully if sbtc-registry changes pubkey format
 - CoinGecko rate limits may affect reserve signal; retries once on 429 with 1.5s backoff
-- `--wallet` is required — arbiter cannot decide without knowing which bins the LP holds
+- `--wallet` is required: arbiter cannot decide without knowing which bins the LP holds
 

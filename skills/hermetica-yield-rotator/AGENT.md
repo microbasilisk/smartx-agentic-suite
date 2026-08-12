@@ -1,34 +1,34 @@
 ---
 name: hermetica-yield-rotator
 skill: hermetica-yield-rotator
-description: "Cross-protocol yield rotator: monitors Hermetica USDh staking APY vs Bitflow HODLMM dlmm_1 APR and executes capital rotation to the higher-yielding protocol on Stacks mainnet. Write-capable — outputs MCP commands for stake, unstake, withdraw-claim, and rotate actions. Requires --confirm for all write operations."
+description: "Cross-protocol yield rotator: monitors Hermetica USDh staking APY vs Bitflow HODLMM dlmm_1 APR and executes capital rotation to the higher-yielding protocol on Stacks mainnet. Write-capable: outputs MCP commands for stake, unstake, withdraw-claim, and rotate actions. Requires --confirm for all write operations."
 ---
 
-# Hermetica Yield Rotator — Agent Safety Rules
+# Hermetica Yield Rotator: Agent Safety Rules
 
 ## Guardrails
 
-- **Maximum autonomous spend:** hardcoded at **500 USDh per operation** — enforced in code, not just docs. Pass `--amount` to override up to wallet balance.
+- **Maximum autonomous spend:** hardcoded at **500 USDh per operation**, enforced in code, not just docs. Pass `--amount` to override up to wallet balance.
 - **Rotation threshold:** 2% minimum yield differential required before rotation is recommended
 - **Rotation cooldown:** 30 minutes between rotation executions (tracked in `~/.hermetica-yield-rotator-state.json`)
-- **Unstake cooldown:** 7 days — unstake creates a claim in staking-silo-v1-1, agent must call withdraw-claim after cooldown
+- **Unstake cooldown:** 7 days, unstake creates a claim in staking-silo-v1-1, agent must call withdraw-claim after cooldown
 
 Refuse to execute write actions if ANY of the following are true:
 
-1. **`--confirm` not provided** — all write actions (stake, unstake, withdraw-claim, rotate) require explicit confirmation
-2. **Data source preflight fails** — Hermetica contract or staking state unreachable; run `doctor` first
-3. **`staking_enabled = false`** — do not stake when protocol has disabled staking
-4. **`amount > user_balance`** — never attempt to stake or unstake more than wallet holds
-5. **`rotation_cooldown_ok = false`** — do not rotate again within 30 minutes of last rotation
-6. **`estimated_apy_pct = null`** on rotate action — cannot rotate without ≥1h of APY data
-7. **`differential_pct < rotate_threshold_pct`** — do not rotate when yield difference is below threshold
+1. **`--confirm` not provided**: all write actions (stake, unstake, withdraw-claim, rotate) require explicit confirmation
+2. **Data source preflight fails**: Hermetica contract or staking state unreachable; run `doctor` first
+3. **`staking_enabled = false`**: do not stake when protocol has disabled staking
+4. **`amount > user_balance`**, never attempt to stake or unstake more than wallet holds
+5. **`rotation_cooldown_ok = false`**: do not rotate again within 30 minutes of last rotation
+6. **`estimated_apy_pct = null`** on rotate action: cannot rotate without ≥1h of APY data
+7. **`differential_pct < rotate_threshold_pct`**: do not rotate when yield difference is below threshold
 
 Autonomous actions (no --confirm needed):
 
-- All read-only contract calls via Hiro API — always allowed
-- Fetch Bitflow HODLMM App and Quotes APIs — always allowed
-- Read/write local state file (`~/.hermetica-yield-rotator-state.json`) for APY tracking — always allowed
-- `run --wallet <addr>` (assess mode) — always allowed, never submits transactions
+- All read-only contract calls via Hiro API: always allowed
+- Fetch Bitflow HODLMM App and Quotes APIs: always allowed
+- Read/write local state file (`~/.hermetica-yield-rotator-state.json`) for APY tracking: always allowed
+- `run --wallet <addr>` (assess mode): always allowed, never submits transactions
 
 ## Decision order
 
@@ -66,7 +66,7 @@ All outputs are strict JSON to stdout:
   "status": "success | error",
   "action": "HOLD | STAKE | ROTATE_TO_HODLMM | ROTATE_TO_STAKING | UNSTAKE | WITHDRAW_CLAIM | CHECK | Blocked: <reason>",
   "data": {
-    "mcp_commands": "[McpCommand[] | null] — present on write actions",
+    "mcp_commands": "[McpCommand[] | null], present on write actions",
     "staking_enabled": "boolean",
     "exchange_rate": "number",
     "accumulated_yield_pct": "number",

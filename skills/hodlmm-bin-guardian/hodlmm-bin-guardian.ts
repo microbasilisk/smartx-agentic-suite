@@ -218,7 +218,7 @@ async function fetchPoolStats(pool: HodlmmPool): Promise<PoolStats> {
 
 /**
  * Compare HODLMM active-bin price vs Bitflow app pool token price.
- * Fully Bitflow-native — no external oracles.
+ * Fully Bitflow-native, no external oracles.
  */
 function checkSlippage(
   activeBinPrice: number,
@@ -337,7 +337,7 @@ async function runGuardian(wallet?: string, poolId?: string): Promise<{
       }
     }
   } else {
-    positionNote = "No wallet provided — in-range check skipped. Pass --wallet <STX_ADDRESS>.";
+    positionNote = "No wallet provided: in-range check skipped. Pass --wallet <STX_ADDRESS>.";
   }
 
   // ── Slippage check ───────────────────────────────────────────────────────────
@@ -363,13 +363,13 @@ async function runGuardian(wallet?: string, poolId?: string): Promise<{
 
   let action: string;
   if (inRange === null) {
-    action = `CHECK — ${positionNote}`;
+    action = `CHECK: ${positionNote}`;
   } else if (inRange) {
-    action = `HOLD — position in range at active bin ${active_bin_id}. APR (24h): ${apr24h.toFixed(2)}%.`;
+    action = `HOLD: position in range at active bin ${active_bin_id}. APR (24h): ${apr24h.toFixed(2)}%.`;
   } else if (!canRebalance) {
-    action = `HOLD — position out of range but rebalance blocked: ${refusals.join("; ")}.`;
+    action = `HOLD: position out of range but rebalance blocked: ${refusals.join("; ")}.`;
   } else {
-    action = `REBALANCE — position out of range (active bin ${active_bin_id}${userBinRange ? `, position bins ${userBinRange.min}–${userBinRange.max}` : ""}). Requires human approval.`;
+    action = `REBALANCE: position out of range (active bin ${active_bin_id}${userBinRange ? `, position bins ${userBinRange.min}-${userBinRange.max}` : ""}). Requires human approval.`;
   }
 
   return {
@@ -473,14 +473,14 @@ program
       checks,
       message: allOk
         ? "All data sources reachable. Ready to run."
-        : "One or more sources failed — output may be incomplete.",
+        : "One or more sources failed, output may be incomplete.",
     }, null, 2));
     if (!allOk) process.exit(1);
   });
 
 program
   .command("install-packs")
-  .description("No additional packs required — uses public HTTP APIs directly")
+  .description("No additional packs required: uses public HTTP APIs directly")
   .action(() => {
     console.log(JSON.stringify({
       status:  "ok",

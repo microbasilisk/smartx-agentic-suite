@@ -1,10 +1,10 @@
 ---
 name: micro-basilisk
 skill: zbg-yield-scout
-description: "Reads wallet balances and positions across Zest, Bitflow (HODLMM), and Granite. Outputs yield comparison, best move recommendation, and sBTC break prices. Read-only — never submits transactions."
+description: "Reads wallet balances and positions across Zest, Bitflow (HODLMM), and Granite. Outputs yield comparison, best move recommendation, and sBTC break prices. Read-only, never submits transactions."
 ---
 
-# ZBG Yield Scout — Agent Behavior
+# ZBG Yield Scout: Agent Behavior
 
 ## Decision order
 
@@ -20,19 +20,19 @@ description: "Reads wallet balances and positions across Zest, Bitflow (HODLMM),
 ## Guardrails
 
 1. **Read-only always.** This skill never submits transactions, never spends gas, never moves funds.
-2. **No mock data.** Every number comes from a live on-chain read or API call. If a source fails, report degraded status — never substitute fake values. Exception: Zest sBTC supply APY is reported as 0% when no live rate is available, with a note directing users to check zest.fi.
-3. **sBTC pricing, not BTC.** Break prices use on-chain sBTC price from Tenero, not BTC L1 price. sBTC can depeg from BTC during stress events — the break price must reflect what the protocol actually sees.
+2. **No mock data.** Every number comes from a live on-chain read or API call. If a source fails, report degraded status, never substitute fake values. Exception: Zest sBTC supply APY is reported as 0% when no live rate is available, with a note directing users to check zest.fi.
+3. **sBTC pricing, not BTC.** Break prices use on-chain sBTC price from Tenero, not BTC L1 price. sBTC can depeg from BTC during stress events: the break price must reflect what the protocol actually sees.
 4. **Graceful empty positions.** If the wallet has no position on a protocol, report "no position" and still show yield options. The skill is equally useful for someone with zero DeFi exposure.
-5. **BigInt for all Clarity values.** HODLMM bin balances and Granite params are uint128. Parse with BigInt from big-endian hex — never use JavaScript Number for on-chain values above 2^53.
+5. **BigInt for all Clarity values.** HODLMM bin balances and Granite params are uint128. Parse with BigInt from big-endian hex, never use JavaScript Number for on-chain values above 2^53.
 6. **30-second timeout on all fetches.** AbortController on every HTTP call. Report which source timed out in degraded status.
 7. **No financial advice.** "Best Safe Move" is a data-driven comparison, not investment advice. Output includes the data used to reach the recommendation so the user can verify.
 
 ## Autonomous actions allowed
 
-- Fetch public API data (Hiro, Tenero, Bitflow) — always allowed
-- Read on-chain contract state via `call_read_only_function` — always allowed
-- Compute derived values (APY, break prices, opportunity cost) — always allowed
-- Output JSON report to stdout — always allowed
+- Fetch public API data (Hiro, Tenero, Bitflow): always allowed
+- Read on-chain contract state via `call_read_only_function`: always allowed
+- Compute derived values (APY, break prices, opportunity cost): always allowed
+- Output JSON report to stdout: always allowed
 
 ## Actions never performed
 
@@ -81,7 +81,7 @@ Always return strict JSON:
       "daily_usd": 0.054,
       "monthly_usd": 1.65,
       "gas_to_enter_stx": 0.05,
-      "note": "Fee-based yield — varies with swap volume"
+      "note": "Fee-based yield, varies with swap volume"
     }
   ],
   "best_move": {

@@ -1,21 +1,21 @@
 #!/usr/bin/env bun
 /**
- * hodlmm-position-exit — pure-exit skill for HODLMM concentrated-liquidity
+ * hodlmm-position-exit: pure-exit skill for HODLMM concentrated-liquidity
  * positions on Bitflow.
  *
  * Withdraws user DLP from one or more bins back to the wallet as raw X/Y
  * token balances. Does NOT rebalance, redeploy, or rotate to another protocol
- * — exit-to-wallet only. Writes to chain via
+ *: exit-to-wallet only. Writes to chain via
  *   dlmm-liquidity-router-v-1-1::withdraw-liquidity-same-multi
  *
  * Password policy: interactive-only. No --password flag, no env-var fallback.
  * Write operations require a TTY; autonomous loops cannot sign.
  *
  * Commands:
- *   doctor   — reachability + wallet + router sanity
- *   status   — list the user's bins in a pool with token balances
- *   plan     — classify a proposed withdraw (dry-run, no tx)
- *   withdraw — execute the withdraw (requires --confirm)
+ *   doctor: reachability + wallet + router sanity
+ *   status: list the user's bins in a pool with token balances
+ *   plan: classify a proposed withdraw (dry-run, no tx)
+ *   withdraw: execute the withdraw (requires --confirm)
  */
 
 import { Command } from "commander";
@@ -30,7 +30,7 @@ const BITFLOW_APP = "https://bff.bitflowapis.finance/api/app/v1";
 const HIRO_API = "https://api.mainnet.hiro.so";
 const EXPLORER = "https://explorer.hiro.so/txid";
 
-// Router v-1-1 — same deployer and router our #494 3-leg tx succeeded against
+// Router v-1-1: same deployer and router our #494 3-leg tx succeeded against
 // (mainnet tx 0349cbb0… on 2026-04-17, ratio 14.58%→27.05% X). Verified via
 // Hiro contract interface read 2026-04-19: withdraw-liquidity-same-multi is a
 // public function taking (positions-list, x-trait, y-trait, min-x-total, min-y-total).
@@ -261,13 +261,13 @@ function isPlausibleStxAddress(raw: string): boolean {
 /**
  * Prompt the user for their wallet password interactively. Echo is suppressed
  * so the password never appears in the terminal, shell history, `ps` output,
- * or logs. Fails loudly if stdin is not a TTY — write operations require a
+ * or logs. Fails loudly if stdin is not a TTY: write operations require a
  * human at the keyboard, by policy. No --password flag, no env-var fallback.
  */
 async function promptPasswordInteractive(): Promise<string> {
   if (!process.stdin.isTTY) {
     throw new Error(
-      "Wallet password must be entered interactively. This command requires a TTY — " +
+      "Wallet password must be entered interactively. This command requires a TTY: " +
         "pipes, background jobs, Docker cron, and non-interactive runners are not supported. " +
         "Run this skill attached to a terminal."
     );
@@ -407,7 +407,7 @@ async function fetchPoolBins(poolId: string): Promise<{
 }
 
 async function fetchUserPositions(poolId: string, wallet: string): Promise<UserBin[]> {
-  // User positions endpoint returns DLP shares only — no per-bin reserves.
+  // User positions endpoint returns DLP shares only, no per-bin reserves.
   // expectedAndSlippage falls back to pool reserves + DLP share math when
   // reserve_x/reserve_y are "0", which is the expected path here.
   // 404 = wallet has no position in the pool. Return empty.
@@ -570,11 +570,11 @@ async function executeWithdraw(
     // Slippage enforcement: the router's `min-x-amount-total` + `min-y-amount-total`
     // args are the authoritative slippage gate (contract-level revert on violation,
     // equivalent to ERR_MINIMUM_RECEIVED). DLP burn is internal bin-level
-    // accounting — not a SIP-010 FT — so there is no sender-side token outflow
+    // accounting, not a SIP-010 FT, so there is no sender-side token outflow
     // to pin with post-conditions. Same precedent as merged `hodlmm-move-liquidity`
     // (aibtcdev/skills PR #317) which uses Allow for its equivalent DLP
     // mint-and-burn flow. Tightening to Deny would require asserting every
-    // internal principal-to-principal token flow the router emits — tested
+    // internal principal-to-principal token flow the router emits: tested
     // against mainnet tx `be20b594…` (successful, 11-bin exit, 2026-04-19).
     postConditionMode: PostConditionMode.Allow,
     anchorMode: AnchorMode.Any,
@@ -585,7 +585,7 @@ async function executeWithdraw(
   const result = await broadcastTransaction({ transaction: tx, network: STACKS_MAINNET });
   if ("error" in result && result.error) {
     throw new Error(
-      `Withdraw broadcast failed: ${result.error} — ${(result as Record<string, string>).reason ?? ""}`
+      `Withdraw broadcast failed: ${result.error}, ${(result as Record<string, string>).reason ?? ""}`
     );
   }
   return result.txid as string;
@@ -660,7 +660,7 @@ async function buildPlan(opts: PlanOptions): Promise<PlanVerdict> {
   const cooldown = cooldownRemainingMs(loadState(), opts.pool);
 
   const blockers: string[] = [];
-  if (plans.length === 0) blockers.push("No bins selected — nothing to exit");
+  if (plans.length === 0) blockers.push("No bins selected: nothing to exit");
   if (missing.length > 0) blockers.push(`Unknown bins for this position: ${missing.join(",")}`);
   if (chunks.length === 0) blockers.push("Empty chunk plan");
   if (cooldown > 0) {
@@ -697,7 +697,7 @@ function buildProgram(): Command {
   program
     .name("hodlmm-position-exit")
     .description(
-      "Pure-exit skill for HODLMM concentrated-liquidity positions. Withdraws user DLP from selected bins back to the wallet — no rebalance, no redeploy, no cross-protocol rotation."
+      "Pure-exit skill for HODLMM concentrated-liquidity positions. Withdraws user DLP from selected bins back to the wallet, no rebalance, no redeploy, no cross-protocol rotation."
     )
     .version("0.1.0");
 
@@ -848,7 +848,7 @@ function buildProgram(): Command {
   program
     .command("withdraw")
     .description(
-      "Execute the withdraw on mainnet. Requires --confirm. Triple-gated: (1) plan verdict must be safe_to_broadcast, (2) position USD ≥ --min-position-usd, (3) --confirm flag. Mempool depth + 4h cooldown additionally enforced. Password entered interactively — no flag, no env var, no stored credential paths."
+      "Execute the withdraw on mainnet. Requires --confirm. Triple-gated: (1) plan verdict must be safe_to_broadcast, (2) position USD ≥ --min-position-usd, (3) --confirm flag. Mempool depth + 4h cooldown additionally enforced. Password entered interactively, no flag, no env var, no stored credential paths."
     )
     .requiredOption("--pool <id>", "Bitflow pool id")
     .requiredOption("--address <stx>", "STX address (must match wallet)")
@@ -891,7 +891,7 @@ function buildProgram(): Command {
         );
         const password = await promptPasswordInteractive();
         if (password.length === 0) {
-          out("error", "withdraw", null, "Empty password — aborted");
+          out("error", "withdraw", null, "Empty password: aborted");
           process.exit(1);
         }
         const { stxPrivateKey, stxAddress } = await getWalletKeys(password);

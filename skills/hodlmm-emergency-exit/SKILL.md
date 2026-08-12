@@ -3,11 +3,11 @@ name: hodlmm-emergency-exit
 description: "Autonomous capital protection for HODLMM LP positions. Composes sbtc-proof-of-reserve (peg safety) and bin-range analysis into a single exit decision engine. When sBTC reserve is RED or bins drift out of range beyond the grace period, outputs executable MCP withdrawal commands to remove all liquidity. The defensive counterpart to HODLMM yield strategies."
 metadata:
   author: "cliqueengagements"
-  author-agent: "Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
+  author-agent: "Micro Basilisk (Agent #77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "true"
   arguments: "doctor | install-packs | run --wallet <STX_ADDRESS> [--pool-id <id>] [--confirm]"
   entry: "hodlmm-emergency-exit/hodlmm-emergency-exit.ts"
-  requires: "sbtc-proof-of-reserve (co-located at ../sbtc-proof-of-reserve/ — imports runAudit(), AuditResult, HodlmmSignal)"
+  requires: "sbtc-proof-of-reserve (co-located at ../sbtc-proof-of-reserve/, imports runAudit(), AuditResult, HodlmmSignal)"
   tags: "defi, write, mainnet-only, requires-funds, infrastructure"
 ---
 
@@ -23,7 +23,7 @@ The defensive counterpart to HODLMM yield strategies. When the sBTC peg is struc
 
 ## Why agents need it
 
-HODLMM bins concentrate liquidity into tight price ranges. If sBTC de-pegs or bins drift out of range, LPs face rapid principal loss with no time to exit manually. Existing skills can detect these conditions (bin-guardian monitors range, proof-of-reserve monitors peg), but no skill acts on them. An autonomous agent needs a circuit breaker that converts a RED signal into an actual withdrawal — not just an alert. This skill closes that gap: detect danger AND exit before losses compound.
+HODLMM bins concentrate liquidity into tight price ranges. If sBTC de-pegs or bins drift out of range, LPs face rapid principal loss with no time to exit manually. Existing skills can detect these conditions (bin-guardian monitors range, proof-of-reserve monitors peg), but no skill acts on them. An autonomous agent needs a circuit breaker that converts a RED signal into an actual withdrawal, not just an alert. This skill closes that gap: detect danger AND exit before losses compound.
 
 ---
 
@@ -31,8 +31,8 @@ HODLMM bins concentrate liquidity into tight price ranges. If sBTC de-pegs or bi
 
 Composes two data sources into a single exit decision:
 
-1. **sBTC Proof-of-Reserve** — imports `runAudit()` from the co-located `sbtc-proof-of-reserve` skill to check whether sBTC is fully backed on-chain.
-2. **HODLMM bin position** — queries Bitflow HODLMM API to check if the user's LP bins are in the active earning range.
+1. **sBTC Proof-of-Reserve**: imports `runAudit()` from the co-located `sbtc-proof-of-reserve` skill to check whether sBTC is fully backed on-chain.
+2. **HODLMM bin position**: queries Bitflow HODLMM API to check if the user's LP bins are in the active earning range.
 
 Based on these inputs, the decision engine outputs one of three actions:
 
@@ -44,13 +44,13 @@ Based on these inputs, the decision engine outputs one of three actions:
 
 ---
 
-## The Trilogy — Three Skills, One Pipeline
+## The Trilogy: Three Skills, One Pipeline
 
 | Skill | Role | Day |
 |-------|------|-----|
-| `hodlmm-bin-guardian` | **Detect** — are bins in range? | Day 3 winner |
-| `sbtc-proof-of-reserve` | **Assess** — is sBTC fully backed? | Day 5 (PR #97) |
-| `hodlmm-emergency-exit` | **Act** — remove liquidity when unsafe | Day 5 (this PR) |
+| `hodlmm-bin-guardian` | **Detect**: are bins in range? | Day 3 winner |
+| `sbtc-proof-of-reserve` | **Assess**: is sBTC fully backed? | Day 5 (PR #97) |
+| `hodlmm-emergency-exit` | **Act**: remove liquidity when unsafe | Day 5 (this PR) |
 
 No other competitor can compose merged skills into this pipeline because no other competitor has both the monitor and the oracle in the registry.
 
@@ -58,12 +58,12 @@ No other competitor can compose merged skills into this pipeline because no othe
 
 ## Safety notes
 
-- **Write-capable** — generates `bitflow_hodlmm_remove_liquidity` MCP commands.
-- **--confirm required** — without this flag, the skill runs in dry-run mode (evaluates but does not output executable commands).
+- **Write-capable**: generates `bitflow_hodlmm_remove_liquidity` MCP commands.
+- **--confirm required**, without this flag, the skill runs in dry-run mode (evaluates but does not output executable commands).
 - **30-minute cooldown** between exits prevents rapid-fire withdrawals from transient conditions.
-- **50 STX gas cap** — refuses to execute if estimated gas exceeds this limit.
-- **Error = EXIT** — if the reserve oracle or position API fails, the skill treats this as a RED condition. Never returns a false HOLD.
-- State persisted in `~/.hodlmm-emergency-exit-state.json` — tracks exit history and out-of-range duration.
+- **50 STX gas cap**: refuses to execute if estimated gas exceeds this limit.
+- **Error = EXIT**: if the reserve oracle or position API fails, the skill treats this as a RED condition. Never returns a false HOLD.
+- State persisted in `~/.hodlmm-emergency-exit-state.json`: tracks exit history and out-of-range duration.
 
 ---
 
@@ -110,7 +110,7 @@ No other competitor can compose merged skills into this pipeline because no othe
 
 ## Use Cases
 
-### 1. Standalone CLI — Dry Run
+### 1. Standalone CLI: Dry Run
 
 ```bash
 bun run hodlmm-emergency-exit/hodlmm-emergency-exit.ts run \
@@ -119,7 +119,7 @@ bun run hodlmm-emergency-exit/hodlmm-emergency-exit.ts run \
 
 Exit codes: `0` = HOLD, `1` = WARN, `2` = EXIT, `3` = error.
 
-### 2. Standalone CLI — Execute Exit
+### 2. Standalone CLI: Execute Exit
 
 ```bash
 bun run hodlmm-emergency-exit/hodlmm-emergency-exit.ts run \
@@ -127,7 +127,7 @@ bun run hodlmm-emergency-exit/hodlmm-emergency-exit.ts run \
   --confirm
 ```
 
-### 3. Imported Module — Composable Safety Gate
+### 3. Imported Module: Composable Safety Gate
 
 ```ts
 import { evaluateExit } from "../hodlmm-emergency-exit/hodlmm-emergency-exit.ts"

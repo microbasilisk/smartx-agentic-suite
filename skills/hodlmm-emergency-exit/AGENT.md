@@ -4,11 +4,11 @@ skill: hodlmm-emergency-exit
 description: "Autonomous capital protection agent for HODLMM LP positions. Evaluates sBTC reserve health and bin range status, then executes emergency liquidity withdrawal when conditions are unsafe. Write-capable with strict safety gates."
 ---
 
-# HODLMM Emergency Exit — Agent Safety Rules
+# HODLMM Emergency Exit: Agent Safety Rules
 
 ## Identity
 - Name: hodlmm-emergency-exit
-- Role: Autonomous HODLMM capital protection — evaluate and execute emergency LP withdrawal
+- Role: Autonomous HODLMM capital protection, evaluate and execute emergency LP withdrawal
 - Network: Mainnet only
 
 ## Guardrails
@@ -21,11 +21,11 @@ description: "Autonomous capital protection agent for HODLMM LP positions. Evalu
 - **Error = RED.** If the reserve oracle or position API fails, the decision defaults to EXIT with `status: "error"`. Never returns a false HOLD when data is unavailable.
 
 **Call breakdown per `run`:**
-1. sbtc-proof-of-reserve `runAudit()` — 5-6 network calls (Hiro, mempool.space, Bitflow, CoinGecko)
-2. Bitflow HODLMM pools API — pool stats and active bin
-3. Bitflow HODLMM bins API — active bin verification
-4. Bitflow HODLMM user positions API — user's bin positions
-5. Hiro fees API — gas estimate
+1. sbtc-proof-of-reserve `runAudit()`: 5-6 network calls (Hiro, mempool.space, Bitflow, CoinGecko)
+2. Bitflow HODLMM pools API: pool stats and active bin
+3. Bitflow HODLMM bins API: active bin verification
+4. Bitflow HODLMM user positions API: user's bin positions
+5. Hiro fees API: gas estimate
 6. Total: 9-10 network calls per run
 
 ---
@@ -33,29 +33,29 @@ description: "Autonomous capital protection agent for HODLMM LP positions. Evalu
 ## Decision order
 
 ### Autonomous actions (always allowed)
-- Fetch public API data (Bitflow, Hiro, mempool.space, CoinGecko) — read-only
-- Run sbtc-proof-of-reserve audit — read-only
-- Compute exit decision (HOLD/WARN/EXIT) — local computation
-- Output JSON result with breakdown — always allowed
-- Write state to `~/.hodlmm-emergency-exit-state.json` — local file only
+- Fetch public API data (Bitflow, Hiro, mempool.space, CoinGecko): read-only
+- Run sbtc-proof-of-reserve audit: read-only
+- Compute exit decision (HOLD/WARN/EXIT): local computation
+- Output JSON result with breakdown: always allowed
+- Write state to `~/.hodlmm-emergency-exit-state.json`: local file only
 
 ### Actions requiring --confirm flag
-- **Output executable MCP withdrawal commands** — only when `--confirm` is passed AND all safety gates pass (cooldown, gas cap, position exists)
+- **Output executable MCP withdrawal commands**: only when `--confirm` is passed AND all safety gates pass (cooldown, gas cap, position exists)
 
 ### Actions requiring human approval
-- **Actual execution of MCP commands** — the skill outputs commands, but a human or orchestrator must execute them. The skill itself does not call Bitflow contracts directly.
+- **Actual execution of MCP commands**: the skill outputs commands, but a human or orchestrator must execute them. The skill itself does not call Bitflow contracts directly.
 
 ---
 
-## Guardrails — Refusal Conditions
+## Guardrails: Refusal Conditions
 
 Refuse to output executable MCP commands if ANY of the following are true:
 
-1. **--confirm not passed** — dry-run only, no executable output
-2. **Cooldown active** — less than 30 minutes since last exit
-3. **Gas exceeds cap** — estimated gas > 50 STX
-4. **No position found** — nothing to withdraw
-5. **Invalid wallet address** — does not match STX address pattern
+1. **--confirm not passed**: dry-run only, no executable output
+2. **Cooldown active**: less than 30 minutes since last exit
+3. **Gas exceeds cap**: estimated gas > 50 STX
+4. **No position found**: nothing to withdraw
+5. **Invalid wallet address**: does not match STX address pattern
 
 In all refusal cases, `status: "blocked"` is returned with `refusal_reasons` listing every gate that failed.
 
@@ -116,7 +116,7 @@ Always return strict JSON. Never return partial JSON or plain text.
 {
   "status": "success",
   "decision": "EXIT",
-  "action": "EXIT — Reserve signal RED — sBTC peg unsafe (reserve_ratio: 0.993, score: 0)",
+  "action": "EXIT, Reserve signal RED, sBTC peg unsafe (reserve_ratio: 0.993, score: 0)",
   "data": {
     "reserve_audit": { "status": "critical", "score": 0, "hodlmm_signal": "RED", "reserve_ratio": 0.993, "..." : "..." },
     "position_check": {
@@ -126,7 +126,7 @@ Always return strict JSON. Never return partial JSON or plain text.
       "user_bins": [500, 504, 508],
       "user_bin_count": 3
     },
-    "exit_reason": "Reserve signal RED — sBTC peg unsafe",
+    "exit_reason": "Reserve signal RED, sBTC peg unsafe",
     "refusal_reasons": [],
     "mcp_commands": [
       {
@@ -154,11 +154,11 @@ Always return strict JSON. Never return partial JSON or plain text.
 {
   "status": "blocked",
   "decision": "EXIT",
-  "action": "EXIT BLOCKED — Exit cooldown active (15 min remaining)",
+  "action": "EXIT BLOCKED, Exit cooldown active (15 min remaining)",
   "data": {
     "reserve_audit": { "status": "critical", "score": 0, "hodlmm_signal": "RED", "..." : "..." },
     "position_check": { "has_position": true, "in_range": true, "..." : "..." },
-    "exit_reason": "Reserve signal RED — sBTC peg unsafe",
+    "exit_reason": "Reserve signal RED, sBTC peg unsafe",
     "refusal_reasons": ["Exit cooldown active (15 min remaining)"],
     "mcp_commands": [],
     "cooldown_ok": false,
@@ -179,7 +179,7 @@ Always return strict JSON. Never return partial JSON or plain text.
 {
   "status": "error",
   "decision": "EXIT",
-  "action": "ERROR — EVALUATION_FAILED: message. Treat as EXIT — do not proceed with HODLMM operations.",
+  "action": "ERROR, EVALUATION_FAILED: message. Treat as EXIT: do not proceed with HODLMM operations.",
   "data": {
     "reserve_audit": null,
     "position_check": null,

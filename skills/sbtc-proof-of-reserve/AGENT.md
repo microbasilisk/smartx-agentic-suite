@@ -1,10 +1,10 @@
 ---
 name: sbtc-proof-of-reserve
 skill: sbtc-proof-of-reserve
-description: "Autonomous sBTC Proof-of-Reserve auditor. Derives the signer P2TR wallet from the Stacks registry, verifies BTC backing vs. circulating supply, and outputs a GREEN/YELLOW/RED HODLMM safety signal. Read-only — halts operations when peg is under-collateralized."
+description: "Autonomous sBTC Proof-of-Reserve auditor. Derives the signer P2TR wallet from the Stacks registry, verifies BTC backing vs. circulating supply, and outputs a GREEN/YELLOW/RED HODLMM safety signal. Read-only: halts operations when peg is under-collateralized."
 ---
 
-# sBTC Proof of Reserve — Agent Safety Rules
+# sBTC Proof of Reserve: Agent Safety Rules
 
 ## Identity
 - Name: sbtc-proof-of-reserve
@@ -17,15 +17,15 @@ description: "Autonomous sBTC Proof-of-Reserve auditor. Derives the signer P2TR 
 - Rate limit awareness: respects CoinGecko free tier (10-30 req/min)
 
 **Call breakdown per `run`:**
-1. CoinGecko — BTC/USD price (always)
-2. Hiro — sBTC total supply read-only call (always)
-3. Hiro — sbtc-registry aggregate pubkey read-only call (always)
-4. mempool.space — signer P2TR wallet balance (always)
-5. Bitflow ticker — sBTC market price (always)
-6. Hiro — mempool fees (always)
-7. Hiro — block heights (always)
-8. CoinGecko — STX/USD price (only if sBTC/pBTC pool unavailable)
-9. Hiro — sBTC metadata fallback (only if supply read-only call fails)
+1. CoinGecko: BTC/USD price (always)
+2. Hiro: sBTC total supply read-only call (always)
+3. Hiro: sbtc-registry aggregate pubkey read-only call (always)
+4. mempool.space: signer P2TR wallet balance (always)
+5. Bitflow ticker: sBTC market price (always)
+6. Hiro: mempool fees (always)
+7. Hiro: block heights (always)
+8. CoinGecko: STX/USD price (only if sBTC/pBTC pool unavailable)
+9. Hiro: sBTC metadata fallback (only if supply read-only call fails)
 
 ---
 
@@ -36,9 +36,9 @@ The `hodlmm_signal` is derived from `reserve_ratio = btc_reserve / sbtc_circulat
 | Signal | Condition | Agent Behaviour |
 |--------|-----------|-----------------|
 | `GREEN` | reserve_ratio ≥ 0.999 | Safe to enter or maintain HODLMM bins |
-| `YELLOW` | reserve_ratio ≥ 0.995 and < 0.999 | Hold existing positions — do not add new liquidity |
-| `RED` | reserve_ratio < 0.995 | CRITICAL — halt all HODLMM operations, exit bins |
-| `DATA_UNAVAILABLE` | Reserve data fetch failed | Treat as RED — do not proceed |
+| `YELLOW` | reserve_ratio ≥ 0.995 and < 0.999 | Hold existing positions: do not add new liquidity |
+| `RED` | reserve_ratio < 0.995 | CRITICAL: halt all HODLMM operations, exit bins |
+| `DATA_UNAVAILABLE` | Reserve data fetch failed | Treat as RED: do not proceed |
 
 ---
 
@@ -58,14 +58,14 @@ Returning a placeholder value that falsely implies the peg is healthy is a criti
 
 ---
 
-## Guardrails — Refusal Conditions
+## Guardrails: Refusal Conditions
 
 Refuse to output a `GREEN` or `YELLOW` signal if ANY of the following are true:
 
-1. **BTC price fetch fails** — cannot compute price deviation component of the score
-2. **Stacks API unreachable** — supply and signer pubkey unavailable
-3. **mempool.space unreachable** — cannot verify signer BTC reserve balance
-4. **P2TR derivation fails** — aggregate pubkey returned is malformed
+1. **BTC price fetch fails**: cannot compute price deviation component of the score
+2. **Stacks API unreachable**: supply and signer pubkey unavailable
+3. **mempool.space unreachable**: cannot verify signer BTC reserve balance
+4. **P2TR derivation fails**: aggregate pubkey returned is malformed
 
 In all refusal cases, set `hodlmm_signal: "DATA_UNAVAILABLE"` and `status: "error"`.
 
@@ -80,7 +80,7 @@ In all refusal cases, set `hodlmm_signal: "DATA_UNAVAILABLE"` and `status: "erro
 6. Compute 0-100 peg health score from price deviation, reserve ratio, congestion
 7. Output structured JSON; set process exit code (0=ok, 1=warning, 2=critical, 3=error)
 
-**Human approval:** None required — this skill is fully read-only.
+**Human approval:** None required, this skill is fully read-only.
 
 ---
 

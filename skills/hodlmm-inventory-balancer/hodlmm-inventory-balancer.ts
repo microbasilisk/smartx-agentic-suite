@@ -1,17 +1,17 @@
 #!/usr/bin/env bun
 /**
- * hodlmm-inventory-balancer — Restore a target HODLMM LP token-exposure ratio.
+ * hodlmm-inventory-balancer: Restore a target HODLMM LP token-exposure ratio.
  *
  * Detects INVENTORY drift (token-ratio imbalance from one-sided swap flow), not
  * price drift. Executes a corrective Bitflow swap and a redeploy via
  * hodlmm-move-liquidity, gated by the shared 4h per-pool cooldown.
  *
  * Commands:
- *   install-packs — install @stacks/* deps
- *   doctor        — pre-flight: wallet, Bitflow APIs, cooldown state, state marker
- *   status        — read-only ratio + deviation per eligible pool
- *   recommend     — dry-run cycle plan (swap + redeploy plan)
- *   run           — execute cycle (requires --confirm=BALANCE)
+ *   install-packs: install @stacks/* deps
+ *   doctor: pre-flight: wallet, Bitflow APIs, cooldown state, state marker
+ *   status: read-only ratio + deviation per eligible pool
+ *   recommend: dry-run cycle plan (swap + redeploy plan)
+ *   run: execute cycle (requires --confirm=BALANCE)
  */
 
 import { Command } from "commander";
@@ -27,14 +27,14 @@ const BITFLOW_APP = "https://bff.bitflowapis.finance/api/app/v1";
 const HIRO_API = "https://api.mainnet.hiro.so";
 const EXPLORER = "https://explorer.hiro.so/txid";
 
-// DLMM swap router — user-facing swap entrypoint with built-in min-out protection.
+// DLMM swap router: user-facing swap entrypoint with built-in min-out protection.
 // Verified via contract read on 2026-04-17: swap-(x|y)-for-(y|x)-simple-multi takes
 // (pool-trait, x-token-trait, y-token-trait, amount uint, min-out uint) and internally
-// asserts received >= min-out (ERR_MINIMUM_RECEIVED) — contract-level slippage.
+// asserts received >= min-out (ERR_MINIMUM_RECEIVED): contract-level slippage.
 const DLMM_SWAP_ROUTER_ADDR = "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD";
 const DLMM_SWAP_ROUTER_NAME = "dlmm-swap-router-v-1-1";
 
-// DLMM liquidity router — used by the opt-in `--allow-rebalance-withdraw` mode to
+// DLMM liquidity router: used by the opt-in `--allow-rebalance-withdraw` mode to
 // withdraw a slice of the overweight bin and redeposit swapped proceeds on the
 // underweight side. Same mainnet deployer as the swap router; contract functions
 // used: `withdraw-relative-liquidity-same-multi`, `add-relative-liquidity-same-multi`.
@@ -65,7 +65,7 @@ const PRICE_SCALE = 1e8;
 const MOVE_LIQUIDITY_STATE_FILE = path.join(os.homedir(), ".hodlmm-move-liquidity-state.json");
 const MOVE_LIQUIDITY_COOLDOWN_MS = 4 * 60 * 60 * 1000;
 
-// Our own state file — tracks incomplete cycles and meta-cooldown
+// Our own state file: tracks incomplete cycles and meta-cooldown
 const INVENTORY_STATE_FILE = path.join(os.homedir(), ".hodlmm-inventory-balancer-state.json");
 const INVENTORY_META_COOLDOWN_MS = 60 * 60 * 1000; // 1h
 
@@ -84,13 +84,13 @@ const MIN_SWAP_SATS = 1000n; // refuse tiny swaps
 // path alone cannot balance. Guardrails: REBALANCE_MAX_SLICE_BPS caps how much of
 // the overweight bin's shares a single cycle may withdraw (deterministic upper
 // bound on capital motion). REBALANCE_ADD_OFFSET_BINS is the number of bins on
-// either side of active the redeposit walks (narrow by default — tight bin cluster
+// either side of active the redeposit walks (narrow by default: tight bin cluster
 // around active = swap proceeds land as concentrated liquidity close to mid-price).
 const REBALANCE_MAX_SLICE_BPS = 8000;       // at most 80% of a single bin's shares
 const REBALANCE_ADD_OFFSET_BINS = 1;        // deposit at active ±1 (3 bins total)
 const REBALANCE_ADD_TOLERANCE_BINS = 2;     // active-bin drift tolerance on deposit
 
-// Pool volume floor — refuse corrective swaps on pools whose bin-level reserves
+// Pool volume floor: refuse corrective swaps on pools whose bin-level reserves
 // (across bins we'd touch) are too thin to absorb the swap without moving the
 // price by more than the slippage budget. #493 safety contract: "Pool volume
 // too thin to support corrective swap without moving the pool price."
@@ -98,13 +98,13 @@ const REBALANCE_ADD_TOLERANCE_BINS = 2;     // active-bin drift tolerance on dep
 // least THIN_POOL_MIN_RATIO × the expected output.
 const THIN_POOL_MIN_RATIO = 3n; // active-bin reserve must be ≥ 3× expected output
 
-// Post-broadcast verification sleep — lets the first Nakamoto block settle so
+// Post-broadcast verification sleep: lets the first Nakamoto block settle so
 // ratio_after reflects the post-swap state. #493 step 6 requires re-reading
 // and emitting before/after ratios.
 const VERIFY_SLEEP_MS = 10_000;
 
 // v1 scope: Bitflow-tradeable HODLMM pools. Eligibility is derived dynamically
-// from /api/app/v1 per-pool state — no hardcoded allowlist. Predicates below.
+// from /api/app/v1 per-pool state, no hardcoded allowlist. Predicates below.
 //
 // HODLMM_POOL_DEPLOYER is the single mainnet address that deploys DLMM pool
 // contracts; JingSwap and other AMMs use different deployers, so contract-prefix
@@ -154,7 +154,7 @@ interface RatioSummary {
   user_bins: number[];
   total_x_raw: string;
   total_y_raw: string;
-  total_x_in_y: string; // Y-units — X valued at its bin price
+  total_x_in_y: string; // Y-units, X valued at its bin price
   total_value_in_y: string;
   current_x_ratio: number; // 0..1 (fraction of value in X)
   current_y_ratio: number;
@@ -325,7 +325,7 @@ async function fetchPoolBins(poolId: string): Promise<{ active_bin_id: number; b
 }
 
 async function fetchUserPositions(poolId: string, wallet: string): Promise<UserBin[]> {
-  // Best-effort across field-name variants — the App API returns user bins with
+  // Best-effort across field-name variants: the App API returns user bins with
   // either snake_case or camelCase keys depending on endpoint version.
   const raw = await fetchJson<Record<string, unknown>>(
     `${BITFLOW_APP}/users/${wallet}/positions/${poolId}/bins`
@@ -447,7 +447,7 @@ function inventoryMetaCooldownMs(state: InventoryState, poolId: string): number 
 // ─── Ratio computer ───────────────────────────────────────────────────────────
 //
 // Arc's invariant: bins STRICTLY below active hold only Y; bins STRICTLY above
-// hold only X; active bin holds both. Ratios MUST be price-weighted — raw sums
+// hold only X; active bin holds both. Ratios MUST be price-weighted: raw sums
 // misrepresent exposure because X and Y are in different units and different
 // bins contribute at different prices.
 //
@@ -471,7 +471,7 @@ function computeRatio(
   let totalYRaw = 0n;
   // Bitflow bin `price` is an integer string already scaled so that:
   //   raw_y_per_raw_x = price / PRICE_SCALE
-  // No separate token-decimal math — the scale bakes the x/y decimal delta in.
+  // No separate token-decimal math: the scale bakes the x/y decimal delta in.
   //   x_value_in_raw_y = reserve_x * price / PRICE_SCALE
   let totalXValueY = 0n; // raw-Y units (rounded-down integer)
   let totalYValueY = 0n; // raw-Y units
@@ -533,7 +533,7 @@ function computeRatio(
 //
 // Approximation: for a single corrective swap, ignore pool-price slippage on
 // the correction itself (conservative: we only correct PART of the gap each
-// cycle, not all of it — meta-cooldown prevents re-firing too quickly).
+// cycle, not all of it: meta-cooldown prevents re-firing too quickly).
 
 interface PlannerInputs {
   ratio: RatioSummary;
@@ -553,7 +553,7 @@ function planCorrectiveSwap(inputs: PlannerInputs): SwapPlan | null {
   if (totalValueY === 0n || activeBinPriceScaled === 0n) return null;
 
   const overWeightX = ratio.current_x_ratio > ratio.target_x_ratio;
-  // Halfway conservative correction — smooths flow-driven oscillation and matches
+  // Halfway conservative correction: smooths flow-driven oscillation and matches
   // Arc's "conservative sizing" guidance.
   const gapAbs = Math.abs(ratio.current_x_ratio - ratio.target_x_ratio);
   const gapMicro = BigInt(Math.floor(gapAbs * 1_000_000));
@@ -625,11 +625,11 @@ function planCorrectiveSwap(inputs: PlannerInputs): SwapPlan | null {
 
 // ─── Bitflow swap execution (HODLMM pool direct-call) ─────────────────────────
 //
-// v1 corrective swap goes through the HODLMM pool contract directly — single
+// v1 corrective swap goes through the HODLMM pool contract directly: single
 // hop through the same pool we're balancing. Post-conditions: Deny with an FT
 // receive condition on `minimum_amount_out_raw`.
 
-// Unified token-kind resolver — single source of truth for "is this native STX
+// Unified token-kind resolver: single source of truth for "is this native STX
 // (via the wrapper passthrough) or a real SIP-010?" Post-conditions, balance
 // gates, and any future token-handling branch should go through this helper so
 // the two codepaths cannot drift out of sync (per @arc0btc's observation on
@@ -650,7 +650,7 @@ function resolveTokenAsset(contract: string): TokenAsset {
   }
   if (!assetName) assetName = TOKEN_ASSET_NAMES[contract];
   if (!assetName) {
-    // Fall back to the contract name — safe for contracts that use
+    // Fall back to the contract name: safe for contracts that use
     // `(define-fungible-token <contract-name>)`, unsafe otherwise. Flagged loudly.
     assetName = contract.split(".")[1] ?? contract;
     log(`WARN: no verified asset-name for ${contract}, falling back to contract-name '${assetName}'`);
@@ -693,17 +693,17 @@ async function executeCorrectiveSwap(
   // from the #494 review per @macbotmini-eng's audit. Mirrors the author's mainnet
   // refs 0x134df5e1… and 0x5195822e… (and the broader 0x958719b5… / 0x9f3731fc…
   // baseline for swap-simple-multi):
-  //   - PC[0] caller's max input — Pc.principal(sender).willSendLte(amountIn)
-  //   - PC[1] pool's min output — Pc.principal(pool).willSendGte(minOut)
+  //   - PC[0] caller's max input: Pc.principal(sender).willSendLte(amountIn)
+  //   - PC[1] pool's min output: Pc.principal(pool).willSendGte(minOut)
   // The output PC is anchored on the POOL principal (the pool sends the output
-  // token to the caller), not the caller — Stacks post-conditions evaluate against
+  // token to the caller), not the caller: Stacks post-conditions evaluate against
   // the principal that is sending the asset, so a "user receives ≥ X" invariant
   // is expressed as "pool sends ≥ X". @stacks/transactions Pc builder exposes
   // willSendGte; there is no willReceiveGte primitive (the receive-side framing
   // doesn't exist at the protocol level).
   // Allow mode (vs Deny + enumerate-each-fee) remains because protocol/provider
   // fees accrue inside dlmm-core's `unclaimed-protocol-fees` map and bin balances
-  // — they do NOT emit FT transfer events on the swap tx (verified on-chain), so
+  //: they do NOT emit FT transfer events on the swap tx (verified on-chain), so
   // the receive-side pool pin is orthogonal to the fee-flow surface.
   const senderPin = Pc.principal(senderAddress).willSendLte(amountIn);
   const poolPin = Pc.principal(pool.pool_contract).willSendGte(minOut);
@@ -722,7 +722,7 @@ async function executeCorrectiveSwap(
     "min-received": uintCV(minOut),
     "x-for-y": boolCV(plan.direction === "X->Y"),
     // max-steps bounds how many bins the router walks. Tiny corrective swaps
-    // finish in 1–2 bins; 10 gives headroom without overallocating the fold.
+    // finish in 1-2 bins; 10 gives headroom without overallocating the fold.
     "max-steps": uintCV(10),
   });
 
@@ -743,7 +743,7 @@ async function executeCorrectiveSwap(
 
   const result = await broadcastTransaction({ transaction: tx, network: STACKS_MAINNET });
   if ("error" in result && result.error) {
-    throw new Error(`Swap broadcast failed: ${result.error} — ${(result as Record<string, string>).reason ?? ""}`);
+    throw new Error(`Swap broadcast failed: ${result.error}, ${(result as Record<string, string>).reason ?? ""}`);
   }
   return result.txid as string;
 }
@@ -762,7 +762,7 @@ async function executeCorrectiveSwap(
 //      swap path (wallet-side, same post-condition pattern)
 //   3. redeposit: add-relative-liquidity-same-multi at active ± REBALANCE_ADD_OFFSET_BINS,
 //      depositing the swap output on the underweight side. The add-liquidity is
-//      the redeploy — the move-liquidity CLI is NOT invoked in this path.
+//      the redeploy: the move-liquidity CLI is NOT invoked in this path.
 
 interface WithdrawSliceEntry {
   bin_id: number;
@@ -825,7 +825,7 @@ function planRebalanceWithdraw(
   }
 
   // Pick the bin holding the most overweight token (by raw amount of that side).
-  // Per-user-bin reserves may be reported as 0 by the App API — in that case derive
+  // Per-user-bin reserves may be reported as 0 by the App API: in that case derive
   // effective reserves from user shares × pool_bin_reserves / pool_bin_liquidity
   // (same derivation computeRatio uses). Without this, a sprawled position that only
   // reports aggregate reserves would falsely refuse with "no_overweight_bin_found".
@@ -915,7 +915,7 @@ function planRebalanceWithdraw(
   const expectedXRaw = totalExpectedX;
   const expectedYRaw = totalExpectedY;
 
-  // Swap plan — input is 100% of the overweight proceeds from the withdraw.
+  // Swap plan: input is 100% of the overweight proceeds from the withdraw.
   const swapInRaw = overWeightX ? expectedXRaw : expectedYRaw;
   if (swapInRaw < MIN_SWAP_SATS) {
     return { status: "refused", reason: "planned_swap_below_minimum", detail: { planned_raw: swapInRaw.toString() } };
@@ -941,17 +941,17 @@ function planRebalanceWithdraw(
     quote_fetched_at: ratio.quote_fetched_at,
   };
 
-  // Redeposit — underweight token goes to the side of active that HODLMM assigns
+  // Redeposit: underweight token goes to the side of active that HODLMM assigns
   // it (bins above active hold X only, bins below hold Y only; active itself is
   // the mixed frontier). We deposit at active ± REBALANCE_ADD_OFFSET_BINS with
   // the underweight amount split evenly across the appropriate side.
   const underweightRaw = expectedSwapOutRaw; // raw tokens we'll have post-swap
   const offsets: number[] = [];
   if (overWeightX) {
-    // Underweight is Y — bins BELOW active (-1..-N)
+    // Underweight is Y: bins BELOW active (-1..-N)
     for (let i = 1; i <= REBALANCE_ADD_OFFSET_BINS; i++) offsets.push(-i);
   } else {
-    // Underweight is X — bins ABOVE active (+1..+N)
+    // Underweight is X: bins ABOVE active (+1..+N)
     for (let i = 1; i <= REBALANCE_ADD_OFFSET_BINS; i++) offsets.push(i);
   }
   if (offsets.length === 0) {
@@ -1042,7 +1042,7 @@ async function executeWithdrawSlice(
     ],
     senderKey: privateKey,
     network: STACKS_MAINNET,
-    // DLP burn returns 2 FTs to sender — mirrors move-liquidity-multi's Allow
+    // DLP burn returns 2 FTs to sender: mirrors move-liquidity-multi's Allow
     // rationale in hodlmm-move-liquidity. Aggregate min-x/y-amount-total above
     // is the upper gate; per-bin min-x/y on the position tuple is the lower gate.
     postConditionMode: PostConditionMode.Allow,
@@ -1054,7 +1054,7 @@ async function executeWithdrawSlice(
 
   const result = await broadcastTransaction({ transaction: tx, network: STACKS_MAINNET });
   if ("error" in result && result.error) {
-    throw new Error(`Withdraw-slice broadcast failed: ${result.error} — ${(result as Record<string, string>).reason ?? ""}`);
+    throw new Error(`Withdraw-slice broadcast failed: ${result.error}, ${(result as Record<string, string>).reason ?? ""}`);
   }
   return result.txid as string;
 }
@@ -1085,10 +1085,10 @@ async function executeAddLiquidityRedeposit(
 
   const positions = plan.bins.map((b) => tupleCV({
     "active-bin-id-offset": intCV(b.active_bin_id_offset),
-    // 5% cap on per-side liquidity fees — same ceiling hodlmm-move-liquidity uses.
+    // 5% cap on per-side liquidity fees: same ceiling hodlmm-move-liquidity uses.
     "max-x-liquidity-fee": uintCV((BigInt(b.x_amount_raw) * 5n) / 100n),
     "max-y-liquidity-fee": uintCV((BigInt(b.y_amount_raw) * 5n) / 100n),
-    // min-dlp = 1 — redeposit mints fresh DLP shares at the current price; any
+    // min-dlp = 1: redeposit mints fresh DLP shares at the current price; any
     // positive share count indicates the deposit routed correctly. Cross-bin
     // min-dlp semantics are the same ones upstream aibtcdev/skills#338 flagged.
     "min-dlp": uintCV(1n),
@@ -1115,7 +1115,7 @@ async function executeAddLiquidityRedeposit(
     ],
     senderKey: privateKey,
     network: STACKS_MAINNET,
-    // DLP mint from sender FT inputs — Allow for same reason as swap path:
+    // DLP mint from sender FT inputs: Allow for same reason as swap path:
     // router routes X and Y deposits plus may emit per-bin fee transfers that
     // vary with pool config (see PR #494 comment to @TheBigMacBTC).
     postConditionMode: PostConditionMode.Allow,
@@ -1127,17 +1127,17 @@ async function executeAddLiquidityRedeposit(
 
   const result = await broadcastTransaction({ transaction: tx, network: STACKS_MAINNET });
   if ("error" in result && result.error) {
-    throw new Error(`Redeposit broadcast failed: ${result.error} — ${(result as Record<string, string>).reason ?? ""}`);
+    throw new Error(`Redeposit broadcast failed: ${result.error}, ${(result as Record<string, string>).reason ?? ""}`);
   }
   return result.txid as string;
 }
 
 // 600s default timeout. Mainnet propagation + indexing on Hiro can easily run
 // past the naïve 2× block-time estimate (Nakamoto is ~5s but microblock/epoch
-// boundaries and mempool congestion routinely push tx visibility to 60–180s).
+// boundaries and mempool congestion routinely push tx visibility to 60-180s).
 // The 3-leg flow broadcasts 3 sequential txs, each waiting on this helper;
 // being generous here trades wall-clock for a lower false-failure rate when the
-// state marker is between legs. Prefix `0x` on Hiro tx lookups — some codepaths
+// state marker is between legs. Prefix `0x` on Hiro tx lookups: some codepaths
 // return the tx without, some require it, and querying with the prefix works
 // consistently.
 async function waitForTxConfirmation(txId: string, timeoutMs = 600_000): Promise<void> {
@@ -1170,7 +1170,7 @@ function invokeMoveLiquidityRedeploy(poolId: string, stxAddress: string, passwor
     throw new Error(`hodlmm-move-liquidity CLI not found at ${cli}. Install the skill or set HODLMM_MOVE_LIQUIDITY_CLI.`);
   }
   // `hodlmm-move-liquidity`'s `run` requires `--wallet <address>` + `--pool` + boolean `--confirm`
-  // (no value). `--force` overrides the IN_RANGE no-op gate — required here because the
+  // (no value). `--force` overrides the IN_RANGE no-op gate: required here because the
   // inventory balancer corrects exposure ratio regardless of price-drift status.
   const args = ["run", cli, "run", "--wallet", stxAddress, "--pool", poolId, "--confirm", "--force"];
   // Password is passed via env, never argv. An argv entry would surface in /proc/<pid>/cmdline
@@ -1201,7 +1201,7 @@ async function gatherPool(poolId: string, wallet: string) {
   const pool = pools.find((p) => p.pool_id === poolId);
   if (!pool) throw new Error(`Pool ${poolId} not found in Bitflow DLMM registry.`);
   if (!isEligibleHodlmmPool(pool)) {
-    throw new Error(`Pool ${poolId} not eligible (inactive or non-HODLMM deployer — v1 excludes JingSwap and retired pools).`);
+    throw new Error(`Pool ${poolId} not eligible (inactive or non-HODLMM deployer: v1 excludes JingSwap and retired pools).`);
   }
   const [poolBins, userBins] = await Promise.all([fetchPoolBins(poolId), fetchUserPositions(poolId, wallet)]);
   return { pool, poolBins, userBins };
@@ -1274,7 +1274,7 @@ program
           checks.push({
             name: "mempool_depth",
             ok: pending === 0,
-            detail: pending === 0 ? "clear" : `${pending} pending txs — would serialize via nonce-manager`,
+            detail: pending === 0 ? "clear" : `${pending} pending txs, would serialize via nonce-manager`,
           });
         } catch (e) {
           checks.push({ name: "chain_reads", ok: false, detail: (e as Error).message });
@@ -1307,7 +1307,7 @@ program
         detail: JSON.stringify(cooldowns),
       });
 
-      // Surface unresolved state markers — flag both the v1 pending state and
+      // Surface unresolved state markers: flag both the v1 pending state and
       // the two intermediate states introduced by the 3-leg rebalance-withdraw path.
       const state = loadInventoryState();
       const unresolvedStatuses = new Set([
@@ -1420,7 +1420,7 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
   const poolId = opts.pool as string | undefined;
   if (!poolId) return err(action, "--pool is required");
   // Password is read from WALLET_PASSWORD env var only. A --password CLI flag
-  // would leak via /proc/<pid>/cmdline and `ps auxww` — same exposure class
+  // would leak via /proc/<pid>/cmdline and `ps auxww`: same exposure class
   // @diegomey flagged on the child-process invocation of hodlmm-move-liquidity
   // (PR #494 review item 5). Env vars are visible only to the same user or root
   // via /proc/<pid>/environ, a much smaller exposure surface.
@@ -1453,7 +1453,7 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
   // remediation hints. Re-planning mid-cycle from a partial state is fragile
   // (position shifted, wallet has partial proceeds, direction could be inferred
   // wrong). Operator flow: wait for the last known tx to confirm via explorer,
-  // then re-run `run --allow-rebalance-withdraw` — the planner will see the
+  // then re-run `run --allow-rebalance-withdraw`: the planner will see the
   // current (partially-corrected) ratio and plan a fresh 3-leg cycle sized to
   // close the remaining gap. Clear the stale marker with `status` after the
   // prior txs have all landed.
@@ -1476,14 +1476,14 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
         withdraw: poolState.last_withdraw_tx ? `${EXPLORER}/0x${poolState.last_withdraw_tx}?chain=mainnet` : null,
         swap: poolState.last_swap_tx ? `${EXPLORER}/0x${poolState.last_swap_tx}?chain=mainnet` : null,
       },
-      hint: "Withdraw + swap landed but the redeposit did not. Wait for both prior txs on the explorer, then re-run the skill — it will plan a redeposit-sized cycle from the current wallet + ratio.",
+      hint: "Withdraw + swap landed but the redeposit did not. Wait for both prior txs on the explorer, then re-run the skill: it will plan a redeposit-sized cycle from the current wallet + ratio.",
     });
   }
 
   const pending = poolState?.last_cycle_status === "swap_done_redeploy_pending" ? poolState.swap_pending_details : undefined;
   if (pending && skipRedeploy) {
     return out("blocked", action, {
-      reason: "swap_done_redeploy_pending — call without --skip-redeploy to finish the cycle",
+      reason: "swap_done_redeploy_pending, call without --skip-redeploy to finish the cycle",
       pending,
     });
   }
@@ -1555,7 +1555,7 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
     return out("blocked", action, {
       reason: "sender_has_pending_mempool_tx",
       pending_count: pendingCount,
-      hint: "Wait for the prior tx to confirm, then retry — avoids TooMuchChaining on nonce-serial writes.",
+      hint: "Wait for the prior tx to confirm, then retry, avoids TooMuchChaining on nonce-serial writes.",
     });
   }
 
@@ -1658,7 +1658,7 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
     });
   }
 
-  // Operator overrides — deliberate escape hatch for testing or for corrections
+  // Operator overrides: deliberate escape hatch for testing or for corrections
   // the planner refuses (e.g. wallet holds under-weight side, over-weight side
   // is fully in the LP). Both flags must be supplied together.
   const forceDir = opts["forceDirection"] as string | undefined;
@@ -1716,7 +1716,7 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
     });
   }
 
-  // Pre-broadcast thin-pool guard — #493 safety contract.
+  // Pre-broadcast thin-pool guard: #493 safety contract.
   // If the active bin's reserve of the OUTPUT token is less than
   // THIN_POOL_MIN_RATIO × the expected output, a single-hop swap would
   // need to walk many bins and risk moving the pool price by more than the
@@ -1740,7 +1740,7 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
     });
   }
 
-  // Pre-broadcast input-token balance gate — per @arc0btc's review on PR #494.
+  // Pre-broadcast input-token balance gate: per @arc0btc's review on PR #494.
   // The swap transfers `amount_in_raw` of token_in FROM the sender's wallet
   // via the SIP-010 transfer call inside the router. If the wallet doesn't
   // hold it (common when the over-weight side is fully locked in LP bins),
@@ -1802,7 +1802,7 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
       pool_id: poolId,
       swap: { ...plan, tx_id: swapTx, explorer: `${EXPLORER}/0x${swapTx}?chain=mainnet` },
       state_marker: { path: INVENTORY_STATE_FILE, status: "swap_done_redeploy_pending" },
-    }, `Redeploy failed after swap — marker kept for resumption: ${(e as Error).message}`);
+    }, `Redeploy failed after swap: marker kept for resumption: ${(e as Error).message}`);
   }
 
   state[poolId] = {
@@ -1832,7 +1832,7 @@ async function recommendOrRun(opts: Record<string, string | boolean | undefined>
 /**
  * Re-read the position ratio after a short delay so the first Nakamoto block
  * has a chance to include our tx. If the tx hasn't confirmed yet, the returned
- * ratio may still reflect pre-swap state — the `quote_fetched_at` field on the
+ * ratio may still reflect pre-swap state: the `quote_fetched_at` field on the
  * returned RatioSummary lets the caller reason about freshness.
  */
 async function readRatioAfterDelay(poolId: string, wallet: string, targetXRatio: number): Promise<RatioSummary | { note: string }> {

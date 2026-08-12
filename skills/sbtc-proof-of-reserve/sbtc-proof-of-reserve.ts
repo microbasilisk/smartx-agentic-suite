@@ -32,15 +32,15 @@ const BITFLOW_TICKER = "https://bitflow-sdk-api-gateway-7owjsmt8.uc.gateway.dev/
 const MEMPOOL_API    = "https://mempool.space/api";
 const COINGECKO_API  = "https://api.coingecko.com/api/v3";
 
-// sBTC contracts — Stacks mainnet
+// sBTC contracts: Stacks mainnet
 const SBTC_CONTRACT      = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
 const SBTC_REGISTRY      = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4";
 const SBTC_REGISTRY_NAME = "sbtc-registry";
 const SBTC_DECIMALS      = 8;
 
 // ── HODLMM signal thresholds (reserve_ratio = btc_reserve / sbtc_circulating)
-const THRESHOLD_GREEN  = 0.999; // ≥ GREEN  — safe for HODLMM entry
-const THRESHOLD_YELLOW = 0.995; // ≥ YELLOW — hold, do not add liquidity; < GREEN
+const THRESHOLD_GREEN  = 0.999; // ≥ GREEN: safe for HODLMM entry
+const THRESHOLD_YELLOW = 0.995; // ≥ YELLOW: hold, do not add liquidity; < GREEN
 
 // ── Types ───────────────────────────────────────────────────────────────────
 export type HodlmmSignal = "GREEN" | "YELLOW" | "RED" | "DATA_UNAVAILABLE";
@@ -72,7 +72,7 @@ export interface AuditResult {
   error?:         string;
 }
 
-// ── Bech32m helpers (P2TR address derivation — no external lib) ─────────────
+// ── Bech32m helpers (P2TR address derivation, no external lib) ─────────────
 const BECH32M_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const BECH32M_CONST   = 0x2bc830a3;
 
@@ -127,7 +127,7 @@ function xOnlyPubkeyToP2TR(xOnlyHex: string): string {
   const xOnlyBytes = Buffer.from(xOnlyHex, "hex");
   const tweak      = _tapTaggedHash("TapTweak", xOnlyBytes);
   const tweaked    = ecc.xOnlyPointAddTweak(xOnlyBytes, tweak);
-  if (!tweaked) throw new Error("Taproot key tweak failed — invalid internal pubkey");
+  if (!tweaked) throw new Error("Taproot key tweak failed: invalid internal pubkey");
 
   const hrp      = "bc";
   const data     = [1, ..._convertBits(tweaked.xOnlyPubkey, 8, 5)];
@@ -220,7 +220,7 @@ async function fetchSbtcMarketData(btcPriceUsd: number): Promise<{
   }
   const tickers = await fetchJson(BITFLOW_TICKER) as TickerEntry[];
 
-  // Prefer sBTC/pBTC pool — direct peg ratio, no USD conversion needed
+  // Prefer sBTC/pBTC pool: direct peg ratio, no USD conversion needed
   const pbtcPair = tickers.find(
     (t) => t.pool_id?.toLowerCase().includes("sbtc-pbtc") && parseFloat(t.last_price ?? "0") > 0
   );
@@ -300,14 +300,14 @@ function computeScore(breakdown: ReserveBreakdown): {
     issues.push(`minor peg deviation ${dev.toFixed(2)}%`);
   }
 
-  // 2. Reserve ratio (max −30 pts) — reserve_ratio = btc_reserve / sbtc (≥ 1.0 = healthy)
+  // 2. Reserve ratio (max −30 pts): reserve_ratio = btc_reserve / sbtc (≥ 1.0 = healthy)
   const rr = breakdown.reserve_ratio;
   if (rr < 1 / 1.05) {
     score -= 30;
     issues.push(`BTC reserve covers only ${(rr * 100).toFixed(2)}% of circulating sBTC`);
   } else if (rr < 1 / 1.002) {
     score -= 15;
-    issues.push(`reserve ratio ${rr.toFixed(4)} — near undercollateralization threshold`);
+    issues.push(`reserve ratio ${rr.toFixed(4)}: near undercollateralization threshold`);
   }
 
   // 3. Mempool congestion (max −20 pts)
@@ -334,7 +334,7 @@ function computeScore(breakdown: ReserveBreakdown): {
   const recommendation =
     issues.length === 0
       ? "Peg is healthy. HODLMM entry is safe."
-      : `Reserve health degraded — ${issues.join("; ")}.` +
+      : `Reserve health degraded, ${issues.join("; ")}.` +
         (status === "critical" ? " Exit HODLMM bins and pause operations." : " Monitor closely.");
 
   return { score, status, risk_level, recommendation };
@@ -353,7 +353,7 @@ function computeScore(breakdown: ReserveBreakdown): {
  *
  * const audit = await runAudit()
  * if (audit.hodlmm_signal !== "GREEN") {
- *   console.log("sBTC reserve unsafe — skipping HODLMM operation")
+ *   console.log("sBTC reserve unsafe: skipping HODLMM operation")
  *   process.exit(1)
  * }
  */
@@ -367,7 +367,7 @@ export async function runAudit(threshold = 80): Promise<AuditResult> {
       fetchMempoolFees(),
       fetchBlockHeights(),
     ]);
-    if (!btcPrice) throw new Error("BTC price unavailable — cannot compute peg deviation");
+    if (!btcPrice) throw new Error("BTC price unavailable: cannot compute peg deviation");
     // Market data depends on btcPrice, so fetched after parallel batch
     const marketData = await fetchSbtcMarketData(btcPrice);
 
@@ -412,7 +412,7 @@ export async function runAudit(threshold = 80): Promise<AuditResult> {
       hodlmm_signal:  "DATA_UNAVAILABLE",
       reserve_ratio:  null,
       breakdown:      null,
-      recommendation: "Oracle could not fetch reserve data. Treat as RED — do not proceed with HODLMM operations.",
+      recommendation: "Oracle could not fetch reserve data. Treat as RED: do not proceed with HODLMM operations.",
       alert:          true,
       error:          err instanceof Error ? err.message : String(err),
     };
@@ -470,7 +470,7 @@ async function runDoctor(): Promise<void> {
     checks,
     message: allOk
       ? "All data sources reachable. Golden Chain verified. Ready to run."
-      : "One or more data sources unavailable — oracle output may be incomplete.",
+      : "One or more data sources unavailable, oracle output may be incomplete.",
   }, null, 2));
 }
 
@@ -479,7 +479,7 @@ const program = new Command();
 
 program
   .name("sbtc-proof-of-reserve")
-  .description("sBTC Proof-of-Reserve Oracle — HODLMM pre-flight security check")
+  .description("sBTC Proof-of-Reserve Oracle: HODLMM pre-flight security check")
   .version("1.0.0");
 
 program
@@ -508,7 +508,7 @@ program
     if (result.status === "warning")  process.exit(1);
   });
 
-// Only run CLI when this file is the entry point — not when imported as a module
+// Only run CLI when this file is the entry point, not when imported as a module
 if (import.meta.main) {
   program.parseAsync(process.argv).catch((err: unknown) => {
     console.error(JSON.stringify({ status: "error", error: err instanceof Error ? err.message : String(err) }));

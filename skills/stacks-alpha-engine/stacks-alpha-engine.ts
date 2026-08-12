@@ -16,10 +16,10 @@
  * Safety: every write runs Scout -> Reserve -> Guardian -> Executor. No bypasses.
  *
  * Protocols & tokens:
- *   Zest      — supply/withdraw sBTC; borrow/repay USDh  (MCP native zest_supply/withdraw/borrow/repay)
- *   Hermetica — stake USDh -> sUSDh                       (call_contract staking-v1-1)
- *   Granite   — deposit aeUSDC to LP                      (call_contract liquidity-provider-v1)
- *   HODLMM    — LP in sBTC/STX/USDCx/USDh/aeUSDC pools   (Bitflow skill)
+ *   Zest: supply/withdraw sBTC; borrow/repay USDh  (MCP native zest_supply/withdraw/borrow/repay)
+ *   Hermetica: stake USDh -> sUSDh                       (call_contract staking-v1-1)
+ *   Granite: deposit aeUSDC to LP                      (call_contract liquidity-provider-v1)
+ *   HODLMM: LP in sBTC/STX/USDCx/USDh/aeUSDC pools   (Bitflow skill)
  *
  * Usage:
  *   bun run stacks-alpha-engine/stacks-alpha-engine.ts doctor
@@ -136,7 +136,7 @@ interface ZestPosition { has_position: boolean; detail: string; supply_amount?: 
 interface GranitePosition {
   has_position: boolean; detail: string;
   supply_apy_pct?: number; borrow_apr_pct?: number; utilization_pct?: number;
-  accepted_token: string; // "aeUSDC" — NOT sBTC
+  accepted_token: string; // "aeUSDC", NOT sBTC
   lp_shares?: string; // raw share count from on-chain position
 }
 interface HermeticaPosition {
@@ -412,7 +412,7 @@ function verifyBech32mTestVectors(): { pass: boolean; detail: string } {
 
 async function scoutWallet(wallet: string): Promise<ScoutResult> {
   if (!/^SP[A-Z0-9]{30,}$/i.test(wallet)) {
-    throw new Error("Invalid wallet address — must be Stacks mainnet (SP...)");
+    throw new Error("Invalid wallet address: must be Stacks mainnet (SP...)");
   }
 
   const allSources: string[] = [];
@@ -557,7 +557,7 @@ async function scoutHermetica(wallet: string): Promise<{ position: HermeticaPosi
     ]);
     sources.push("hermetica-staking");
 
-    const RATE_SCALE = 1e8; // exchange rate precision — Hermetica usdh-base = (pow u10 u8)
+    const RATE_SCALE = 1e8; // exchange rate precision: Hermetica usdh-base = (pow u10 u8)
     let exchangeRate = 1.0;
     if (rateResult.okay && rateResult.result) {
       const raw = parseUint128Hex(rateResult.result);
@@ -566,7 +566,7 @@ async function scoutHermetica(wallet: string): Promise<{ position: HermeticaPosi
 
     // Annualize APY from exchange rate drift using staking-v1-1 deployment date.
     // staking-v1-1 deployed at burn block 914980 (Sept 16 2025). The exchange rate
-    // reflects cumulative yield since then — we must annualize, not report raw.
+    // reflects cumulative yield since then: we must annualize, not report raw.
     const STAKING_V1_1_DEPLOY_TS = 1758041467; // burn_block_time of deploy tx
     const nowTs = Math.floor(Date.now() / 1000);
     const daysSinceDeploy = Math.max(1, (nowTs - STAKING_V1_1_DEPLOY_TS) / 86400);
@@ -753,7 +753,7 @@ async function getYieldOptions(
 
     if (balances.sbtc.amount > 0) {
       const d = dailyUsd(balances.sbtc.usd, supplyApy);
-      options.push({ tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: supplyApy > 0 ? `Lending — ${round(utilPct, 1)}% utilization.` : `0% utilization — APY rises when borrowers arrive.`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: supplyApy > 0 ? `Lending, ${round(utilPct, 1)}% utilization.` : `0% utilization, APY rises when borrowers arrive.`, ytg_ratio: 0, ytg_profitable: false });
     } else {
       options.push({ tier: "acquire_to_unlock", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Need sBTC. Get via: Bitflow swap or sBTC bridge.`, ytg_ratio: 0, ytg_profitable: false });
     }
@@ -762,10 +762,10 @@ async function getYieldOptions(
   // Hermetica USDh staking
   if (hermetica.staking_enabled) {
     const apyRaw = hermetica.apy_estimate_pct;
-    const apy = apyRaw > 0 ? apyRaw : 5.0; // estimated — no live exchange rate data
+    const apy = apyRaw > 0 ? apyRaw : 5.0; // estimated, no live exchange rate data
     if (balances.usdh.amount > 0) {
       const d = dailyUsd(balances.usdh.usd, apy);
-      const apyNote = apyRaw > 0 ? "" : " (estimated — no live rate data)";
+      const apyNote = apyRaw > 0 ? "" : " (estimated, no live rate data)";
       options.push({ tier: "deploy_now", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.02, swap_cost_note: null, note: `Stake USDh -> sUSDh. Rate: ${hermetica.exchange_rate} USDh/sUSDh. 7-day unstake cooldown.${apyNote}`, ytg_ratio: 0, ytg_profitable: false });
     } else if (balances.sbtc.amount > 0 || balances.usdcx.amount > 0) {
       // Swap path available
@@ -782,7 +782,7 @@ async function getYieldOptions(
   if (granite.supply_apy_pct && granite.supply_apy_pct > 0) {
     if (balances.aeusdc.amount > 0) {
       const d = dailyUsd(balances.aeusdc.usd, granite.supply_apy_pct);
-      options.push({ tier: "deploy_now", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.05, swap_cost_note: null, note: `Lending — ${granite.utilization_pct}% util, ${granite.borrow_apr_pct}% borrow APR.`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ tier: "deploy_now", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.05, swap_cost_note: null, note: `Lending, ${granite.utilization_pct}% util, ${granite.borrow_apr_pct}% borrow APR.`, ytg_ratio: 0, ytg_profitable: false });
     } else if (balances.usdcx.amount > 0) {
       const d = dailyUsd(balances.usdcx.usd, granite.supply_apy_pct);
       options.push({ tier: "swap_first", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.1, swap_cost_note: "Swap USDCx -> aeUSDC on Bitflow (~0.01% fee, stablecoin pair)", note: `Then deposit aeUSDC to Granite LP.`, ytg_ratio: 0, ytg_profitable: false });
@@ -933,7 +933,7 @@ async function checkReserve(): Promise<ReserveResult> {
         signal: "DATA_UNAVAILABLE", reserve_ratio: round(reserveRatio, 6), score: 0,
         sbtc_circulating: round(sbtcCirculating, 4), btc_reserve: round(btcReserve, 4),
         signer_address: signerAddress,
-        recommendation: `Reserve ratio ${(reserveRatio * 100).toFixed(1)}% — likely signer key rotation in progress.`,
+        recommendation: `Reserve ratio ${(reserveRatio * 100).toFixed(1)}%, likely signer key rotation in progress.`,
       };
     }
 
@@ -958,7 +958,7 @@ async function checkReserve(): Promise<ReserveResult> {
     return {
       signal: "DATA_UNAVAILABLE", reserve_ratio: null, score: 0,
       sbtc_circulating: 0, btc_reserve: 0, signer_address: "",
-      recommendation: "Reserve check failed. Treat as RED — do not proceed.",
+      recommendation: "Reserve check failed. Treat as RED: do not proceed.",
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -994,9 +994,9 @@ async function checkGuardian(
 
   // 1. Price source gate
   const pricesOk = scout.prices.sbtc > 0 && scout.prices.stx > 0;
-  if (!pricesOk) refusals.push("Price data unavailable — cannot calculate USD values safely");
+  if (!pricesOk) refusals.push("Price data unavailable: cannot calculate USD values safely");
 
-  // 2. Slippage check (HODLMM active bin vs market price) — measured against targetPoolId
+  // 2. Slippage check (HODLMM active bin vs market price): measured against targetPoolId
   let slippagePct = 0;
   let slippageOk = true;
   const guardianPools = await fetchBitflowPools().catch(() => [] as BitflowPoolData[]);
@@ -1020,9 +1020,9 @@ async function checkGuardian(
         }
       }
     }
-  } catch { /* slippage check unavailable — allow */ }
+  } catch { /* slippage check unavailable: allow */ }
 
-  // 3. Volume gate — measured against targetPoolId, not always dlmm_1
+  // 3. Volume gate: measured against targetPoolId, not always dlmm_1
   let volumeUsd = 0;
   let volumeOk = true;
   try {
@@ -1181,7 +1181,7 @@ function expectedSwapOutput(
 //   - max-steps u230 (per macbotmini-eng's #339 audit (d))
 //
 // Rationale for Allow-not-Deny: @macbotmini-eng's #494 audit established that DLMM swap
-// fees accrue inside dlmm-core's unclaimed-protocol-fees map and bin balances — they do
+// fees accrue inside dlmm-core's unclaimed-protocol-fees map and bin balances: they do
 // NOT emit FT transfer events on the swap tx (verified on-chain against 0x134df5e1 /
 // 0x5195822e / #494 proof tx 0xf4f49328). Under that verified fee flow, the pool-side
 // willSendGte pin IS the receive-side fund-safety protection; Deny mode adds no further
@@ -1324,7 +1324,7 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
           break;
         }
         instructions.push(buildDlmmSwapInstruction(swapRoute, wallet, amount, expectedUsdh));
-        // Step 2 amount depends on Step 1 swap output — use expected output as estimate
+        // Step 2 amount depends on Step 1 swap output: use expected output as estimate
         // Agent must read swap tx result and substitute actual received amount before executing
         const hermeticaEstimate = String(expectedUsdh);
         instructions.push({
@@ -1350,7 +1350,7 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
 
     case "granite":
       // Granite LP accepts aeUSDC only
-      // Deposit mints LP tokens back to the caller — postConditionMode must be "allow"
+      // Deposit mints LP tokens back to the caller: postConditionMode must be "allow"
       // because the LP token mint is not covered by the outgoing aeUSDC post-condition.
       if (token === "aeusdc") {
         instructions.push({
@@ -1388,7 +1388,7 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
           break;
         }
         instructions.push(buildDlmmSwapInstruction(swapRoute, wallet, amount, expectedAeusdc));
-        // Step 2 amount depends on Step 1 swap output — use expected output as estimate
+        // Step 2 amount depends on Step 1 swap output: use expected output as estimate
         // Agent must read swap tx result and substitute actual received amount before executing
         const graniteEstimate = String(expectedAeusdc);
         instructions.push({
@@ -1419,7 +1419,7 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
       // pool definition from HODLMM_POOLS and generalises bin construction to use
       // the chosen pool's tokenX/tokenY instead of the prior sbtc/usdcx hardcode.
       // Refuses if the caller's --token does not match either of the pool's tokens
-      // (safety floor — prevents silent no-op deposits when the token is unrelated
+      // (safety floor: prevents silent no-op deposits when the token is unrelated
       // to the pool).
       const pool = HODLMM_POOLS.find(p => `dlmm_${p.id}` === poolId);
       if (!pool) {
@@ -1454,7 +1454,7 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
         instructions.push({
           tool: "info",
           params: {},
-          description: `HODLMM deploy to ${poolId} (${pool.name}) requires ${pool.tokenX.toUpperCase()} and/or ${pool.tokenY.toUpperCase()} in wallet — neither present.`,
+          description: `HODLMM deploy to ${poolId} (${pool.name}) requires ${pool.tokenX.toUpperCase()} and/or ${pool.tokenY.toUpperCase()} in wallet, neither present.`,
         });
         break;
       }
@@ -1471,13 +1471,13 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
       } else if (hasX) {
         // X-only deposit. Per dlmm-core-v-1-1 invariant (lines 1672-1674):
         //   (asserts! (or (>= bin-id active-bin-id) (is-eq x-amount u0)) ERR_INVALID_X_AMOUNT)
-        // X amounts are only allowed at bin-id ≥ active-bin-id — above (or at) active.
+        // X amounts are only allowed at bin-id ≥ active-bin-id: above (or at) active.
         const xAmt = token === pool.tokenX ? amount : xBalAtomic;
         for (let i = 1; i <= 5; i++) bins.push({ activeBinOffset: i, xAmount: String(Math.floor(xAmt / 5)), yAmount: "0" });
       } else {
         // Y-only deposit. Per dlmm-core-v-1-1 invariant (lines 1672-1674):
         //   (asserts! (or (<= bin-id active-bin-id) (is-eq y-amount u0)) ERR_INVALID_Y_AMOUNT)
-        // Y amounts are only allowed at bin-id ≤ active-bin-id — below (or at) active.
+        // Y amounts are only allowed at bin-id ≤ active-bin-id: below (or at) active.
         const yAmt = token === pool.tokenY ? amount : yBalAtomic;
         for (let i = -5; i <= -1; i++) bins.push({ activeBinOffset: i, xAmount: "0", yAmount: String(Math.floor(yAmt / 5)) });
       }
@@ -1502,7 +1502,7 @@ function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult): Exec
     case "hermetica": {
       // unstake sUSDh -> creates claim in silo -> withdraw after cooldown
       // staking-v1-1 is the active contract (staking-v1 is deactivated)
-      // Unstake burns sUSDh and creates a claim — postConditionMode must be "allow"
+      // Unstake burns sUSDh and creates a claim: postConditionMode must be "allow"
       // because the sUSDh burn is not expressible as a sender-side post-condition.
       const susdhSats = Math.floor(scout.balances.susdh.amount * 1e8);
       if (susdhSats <= 0) return [{ tool: "info", params: {}, description: "No sUSDh position to withdraw" }];
@@ -1547,13 +1547,13 @@ function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult): Exec
     }
 
     case "granite": {
-      // Use actual LP shares from on-chain position — not hardcoded 0
+      // Use actual LP shares from on-chain position, not hardcoded 0
       const granitePos = scout.positions.granite;
       const shares = granitePos.lp_shares ?? "0";
       if (shares === "0") return [{ tool: "info", params: {}, description: "No Granite LP position to withdraw" }];
       // Granite follows ERC-4626: redeem(shares) burns share count, returns aeUSDC.
       const sharesNum = BigInt(shares);
-      // Upper cap shares*2 retained from prior KB bug #35 fix — catches a buggy pool
+      // Upper cap shares*2 retained from prior KB bug #35 fix: catches a buggy pool
       // over-paying/draining while admitting long-held positions whose interest exceeded
       // the earlier +10% buffer.
       const expectedAeusdcCap = String(sharesNum * 2n);
@@ -1581,7 +1581,7 @@ function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult): Exec
               asset: AEUSDC_TOKEN, assetName: "aeUSDC",
               conditionCode: "gte", amount: shares,
             },
-            // Receive-side cap: state-v1 sends aeUSDC ≤ shares*2 — defensive against a
+            // Receive-side cap: state-v1 sends aeUSDC ≤ shares*2, defensive against a
             // buggy pool overpaying/draining. KB bug #35 intent preserved, re-anchored.
             {
               type: "ft", principal: GRANITE_STATE,
@@ -1643,7 +1643,7 @@ async function runPipeline(wallet: string, command: string, opts: Record<string,
 }
 
 async function _runPipeline(wallet: string, command: string, opts: Record<string, string>): Promise<Omit<EngineResult, "disclaimer">> {
-  // Step 0: Input validation — pure string/number checks only.
+  // Step 0: Input validation, pure string/number checks only.
   // NOT a safety bypass: the full pipeline (Scout → PoR → Guardian → YTG → Executor)
   // still runs for every valid write request. This just catches obviously invalid input
   // (bad protocol name, zero amount, wrong token) before wasting 12+ API calls.
@@ -1669,7 +1669,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
   if (command === "borrow" || command === "repay") {
     // Zest v0 market is the only protocol exposing borrow/repay the skill wraps.
     // Other protocols (Hermetica stake-yield, Granite LP supply, HODLMM LP) have
-    // no matching MCP surface for debt operations — intentionally excluded.
+    // no matching MCP surface for debt operations: intentionally excluded.
     const protocol = opts.protocol;
     if (!protocol || protocol !== "zest") {
       return { status: "error", command, error: "Invalid protocol. Only zest supports borrow/repay." };
@@ -1679,7 +1679,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     const token = (opts.token ?? "usdh").toLowerCase();
     // USDh is the only asset for which zest_borrow via MCP succeeds on v0-4-market.borrow.
     // Empirical probes (2026-04-22) on the same wallet + collateral returned
-    // abort_by_response (err none) for USDCx, wSTX, stSTX — likely an upstream MCP
+    // abort_by_response (err none) for USDCx, wSTX, stSTX: likely an upstream MCP
     // routing gap around borrow-helper-v2-1-7 (Pyth oracle fee wrapper). Refusing
     // non-USDh saves gas rather than broadcasting a known-failing tx.
     const validTokens_borrowRepay: Record<string, string[]> = { zest: ["usdh"] };
@@ -1721,7 +1721,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
       return {
         status: "preview", command, scout, reserve,
         action: {
-          description: `[DRY RUN] EMERGENCY EXIT: ${instructions.length} operations — add --confirm to execute`,
+          description: `[DRY RUN] EMERGENCY EXIT: ${instructions.length} operations, add --confirm to execute`,
           details: { instructions },
         },
       };
@@ -1739,7 +1739,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
   if (reserve.signal === "RED" || reserve.signal === "DATA_UNAVAILABLE") {
     return {
       status: "refused", command, scout, reserve,
-      refusal_reasons: [`PoR signal: ${reserve.signal} — ${reserve.recommendation}`],
+      refusal_reasons: [`PoR signal: ${reserve.signal}, ${reserve.recommendation}`],
       action: { description: "Write refused. Run 'emergency' to withdraw all positions." },
     };
   }
@@ -1748,11 +1748,11 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
   if (reserve.signal === "YELLOW") {
     return {
       status: "refused", command, scout, reserve,
-      refusal_reasons: ["PoR signal: YELLOW — reserve below 99.9%. Read-only operations only."],
+      refusal_reasons: ["PoR signal: YELLOW, reserve below 99.9%. Read-only operations only."],
     };
   }
 
-  // Step 3: Guardian check — gate against the pool this operation will actually touch
+  // Step 3: Guardian check, gate against the pool this operation will actually touch
   // (not always dlmm_1) so slippage + volume reads measure the right liquidity venue.
   const targetPoolId = inferTargetPoolId(command, opts);
   const guardian = await checkGuardian(scout, { targetPoolId });
@@ -1847,7 +1847,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     case "borrow": {
       // Input already validated in Step 0 (zest-only, USDh-only, positive amount).
       // Borrow is the debt-issuance leg of the leveraged-yield pattern. No YTG gate
-      // applies — the earn leg (Hermetica stake of the borrowed USDh) is where YTG
+      // applies: the earn leg (Hermetica stake of the borrowed USDh) is where YTG
       // is evaluated on its own `deploy` call.
       const token = (opts.token ?? "usdh").toUpperCase();
       const amount = parseInt(opts.amount!, 10);
@@ -1878,7 +1878,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     return {
       status: "preview", command, scout, reserve, guardian,
       action: {
-        description: `[DRY RUN] ${description} — add --confirm to execute`,
+        description: `[DRY RUN] ${description}, add --confirm to execute`,
         details: { instructions, instruction_count: instructions.length },
       },
     };
@@ -1953,7 +1953,7 @@ async function runDoctor(): Promise<void> {
   // 7. sBTC Proof of Reserve
   try {
     const r = await checkReserve();
-    checks.push({ name: "sBTC Proof of Reserve", ok: r.signal === "GREEN", detail: `${r.signal} — ratio ${r.reserve_ratio ?? "N/A"}, ${round(r.btc_reserve, 2)} BTC backing ${round(r.sbtc_circulating, 2)} sBTC` });
+    checks.push({ name: "sBTC Proof of Reserve", ok: r.signal === "GREEN", detail: `${r.signal}, ratio ${r.reserve_ratio ?? "N/A"}, ${round(r.btc_reserve, 2)} BTC backing ${round(r.sbtc_circulating, 2)} sBTC` });
   } catch (e: unknown) { checks.push({ name: "sBTC Proof of Reserve", ok: false, detail: e instanceof Error ? e.message : String(e) }); }
 
   // 8. Zest v2 vault
@@ -1992,7 +1992,7 @@ async function runDoctor(): Promise<void> {
       ? "CRITICAL: Cryptographic self-tests failed. Engine will not operate."
       : allOk
       ? `All ${checks.length} checks passed. Engine ready.`
-      : "Some data sources unavailable — engine may operate in degraded mode.",
+      : "Some data sources unavailable, engine may operate in degraded mode.",
   }, null, 2));
 
   if (!cryptoOk) process.exit(2);
@@ -2011,7 +2011,7 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   const L: string[] = [];
 
   L.push("");
-  L.push("Stacks Alpha Engine — Full Report");
+  L.push("Stacks Alpha Engine: Full Report");
   L.push(`Wallet: ${scout.wallet}`);
   L.push("");
 
@@ -2092,7 +2092,7 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
       L.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.token_needed} | ${o.apy_pct}% | $${o.daily_usd} | $${o.monthly_usd} | ${ytg} | ${o.note} |`);
     });
     L.push("");
-    L.push("_YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x means gas eats your yield — hold until capital or APY grows. Use --force to override._");
+    L.push("_YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x means gas eats your yield: hold until capital or APY grows. Use --force to override._");
     L.push("");
   }
 
@@ -2125,11 +2125,11 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   const profitable = scout.options.filter(o => o.ytg_profitable && o.tier !== "acquire_to_unlock");
   const unprofitable = scout.options.filter(o => !o.ytg_profitable && o.tier !== "acquire_to_unlock");
   if (profitable.length > 0 && unprofitable.length > 0) {
-    L.push(`**YTG verdict:** ${profitable.length} option${profitable.length > 1 ? "s" : ""} profitable (yield > 3x gas), ${unprofitable.length} blocked (gas eats yield — hold until capital or APY grows).`);
+    L.push(`**YTG verdict:** ${profitable.length} option${profitable.length > 1 ? "s" : ""} profitable (yield > 3x gas), ${unprofitable.length} blocked (gas eats yield, hold until capital or APY grows).`);
   } else if (profitable.length > 0) {
-    L.push(`**YTG verdict:** All ${profitable.length} options are profitable — gas cost is negligible relative to yield.`);
+    L.push(`**YTG verdict:** All ${profitable.length} options are profitable, gas cost is negligible relative to yield.`);
   } else if (unprofitable.length > 0) {
-    L.push(`**YTG verdict:** No profitable options at current capital. Hold — gas would eat all yield. Accumulate more or wait for higher APY.`);
+    L.push(`**YTG verdict:** No profitable options at current capital. Hold: gas would eat all yield. Accumulate more or wait for higher APY.`);
   }
   L.push("");
 

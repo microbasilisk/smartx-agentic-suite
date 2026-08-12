@@ -5,11 +5,11 @@
  * executes cross-protocol yield rotation on Stacks mainnet.
  *
  * Actions:
- *   assess          — recommend optimal allocation (default, read-only)
- *   stake           — stake USDh into Hermetica vault (requires --confirm)
- *   unstake          — unstake sUSDh, creates claim in staking-silo (requires --confirm)
- *   withdraw-claim   — withdraw USDh from silo after 7-day cooldown (requires --confirm)
- *   rotate          — auto-rotate capital to higher-yielding protocol (requires --confirm)
+ *   assess: recommend optimal allocation (default, read-only)
+ *   stake: stake USDh into Hermetica vault (requires --confirm)
+ *   unstake: unstake sUSDh, creates claim in staking-silo (requires --confirm)
+ *   withdraw-claim: withdraw USDh from silo after 7-day cooldown (requires --confirm)
+ *   rotate: auto-rotate capital to higher-yielding protocol (requires --confirm)
  *
  * Usage:
  *   bun run hermetica-yield-rotator/hermetica-yield-rotator.ts doctor
@@ -33,7 +33,7 @@ import { readFileSync, writeFileSync } from "fs";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const FETCH_TIMEOUT_MS     = 30_000;
-const EXCHANGE_RATE_SCALE  = 100_000_000n;    // 1e8 — Hermetica internal precision
+const EXCHANGE_RATE_SCALE  = 100_000_000n;    // 1e8: Hermetica internal precision
 const USDH_DECIMALS        = 8;
 const ROTATE_THRESHOLD_PCT = 2.0;             // min yield differential to trigger rotation
 const ROTATION_COOLDOWN_MS = 30 * 60 * 1000; // 30 min between rotations
@@ -116,14 +116,14 @@ function decodeUint128(hex: string): bigint {
   if (h.length >= 2 && h.slice(0, 2) === "01") h = h.slice(2);
   // Require at most 32 hex chars (16 bytes) after tag stripping
   if (h.length === 0) throw new Error(`decodeUint128: empty payload after tag strip (raw: ${hex})`);
-  if (h.length > 32) throw new Error(`decodeUint128: oversized payload (${h.length} chars) — expected ≤32 (raw: ${hex})`);
+  if (h.length > 32) throw new Error(`decodeUint128: oversized payload (${h.length} chars), expected ≤32 (raw: ${hex})`);
   const val = BigInt("0x" + h.padStart(32, "0"));
   return val;
 }
 
 function decodeBool(hex: string): boolean {
   let h = hex.replace(/^0x/, "");
-  // Unwrap outer (response ok ...) wrapper if present — mirrors decodeUint128 logic
+  // Unwrap outer (response ok ...) wrapper if present: mirrors decodeUint128 logic
   if (h.length >= 2 && h.slice(0, 2) === "07") h = h.slice(2);
   // Reject error response
   if (h.length >= 2 && h.slice(0, 2) === "08") throw new Error("Contract returned error response");
@@ -137,14 +137,14 @@ const STX_ADDRESS_RE = /^SP[0-9A-Z]{38,39}$/;
 const DECIMAL_AMOUNT_RE = /^\d+(\.\d{1,8})?$/;
 const INTEGER_STRING_RE = /^\d+$/;
 const ISO_TIMESTAMP_RE  = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
-const MAX_SANE_APR = 500; // % — flag anything above as suspicious
+const MAX_SANE_APR = 500; // %: flag anything above as suspicious
 
 function validateStxAddress(addr: string): void {
   if (!STX_ADDRESS_RE.test(addr))
-    throw new Error(`Invalid STX address: "${addr}". Expected SP followed by 38–39 uppercase alphanumeric chars.`);
+    throw new Error(`Invalid STX address: "${addr}". Expected SP followed by 38-39 uppercase alphanumeric chars.`);
 }
 
-// F1: String-based raw amount conversion — avoids IEEE 754 precision loss
+// F1: String-based raw amount conversion, avoids IEEE 754 precision loss
 function parseAmountToRaw(humanStr: string, decimals: number): bigint {
   if (!DECIMAL_AMOUNT_RE.test(humanStr))
     throw new Error(`Invalid amount "${humanStr}": must be a positive decimal with up to ${decimals} decimal places`);
@@ -156,7 +156,7 @@ function parseAmountToRaw(humanStr: string, decimals: number): bigint {
 // F10: Clamp Bitflow APR to a plausible range
 function sanitiseApr(raw: number, label: string): number {
   if (!isFinite(raw) || raw < 0) throw new Error(`${label} APR is invalid: ${raw}`);
-  if (raw > MAX_SANE_APR) throw new Error(`${label} APR ${raw.toFixed(2)}% exceeds sanity cap ${MAX_SANE_APR}% — possible API spoofing`);
+  if (raw > MAX_SANE_APR) throw new Error(`${label} APR ${raw.toFixed(2)}% exceeds sanity cap ${MAX_SANE_APR}%: possible API spoofing`);
   return raw;
 }
 
@@ -169,7 +169,7 @@ function safeBalanceBigInt(raw: string | number | undefined, label: string): big
 
 // ── State helpers ──────────────────────────────────────────────────────────────
 function readState(): Partial<RotatorState> {
-  // F2/F7: Validate all fields on read — reject malformed state rather than trusting it
+  // F2/F7: Validate all fields on read, reject malformed state rather than trusting it
   try {
     const raw = JSON.parse(readFileSync(STATE_FILE, "utf8")) as Record<string, unknown>;
     const state: Partial<RotatorState> = {};
@@ -180,7 +180,7 @@ function readState(): Partial<RotatorState> {
     if (raw.last_rotation_at === null) {
       state.last_rotation_at = null;
     } else if (typeof raw.last_rotation_at === "string" && ISO_TIMESTAMP_RE.test(raw.last_rotation_at)) {
-      // F7: Reject future timestamps — treat as no rotation
+      // F7: Reject future timestamps, treat as no rotation
       const ts = new Date(raw.last_rotation_at).getTime();
       state.last_rotation_at = ts <= Date.now() ? raw.last_rotation_at : null;
     }
@@ -296,7 +296,7 @@ async function fetchHodlmmPool(): Promise<{ apr: number; tvlUsd: number } | null
     const data = await fetchJson<AppPoolsResponse>(`${BITFLOW_API}/api/app/v1/pools`);
     const pool = (data.data ?? []).find((p) => p.poolId === HODLMM_POOL);
     if (!pool) return null;
-    // F10: Clamp APR to sane range — reject if API returns implausible value
+    // F10: Clamp APR to sane range, reject if API returns implausible value
     const apr = sanitiseApr(pool.apr24h, "HODLMM");
     return { apr, tvlUsd: pool.tvlUsd };
   } catch { return null; }
@@ -363,7 +363,7 @@ function stakeCmd(amountRaw: bigint, wallet: string, step: number, exchangeRate?
       contract_name:    "staking-v1",
       function_name:    "stake",
       function_args:    [encodeUint(amountRaw)],
-      // F5: Post-condition — sender must debit exactly amountRaw USDh
+      // F5: Post-condition, sender must debit exactly amountRaw USDh
       post_conditions:  [
         {
           type:      "ft",
@@ -385,17 +385,17 @@ function stakeCmd(amountRaw: bigint, wallet: string, step: number, exchangeRate?
 }
 
 function unstakeCmd(amountRaw: bigint, wallet: string, cooldownDays: number, step: number): McpCommand {
-  // On-chain: staking-v1.unstake(uint) — burns sUSDh, creates a claim in staking-silo-v1-1
+  // On-chain: staking-v1.unstake(uint), burns sUSDh, creates a claim in staking-silo-v1-1
   return {
     step,
     tool:        "call_contract",
-    description: `Unstake ${toHuman(amountRaw, USDH_DECIMALS).toFixed(2)} sUSDh — creates claim in staking-silo, ${cooldownDays}-day cooldown starts`,
+    description: `Unstake ${toHuman(amountRaw, USDH_DECIMALS).toFixed(2)} sUSDh, creates claim in staking-silo, ${cooldownDays}-day cooldown starts`,
     params: {
       contract_address: HERMETICA,
       contract_name:    "staking-v1",
       function_name:    "unstake",
       function_args:    [encodeUint(amountRaw)],
-      // F5: Post-condition — sender must debit exactly amountRaw sUSDh
+      // F5: Post-condition, sender must debit exactly amountRaw sUSDh
       post_conditions:  [{
         type:      "ft",
         address:   wallet,
@@ -408,18 +408,18 @@ function unstakeCmd(amountRaw: bigint, wallet: string, cooldownDays: number, ste
 }
 
 function withdrawClaimCmd(wallet: string, step: number, claimId: number | null, minUsdhRaw: bigint = 1n): McpCommand {
-  // On-chain: staking-silo-v1-1.withdraw(uint) — takes claim-id, returns USDh after cooldown
+  // On-chain: staking-silo-v1-1.withdraw(uint), takes claim-id, returns USDh after cooldown
   const args = claimId !== null ? [encodeUint(BigInt(claimId))] : [];
   return {
     step,
     tool:        "call_contract",
-    description: `Withdraw USDh from staking-silo claim${claimId !== null ? ` #${claimId}` : ""} — cooldown must be elapsed`,
+    description: `Withdraw USDh from staking-silo claim${claimId !== null ? ` #${claimId}` : ""}, cooldown must be elapsed`,
     params: {
       contract_address: HERMETICA,
       contract_name:    "staking-silo-v1-1",
       function_name:    "withdraw",
       function_args:    args,
-      // F5: Post-condition — sender must receive at least minUsdhRaw USDh (gte guards against zero-return exploit)
+      // F5: Post-condition, sender must receive at least minUsdhRaw USDh (gte guards against zero-return exploit)
       post_conditions:  [{
         type:      "ft",
         address:   wallet,
@@ -480,7 +480,7 @@ function outputError(code: string, message: string, next: string): never {
     error:  { code, message, next },
   }, null, 2));
   process.exit(1);
-  throw new Error(message); // unreachable — satisfies TypeScript never return
+  throw new Error(message); // unreachable: satisfies TypeScript never return
 }
 
 // ── Doctor ─────────────────────────────────────────────────────────────────────
@@ -535,7 +535,7 @@ async function doctor(): Promise<void> {
     checks,
     message: allOk
       ? "All data sources reachable. Ready to run."
-      : "Some sources unavailable — rotation decisions may be incomplete.",
+      : "Some sources unavailable, rotation decisions may be incomplete.",
   }, null, 2));
 }
 
@@ -627,7 +627,7 @@ async function run(opts: {
         const elapsedMs = Date.now() - new Date(prev.last_run_at).getTime();
         apyPct = estimateApy(rate, prevRate, elapsedMs);
       }
-    } catch { /* corrupted state — skip APY calculation safely */ }
+    } catch { /* corrupted state: skip APY calculation safely */ }
 
     // ── Derived metrics ────────────────────────────────────────────────────
     const cooldownDays   = parseFloat((Number(cooldownSecs) / 86_400).toFixed(1));
@@ -642,9 +642,9 @@ async function run(opts: {
     if (hodlmmApr !== null) {
       yieldComparison = apyPct !== null
         ? (apyPct >= hodlmmApr
-            ? `USDh staking (${apyPct.toFixed(2)}% APY) ≥ HODLMM ${HODLMM_POOL} (${hodlmmApr.toFixed(2)}% APR) — staking preferred`
-            : `HODLMM ${HODLMM_POOL} (${hodlmmApr.toFixed(2)}% APR) > USDh staking (${apyPct.toFixed(2)}% APY) — HODLMM preferred`)
-        : `HODLMM ${HODLMM_POOL} APR: ${hodlmmApr.toFixed(2)}% | USDh staking APY: tracking started — check again in ≥1h`;
+            ? `USDh staking (${apyPct.toFixed(2)}% APY) ≥ HODLMM ${HODLMM_POOL} (${hodlmmApr.toFixed(2)}% APR): staking preferred`
+            : `HODLMM ${HODLMM_POOL} (${hodlmmApr.toFixed(2)}% APR) > USDh staking (${apyPct.toFixed(2)}% APY), HODLMM preferred`)
+        : `HODLMM ${HODLMM_POOL} APR: ${hodlmmApr.toFixed(2)}% | USDh staking APY: tracking started, check again in ≥1h`;
     }
 
     // Rotation cooldown
@@ -671,25 +671,25 @@ async function run(opts: {
 
       if (!enabled) {
         refusalReasons.push("staking disabled by protocol");
-        recommendation = "HOLD — staking disabled. Do not stake until protocol re-enables it.";
+        recommendation = "HOLD: staking disabled. Do not stake until protocol re-enables it.";
       } else if (
         apyPct !== null && hodlmmApr !== null &&
         hodlmmApr > apyPct + ROTATE_THRESHOLD_PCT &&
         userSusdh > 0n
       ) {
-        recommendation = `ROTATE_TO_HODLMM — HODLMM ${HODLMM_POOL} APR (${hodlmmApr.toFixed(2)}%) exceeds USDh staking APY (${apyPct.toFixed(2)}%) by >${ROTATE_THRESHOLD_PCT}%. Run --action=rotate --confirm to execute.`;
+        recommendation = `ROTATE_TO_HODLMM: HODLMM ${HODLMM_POOL} APR (${hodlmmApr.toFixed(2)}%) exceeds USDh staking APY (${apyPct.toFixed(2)}%) by >${ROTATE_THRESHOLD_PCT}%. Run --action=rotate --confirm to execute.`;
       } else if (
         apyPct !== null && hodlmmApr !== null &&
         apyPct > hodlmmApr + ROTATE_THRESHOLD_PCT &&
         hodlmmBinIds.length > 0
       ) {
-        recommendation = `ROTATE_TO_STAKING — USDh staking APY (${apyPct.toFixed(2)}%) exceeds HODLMM APR (${hodlmmApr.toFixed(2)}%) by >${ROTATE_THRESHOLD_PCT}%. Run --action=rotate --confirm to execute.`;
+        recommendation = `ROTATE_TO_STAKING: USDh staking APY (${apyPct.toFixed(2)}%) exceeds HODLMM APR (${hodlmmApr.toFixed(2)}%) by >${ROTATE_THRESHOLD_PCT}%. Run --action=rotate --confirm to execute.`;
       } else if (userUsdh > 0n && userSusdh === 0n && enabled) {
-        recommendation = `STAKE — ${userUsdhHuman.toFixed(2)} USDh idle. Run --action=stake --confirm to stake full balance.`;
+        recommendation = `STAKE: ${userUsdhHuman.toFixed(2)} USDh idle. Run --action=stake --confirm to stake full balance.`;
       } else if (userSusdh > 0n) {
-        recommendation = `HOLD — ${userSusdhHuman.toFixed(2)} sUSDh staked (~$${userSusdhValue.toFixed(2)} USDh). Yield accruing.`;
+        recommendation = `HOLD: ${userSusdhHuman.toFixed(2)} sUSDh staked (~$${userSusdhValue.toFixed(2)} USDh). Yield accruing.`;
       } else {
-        recommendation = "CHECK — staking enabled, protocol healthy. Provide --wallet to check position.";
+        recommendation = "CHECK: staking enabled, protocol healthy. Provide --wallet to check position.";
       }
 
       console.log(JSON.stringify({
@@ -726,7 +726,7 @@ async function run(opts: {
       if (!enabled) outputError("STAKE_BLOCKED", "Staking is currently disabled by protocol", "Wait for protocol to re-enable staking.");
 
       // F1: Use string-based parseAmountToRaw to avoid IEEE 754 precision loss
-      // Safety cap: autonomous default is capped at MAX_AUTONOMOUS_STAKE_USDH — pass --amount to exceed
+      // Safety cap: autonomous default is capped at MAX_AUTONOMOUS_STAKE_USDH, pass --amount to exceed
       const amountRaw = amount
         ? parseAmountToRaw(amount, USDH_DECIMALS)
         : userUsdh < MAX_AUTONOMOUS_STAKE_RAW ? userUsdh : MAX_AUTONOMOUS_STAKE_RAW;
@@ -738,7 +738,7 @@ async function run(opts: {
       const { baseline_run_at, baseline_rate } = updateBaseline(prev, nowIso, rate);
       console.log(JSON.stringify({
         status: "success",
-        action: `STAKE — ${toHuman(amountRaw, USDH_DECIMALS).toFixed(2)} USDh queued. Execute MCP command to proceed.`,
+        action: `STAKE, ${toHuman(amountRaw, USDH_DECIMALS).toFixed(2)} USDh queued. Execute MCP command to proceed.`,
         data: {
           mcp_commands:      [cmd],
           amount_usdh:       parseFloat(toHuman(amountRaw, USDH_DECIMALS).toFixed(2)),
@@ -755,10 +755,10 @@ async function run(opts: {
     }
 
     // ── UNSTAKE ─────────────────────────────────────────────────────────────
-    // On-chain: staking-v1.unstake(uint) — burns sUSDh, creates claim in staking-silo-v1-1
+    // On-chain: staking-v1.unstake(uint), burns sUSDh, creates claim in staking-silo-v1-1
     if (action === "unstake") {
       // F1: String-based conversion
-      // Safety cap: autonomous default is capped at MAX_AUTONOMOUS_STAKE_USDH — pass --amount to exceed
+      // Safety cap: autonomous default is capped at MAX_AUTONOMOUS_STAKE_USDH, pass --amount to exceed
       const amountRaw = amount
         ? parseAmountToRaw(amount, USDH_DECIMALS)
         : userSusdh < MAX_AUTONOMOUS_STAKE_RAW ? userSusdh : MAX_AUTONOMOUS_STAKE_RAW;
@@ -771,7 +771,7 @@ async function run(opts: {
       const { baseline_run_at, baseline_rate } = updateBaseline(prev, nowIso, rate);
       console.log(JSON.stringify({
         status: "success",
-        action: `UNSTAKE — ${toHuman(amountRaw, USDH_DECIMALS).toFixed(2)} sUSDh unstaked. Claim created in staking-silo-v1-1. ${cooldownDays}-day cooldown begins on execution. Run --action=withdraw-claim after cooldown.`,
+        action: `UNSTAKE, ${toHuman(amountRaw, USDH_DECIMALS).toFixed(2)} sUSDh unstaked. Claim created in staking-silo-v1-1. ${cooldownDays}-day cooldown begins on execution. Run --action=withdraw-claim after cooldown.`,
         data: {
           mcp_commands:  [cmd],
           amount_susdh:  parseFloat(toHuman(amountRaw, USDH_DECIMALS).toFixed(2)),
@@ -796,7 +796,7 @@ async function run(opts: {
     }
 
     // ── WITHDRAW-CLAIM ────────────────────────────────────────────────────
-    // On-chain: staking-silo-v1-1.withdraw(uint) — takes claim-id, returns USDh
+    // On-chain: staking-silo-v1-1.withdraw(uint), takes claim-id, returns USDh
     if (action === "withdraw-claim") {
       // Guard: verify cooldown has elapsed since unstake
       if (prev.unstake_initiated_at) {
@@ -808,7 +808,7 @@ async function run(opts: {
           const readyAt    = new Date(initiatedAt + cooldownMs).toISOString();
           outputError(
             "COOLDOWN_NOT_ELAPSED",
-            `Unstake cooldown not elapsed — ${remainDays} day(s) remaining. Ready at ${readyAt}`,
+            `Unstake cooldown not elapsed: ${remainDays} day(s) remaining. Ready at ${readyAt}`,
             `Wait until ${readyAt} before running withdraw-claim.`,
           );
         }
@@ -819,13 +819,13 @@ async function run(opts: {
         ? BigInt(prev.unstake_amount_raw) * rate * 99n / (EXCHANGE_RATE_SCALE * 100n)
         : 1n;
 
-      // claim-id not tracked in state yet — pass null, agent must provide from tx result
+      // claim-id not tracked in state yet: pass null, agent must provide from tx result
       const cmd = withdrawClaimCmd(wallet!, 1, null, minUsdhRaw > 0n ? minUsdhRaw : 1n);
 
       const { baseline_run_at, baseline_rate } = updateBaseline(prev, nowIso, rate);
       console.log(JSON.stringify({
         status: "success",
-        action: "WITHDRAW_CLAIM — Withdraw USDh from staking-silo claim. Execute MCP command to proceed.",
+        action: "WITHDRAW_CLAIM, Withdraw USDh from staking-silo claim. Execute MCP command to proceed.",
         data: {
           mcp_commands:    [cmd],
           min_usdh_expected: prev.unstake_amount_raw
@@ -840,7 +840,7 @@ async function run(opts: {
         last_exchange_rate:    rate.toString(),
         last_rotation_at:      prev.last_rotation_at ?? null,
         last_action:           "withdraw-claim",
-        unstake_initiated_at:  null,   // clear — claim withdrawn
+        unstake_initiated_at:  null,   // clear, claim withdrawn
         unstake_amount_raw:    null,
         baseline_run_at,
         baseline_rate,
@@ -852,7 +852,7 @@ async function run(opts: {
     if (action === "rotate") {
       if (!canRotate) {
         const remainMin = Math.ceil(rotCooldownRemaining / 60_000);
-        outputError("ROTATION_COOLDOWN", `Rotation cooldown active — ${remainMin} min remaining`, "Wait for cooldown to clear before rotating.");
+        outputError("ROTATION_COOLDOWN", `Rotation cooldown active: ${remainMin} min remaining`, "Wait for cooldown to clear before rotating.");
       }
       if (apyPct === null || hodlmmApr === null) {
         outputError("INSUFFICIENT_YIELD_DATA", "Cannot rotate without both USDh APY and HODLMM APR data. APY requires ≥1h of exchange rate observations.", "Run in assess mode for ≥1h, then retry --action=rotate.");
@@ -862,7 +862,7 @@ async function run(opts: {
       if (diff < ROTATE_THRESHOLD_PCT) {
         console.log(JSON.stringify({
           status: "success",
-          action: `HOLD — yield differential ${diff.toFixed(2)}% is below ${ROTATE_THRESHOLD_PCT}% rotation threshold. No rotation warranted.`,
+          action: `HOLD, yield differential ${diff.toFixed(2)}% is below ${ROTATE_THRESHOLD_PCT}% rotation threshold. No rotation warranted.`,
           data: {
             hodlmm_apr_pct:    hodlmmApr,
             estimated_apy_pct: apyPct,
@@ -885,20 +885,20 @@ async function run(opts: {
       const rotateSusdhCappedHuman = toHuman(rotateSusdhCapped, USDH_DECIMALS);
       const rotateUsdhCappedHuman  = toHuman(rotateUsdhCapped,  USDH_DECIMALS);
       const capNote = (userSusdh > MAX_AUTONOMOUS_STAKE_RAW || userUsdh > MAX_AUTONOMOUS_STAKE_RAW)
-        ? ` (capped at ${MAX_AUTONOMOUS_STAKE_USDH} USDh — use --action=stake --amount=X or --action=unstake --amount=X for larger positions)`
+        ? ` (capped at ${MAX_AUTONOMOUS_STAKE_USDH} USDh: use --action=stake --amount=X or --action=unstake --amount=X for larger positions)`
         : "";
 
       if (hodlmmApr > apyPct + ROTATE_THRESHOLD_PCT) {
         // ── HODLMM wins ────────────────────────────────────────────────────
         if (rotateSusdhCapped > 0n) {
           cmds.push(unstakeCmd(rotateSusdhCapped, wallet!, cooldownDays, nextStep++));
-          rotateAction = `ROTATE_TO_HODLMM — HODLMM APR (${hodlmmApr.toFixed(2)}%) beats staking APY (${apyPct.toFixed(2)}%) by ${(hodlmmApr - apyPct).toFixed(2)}%. Step 1: unstake ${rotateSusdhCappedHuman.toFixed(2)} sUSDh (creates claim in silo)${capNote}. After ${cooldownDays}-day cooldown, run --action=withdraw-claim then --action=rotate again to deploy to HODLMM.`;
+          rotateAction = `ROTATE_TO_HODLMM: HODLMM APR (${hodlmmApr.toFixed(2)}%) beats staking APY (${apyPct.toFixed(2)}%) by ${(hodlmmApr - apyPct).toFixed(2)}%. Step 1: unstake ${rotateSusdhCappedHuman.toFixed(2)} sUSDh (creates claim in silo)${capNote}. After ${cooldownDays}-day cooldown, run --action=withdraw-claim then --action=rotate again to deploy to HODLMM.`;
         } else if (rotateUsdhCapped > 0n && activeBin !== null) {
           cmds.push(swapUsdhToUsdcxCmd(rotateUsdhCappedHuman, nextStep++));
           cmds.push(addLiquidityCmd(rotateUsdhCappedHuman, activeBin, nextStep++));
-          rotateAction = `ROTATE_TO_HODLMM — idle ${rotateUsdhCappedHuman.toFixed(2)} USDh swapped to USDCx then deployed to HODLMM ${HODLMM_POOL} around active bin ${activeBin}${capNote}. HODLMM APR (${hodlmmApr.toFixed(2)}%) > staking APY (${apyPct.toFixed(2)}%).`;
+          rotateAction = `ROTATE_TO_HODLMM: idle ${rotateUsdhCappedHuman.toFixed(2)} USDh swapped to USDCx then deployed to HODLMM ${HODLMM_POOL} around active bin ${activeBin}${capNote}. HODLMM APR (${hodlmmApr.toFixed(2)}%) > staking APY (${apyPct.toFixed(2)}%).`;
         } else {
-          rotateAction = `ROTATE_TO_HODLMM — recommended but no deployable position found. Acquire USDh or wait for unstake cooldown.`;
+          rotateAction = `ROTATE_TO_HODLMM: recommended but no deployable position found. Acquire USDh or wait for unstake cooldown.`;
         }
       } else {
         // ── Staking wins ───────────────────────────────────────────────────
@@ -909,12 +909,12 @@ async function run(opts: {
           const extraNote = rotateUsdhCapped > 0n
             ? ` Step 2 stakes pre-existing idle ${rotateUsdhCappedHuman.toFixed(2)} USDh${capNote}. After step 1 settles, re-run --action=stake to stake USDh received from LP removal.`
             : ` No idle USDh to stake now. After step 1 settles, re-run --action=stake to stake USDh received from LP removal.`;
-          rotateAction = `ROTATE_TO_STAKING — USDh staking APY (${apyPct.toFixed(2)}%) beats HODLMM APR (${hodlmmApr.toFixed(2)}%) by ${(apyPct - hodlmmApr).toFixed(2)}%. Step 1: remove HODLMM bins [${hodlmmBinIds.join(", ")}].${extraNote}`;
+          rotateAction = `ROTATE_TO_STAKING: USDh staking APY (${apyPct.toFixed(2)}%) beats HODLMM APR (${hodlmmApr.toFixed(2)}%) by ${(apyPct - hodlmmApr).toFixed(2)}%. Step 1: remove HODLMM bins [${hodlmmBinIds.join(", ")}].${extraNote}`;
         } else if (rotateUsdhCapped > 0n) {
           cmds.push(stakeCmd(rotateUsdhCapped, wallet!, nextStep++, rate));
-          rotateAction = `ROTATE_TO_STAKING — idle ${rotateUsdhCappedHuman.toFixed(2)} USDh staked in Hermetica${capNote}. Staking APY (${apyPct.toFixed(2)}%) > HODLMM APR (${hodlmmApr.toFixed(2)}%).`;
+          rotateAction = `ROTATE_TO_STAKING: idle ${rotateUsdhCappedHuman.toFixed(2)} USDh staked in Hermetica${capNote}. Staking APY (${apyPct.toFixed(2)}%) > HODLMM APR (${hodlmmApr.toFixed(2)}%).`;
         } else {
-          rotateAction = `ROTATE_TO_STAKING — recommended but no deployable position found. Acquire USDh first.`;
+          rotateAction = `ROTATE_TO_STAKING: recommended but no deployable position found. Acquire USDh first.`;
         }
       }
 

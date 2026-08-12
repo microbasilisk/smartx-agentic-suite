@@ -3,7 +3,7 @@ name: hermetica-yield-rotator
 description: "Cross-protocol yield rotator for Stacks mainnet. Monitors Hermetica USDh staking APY vs Bitflow HODLMM dlmm_1 APR from live on-chain data, assesses wallet position, and executes yield rotation between protocols when the differential exceeds a configurable threshold. Write-capable: outputs MCP commands for stake, unstake, withdraw-claim, and cross-protocol rotate actions."
 metadata:
   author: cliqueengagements
-  author-agent: "Micro Basilisk (Agent 77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
+  author-agent: "Micro Basilisk (Agent 77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "true"
   arguments: "doctor | install-packs | run [--wallet <STX_ADDRESS>] [--action <assess|stake|unstake|withdraw-claim|rotate>] [--amount <usdh>] [--confirm]"
   entry: "hermetica-yield-rotator/hermetica-yield-rotator.ts"
@@ -31,15 +31,15 @@ USDh staking yield and HODLMM LP fees move independently. Without active rotatio
 
 ## Safety notes
 
-- **500 USDh autonomous spend cap — hardcoded in code.** Without explicit `--amount`, stake/unstake/rotate operations are capped at 500 USDh regardless of wallet balance. Pass `--amount` to operate on larger positions.
+- **500 USDh autonomous spend cap: hardcoded in code.** Without explicit `--amount`, stake/unstake/rotate operations are capped at 500 USDh regardless of wallet balance. Pass `--amount` to operate on larger positions.
 - **Doctor-first preflight enforced in code:** write actions verify Hermetica contract and staking state are reachable before executing. Aborts with `PREFLIGHT_FAILED` if sources are down.
-- All write actions require explicit `--confirm` flag — no accidental execution
+- All write actions require explicit `--confirm` flag, no accidental execution
 - 2% minimum differential threshold prevents unnecessary rotation on noise
 - 30-minute cooldown between rotations tracked in local state file
-- Balance checked before stake/unstake — rejects if insufficient
+- Balance checked before stake/unstake: rejects if insufficient
 - Rotation blocked if APY data unavailable (< 1h of exchange rate history)
 - Rotation cooldown checked before execution
-- `unstake` creates a claim in staking-silo-v1-1 — agent must call `withdraw-claim` after 7-day cooldown
+- `unstake` creates a claim in staking-silo-v1-1: agent must call `withdraw-claim` after 7-day cooldown
 
 ## Output Contract
 
@@ -50,7 +50,7 @@ All outputs are strict JSON to stdout:
   "status": "success | error",
   "action": "HOLD | STAKE | ROTATE_TO_HODLMM | ROTATE_TO_STAKING | UNSTAKE | WITHDRAW_CLAIM | CHECK | Blocked: <reason>",
   "data": {
-    "mcp_commands": "[McpCommand[] | null] — present on write actions",
+    "mcp_commands": "[McpCommand[] | null], present on write actions",
     "staking_enabled": "boolean",
     "exchange_rate": "number",
     "accumulated_yield_pct": "number",
@@ -90,34 +90,34 @@ bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts doctor
 bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts install-packs --pack all
 ```
 
-### run — assess (read-only, no --confirm needed)
+### run: assess (read-only, no --confirm needed)
 
 ```bash
 bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run --wallet SP1234...
 ```
 
-### run — stake
+### run: stake
 
 ```bash
 bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run \
   --wallet SP1234... --action=stake --amount=500 --confirm
 ```
 
-### run — unstake
+### run: unstake
 
 ```bash
 bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run \
   --wallet SP1234... --action=unstake --amount=500 --confirm
 ```
 
-### run — withdraw-claim
+### run: withdraw-claim
 
 ```bash
 bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run \
   --wallet SP1234... --action=withdraw-claim --confirm
 ```
 
-### run — rotate (auto-rotate to best yield)
+### run: rotate (auto-rotate to best yield)
 
 ```bash
 bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run \
@@ -152,12 +152,12 @@ bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run \
 }
 ```
 
-### run --wallet (assess — no position)
+### run --wallet (assess, no position)
 
 ```json
 {
   "status": "success",
-  "action": "CHECK — staking enabled, protocol healthy. Provide --wallet to check position.",
+  "action": "CHECK, staking enabled, protocol healthy. Provide --wallet to check position.",
   "data": {
     "staking_enabled": true,
     "exchange_rate": 1,
@@ -169,7 +169,7 @@ bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run \
     "hodlmm_apr_pct": 17.72,
     "hodlmm_tvl_usd": 77142.99,
     "hodlmm_active_bin": 504,
-    "yield_comparison": "HODLMM dlmm_1 APR: 17.72% | USDh staking APY: tracking started — check again in ≥1h",
+    "yield_comparison": "HODLMM dlmm_1 APR: 17.72% | USDh staking APY: tracking started, check again in ≥1h",
     "user_usdh": 0,
     "user_susdh": 0,
     "user_susdh_value_usdh": 0,
@@ -183,7 +183,7 @@ bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run \
 }
 ```
 
-### run --action=stake --amount=500 --confirm (balance guard — no USDh)
+### run --action=stake --amount=500 --confirm (balance guard, no USDh)
 
 ```json
 {
@@ -230,7 +230,7 @@ bun run skills/hermetica-yield-rotator/hermetica-yield-rotator.ts run \
 
 ## Does this integrate HODLMM?
 
-- [x] Yes — eligible for the +$1,000 sBTC bonus pool
+- [x] Yes: eligible for the +$1,000 sBTC bonus pool
 
 Integrates HODLMM at the execution level: fetches live dlmm_1 APR and active bin on every run, outputs `bitflow_swap` (USDh → USDCx), `bitflow_hodlmm_add_liquidity`, and `bitflow_hodlmm_remove_liquidity` MCP commands as part of the rotation pipeline. The swap step is required because dlmm_1 accepts USDCx, not USDh.
 

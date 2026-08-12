@@ -4,7 +4,7 @@
  * Scans Zest, Granite, and all 8 HODLMM pools for sBTC/STX/USDCx positions.
  * Compares yield, recommends the best safe move, shows sBTC break prices.
  *
- * Read-only — no transactions, no gas, no risk.
+ * Read-only, no transactions, no gas, no risk.
  *
  * Usage:
  *   bun run zbg-yield-scout/zbg-yield-scout.ts doctor
@@ -421,14 +421,14 @@ async function getWalletBalances(wallet: string): Promise<{ balances: WalletBala
   const stxMicro = BigInt(hiroBalance?.stx?.balance ?? hiroBalance?.balance ?? "0");
   const stxAmount = Number(stxMicro) / 1_000_000;
 
-  // Parse sBTC balance — match exact contract, not substring (avoid DLP pool tokens)
+  // Parse sBTC balance: match exact contract, not substring (avoid DLP pool tokens)
   const sbtcKey = Object.keys(hiroBalance?.fungible_tokens ?? {}).find(k =>
     k.startsWith(SBTC_CONTRACT + "::")
   );
   const sbtcSats = BigInt(hiroBalance?.fungible_tokens?.[sbtcKey ?? ""]?.balance ?? "0");
   const sbtcAmount = Number(sbtcSats) / 1e8;
 
-  // Parse USDCx balance — match exact contract
+  // Parse USDCx balance: match exact contract
   const usdcxKey = Object.keys(hiroBalance?.fungible_tokens ?? {}).find(k =>
     k.startsWith(USDCX_CONTRACT + "::")
   );
@@ -488,7 +488,7 @@ async function getZestPosition(wallet: string): Promise<{ position: ZestPosition
       sources.push("zest-hiro-fallback");
       return { position: { has_position: false, detail: "No Zest position found" }, sources };
     } catch {
-      return { position: { has_position: false, detail: "Zest read failed — skipped" }, sources };
+      return { position: { has_position: false, detail: "Zest read failed, skipped" }, sources };
     }
   }
 }
@@ -572,7 +572,7 @@ async function getGranitePosition(wallet: string): Promise<{ position: GranitePo
     return {
       position: {
         has_position: false,
-        detail: "Granite read failed — skipped",
+        detail: "Granite read failed, skipped",
         supply_apy_pct: 0,
         borrow_apr_pct: 0,
         utilization_pct: 0,
@@ -594,7 +594,7 @@ async function getHodlmmPositions(wallet: string): Promise<{ positions: HodlmmPo
     const poolData = await fetchJson<BitflowPoolsResponse>(`${BITFLOW_API}/api/app/v1/pools`);
     bitflowPools = poolData.data ?? null;
   } catch {
-    // Bitflow API unavailable — position values will be null
+    // Bitflow API unavailable: position values will be null
   }
 
   for (const pool of HODLMM_POOLS) {
@@ -716,7 +716,7 @@ async function getSmartOptions(
       daily_usd: round(dailyUsd, 4),
       monthly_usd: round(dailyUsd * 30, 2),
       gas_to_enter_stx: 0.05,
-      note: `Lending yield — ${granite.utilization_pct}% utilization, borrow APR ${granite.borrow_apr_pct}%. Max LTV ${granite.max_ltv_pct}%.`,
+      note: `Lending yield, ${granite.utilization_pct}% utilization, borrow APR ${granite.borrow_apr_pct}%. Max LTV ${granite.max_ltv_pct}%.`,
     });
     sources.push("granite-apy");
   }
@@ -745,7 +745,7 @@ async function getSmartOptions(
               daily_usd: round(dailyUsd, 4),
               monthly_usd: round(dailyUsd * 30, 2),
               gas_to_enter_stx: 0.05,
-              note: `Fee-based yield — varies with swap volume. TVL: $${Math.round(bp.tvlUsd).toLocaleString()}.`,
+              note: `Fee-based yield, varies with swap volume. TVL: $${Math.round(bp.tvlUsd).toLocaleString()}.`,
             });
           }
         }
@@ -765,7 +765,7 @@ async function getSmartOptions(
       daily_usd: 0,
       monthly_usd: 0,
       gas_to_enter_stx: 0.03,
-      note: "sBTC supply APY currently 0% — check zest.fi for latest rates.",
+      note: "sBTC supply APY currently 0%, check zest.fi for latest rates.",
     });
     sources.push("zest-apy");
   } catch {
@@ -821,7 +821,7 @@ function getBestMove(
     const deployed = deployedProtocols.join(", ");
     if (walletUsd < 10) {
       return {
-        recommendation: `Your capital is deployed and earning on ${deployed}. Wallet balance ($${round(walletUsd, 2)}) is minimal — nothing to move.`,
+        recommendation: `Your capital is deployed and earning on ${deployed}. Wallet balance ($${round(walletUsd, 2)}) is minimal: nothing to move.`,
         idle_capital_usd: round(walletUsd, 2),
         opportunity_cost_daily_usd: 0,
       };
@@ -936,8 +936,8 @@ async function runScout(wallet: string): Promise<ScoutResult> {
       wallet,
       what_you_have: { sbtc: { amount: 0, usd: 0 }, stx: { amount: 0, usd: 0 }, usdcx: { amount: 0, usd: 0 } },
       zbg_positions: {
-        zest: { has_position: false, detail: "Skipped — invalid wallet" },
-        granite: { has_position: false, detail: "Skipped — invalid wallet" },
+        zest: { has_position: false, detail: "Skipped, invalid wallet" },
+        granite: { has_position: false, detail: "Skipped, invalid wallet" },
         hodlmm: { has_position: false, pools: [] },
       },
       smart_options: [],
@@ -1016,7 +1016,7 @@ function renderReport(r: ScoutResult): string {
   lines.push(`Wallet: ${r.wallet}`);
   lines.push("");
 
-  // Section 1: What You Have (wallet only — available to move)
+  // Section 1: What You Have (wallet only, available to move)
   const walletUsd = round(r.what_you_have.sbtc.usd + r.what_you_have.stx.usd + r.what_you_have.usdcx.usd, 2);
   lines.push("## 1. What You Have (available in wallet)");
   lines.push("");
@@ -1035,26 +1035,26 @@ function renderReport(r: ScoutResult): string {
   lines.push("|----------|------------|--------|------:|");
 
   const z = r.zbg_positions.zest;
-  lines.push(`| Zest     | ${z.has_position ? "**ACTIVE**" : "No position"} | ${z.detail} | — |`);
+  lines.push(`| Zest     | ${z.has_position ? "**ACTIVE**" : "No position"} | ${z.detail} | - |`);
 
   const g = r.zbg_positions.granite;
   const gDetail = g.has_position
     ? g.detail
     : `${g.detail} (supply APY: ${g.supply_apy_pct}%, util: ${g.utilization_pct}%)`;
-  lines.push(`| Granite  | ${g.has_position ? "**ACTIVE**" : "No position"} | ${gDetail} | — |`);
+  lines.push(`| Granite  | ${g.has_position ? "**ACTIVE**" : "No position"} | ${gDetail} | - |`);
 
   const h = r.zbg_positions.hodlmm;
   let deployedUsd = 0;
   if (h.has_position) {
     for (const p of h.pools) {
       const rangeTag = p.in_range ? "**IN RANGE**" : "**OUT OF RANGE**";
-      const binStr = p.user_bins ? `${p.user_bins.count} bins (${p.user_bins.min}–${p.user_bins.max})` : "no bins";
-      const valueStr = p.estimated_value_usd !== null ? `$${p.estimated_value_usd}` : "—";
+      const binStr = p.user_bins ? `${p.user_bins.count} bins (${p.user_bins.min}-${p.user_bins.max})` : "no bins";
+      const valueStr = p.estimated_value_usd !== null ? `$${p.estimated_value_usd}` : "-";
       if (p.estimated_value_usd) deployedUsd += p.estimated_value_usd;
-      lines.push(`| HODLMM   | **ACTIVE** | ${p.name} — ${rangeTag} at bin ${p.active_bin}, ${binStr} | ${valueStr} |`);
+      lines.push(`| HODLMM   | **ACTIVE** | ${p.name}: ${rangeTag} at bin ${p.active_bin}, ${binStr} | ${valueStr} |`);
     }
   } else {
-    lines.push("| HODLMM   | No position | No positions found across all 8 pools | — |");
+    lines.push("| HODLMM   | No position | No positions found across all 8 pools | - |");
   }
 
   if (deployedUsd > 0) {
@@ -1111,7 +1111,7 @@ function renderReport(r: ScoutResult): string {
   if (bp.hodlmm_range_exit_low_usd && bp.hodlmm_range_exit_high_usd) {
     const bufferLow = round(bp.current_sbtc_price_usd - bp.hodlmm_range_exit_low_usd, 0);
     const bufferHigh = round(bp.hodlmm_range_exit_high_usd - bp.current_sbtc_price_usd, 0);
-    lines.push(`Your position is safe — $${bufferLow.toLocaleString()} above low exit, $${bufferHigh.toLocaleString()} below high exit.`);
+    lines.push(`Your position is safe: $${bufferLow.toLocaleString()} above low exit, $${bufferHigh.toLocaleString()} below high exit.`);
     lines.push("");
   }
 
@@ -1211,7 +1211,7 @@ program
       checks,
       message: allOk
         ? "All 6 data sources reachable. Ready to scout."
-        : "One or more sources failed — output may be incomplete.",
+        : "One or more sources failed, output may be incomplete.",
     }, null, 2));
     if (!allOk) process.exit(1);
   });
