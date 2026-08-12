@@ -104,10 +104,18 @@ interface TokenMeta { symbol: string; contract: string; decimals: number; ftSuff
 const TOKENS: Record<string, TokenMeta> = {
   sbtc:   { symbol: "sBTC",   contract: SBTC_TOKEN,   decimals: 8, ftSuffix: "::sbtc-token" },
   stx:    { symbol: "STX",    contract: "stx",        decimals: 6, ftSuffix: "" },
-  usdcx:  { symbol: "USDCx",  contract: USDCX_TOKEN,  decimals: 6, ftSuffix: "::usdcx" },
-  usdh:   { symbol: "USDh",   contract: USDH_TOKEN,   decimals: 8, ftSuffix: "::usdh-token" },
-  susdh:  { symbol: "sUSDh",  contract: SUSDH_TOKEN,  decimals: 8, ftSuffix: "::susdh-token" },
-  aeusdc: { symbol: "aeUSDC", contract: AEUSDC_TOKEN, decimals: 6, ftSuffix: "::bridged-usdc" },
+  // ftSuffix is the Clarity asset name, which is the argument to `define-fungible-token`
+  // in the token contract, NOT the contract name and NOT the ticker. Every entry below was
+  // read from the deployed contract source on 2026-08-12. Four of these six were previously
+  // wrong, and a post-condition naming an asset that does not exist covers nothing, so the
+  // transaction aborts with abort_by_post_condition. That is not hypothetical: mainnet tx
+  // 0x778632893965126456fe95a974c66fdb8962df58a2fe4dbea1e7a675b8de6da0 is a Granite deposit
+  // that used the old "bridged-usdc" spelling and aborted exactly that way.
+  // Case matters: aeUSDC is capitalised on chain.
+  usdcx:  { symbol: "USDCx",  contract: USDCX_TOKEN,  decimals: 6, ftSuffix: "::usdcx-token" },
+  usdh:   { symbol: "USDh",   contract: USDH_TOKEN,   decimals: 8, ftSuffix: "::usdh" },
+  susdh:  { symbol: "sUSDh",  contract: SUSDH_TOKEN,  decimals: 8, ftSuffix: "::susdh" },
+  aeusdc: { symbol: "aeUSDC", contract: AEUSDC_TOKEN, decimals: 6, ftSuffix: "::aeUSDC" },
 };
 
 // Reverse lookup: token contract principal → TokenMeta. Used to derive asset_name + decimals
@@ -1246,7 +1254,7 @@ function buildDlmmSwapInstruction(
       requires_residual_check: true,
       _note: "Agent runtime: read consumed-in from tx receipt before chained deploy step. If consumed-in < amount, surface residual to caller (max-steps may have capped fold).",
     },
-    description: `Swap ${amount} ${inSym} → min ${minReceived} ${outSym} via Bitflow DLMM (deny mode, ${slippagePct}% slip)`,
+    description: `Swap ${amount} ${inSym} to min ${minReceived} ${outSym} via Bitflow DLMM (allow mode with a dual pin, ${slippagePct}% slip)`,
   };
 }
 
@@ -1266,8 +1274,23 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
     case "hermetica": {
       // Hermetica staking-v1 is deactivated (HQ ERR_INACTIVE_CONTRACT u1006).
       // staking-v1-1 is the active contract. It takes an additional `affiliate` arg (optional buff 64).
-      // Staking mints sUSDh back to the caller — postConditionMode must be "allow"
-      // because the sUSDh mint is not covered by the outgoing USDh post-condition.
+      //
+      // This call used to be built in "allow" mode, on the reasoning that the sUSDh mint
+      // could not be covered by a post-condition so Deny would reject the transaction.
+      // The premise is right and the conclusion was wrong. A mint is not a transfer, so
+      // Deny never asks for it to be declared. Checked against the chain rather than
+      // reasoned about: of the last 50 calls to staking-v1-1, all 33 `stake` calls used
+      // deny with a single post-condition and all 33 succeeded. Reference transaction
+      // 0x710afa899f46d6b3a3c1235b4522693cc47e799d723895574b6e8e09686dd098 carries the
+      // uncovered susdh-token-v1::susdh mint event in a successful deny transaction.
+      //
+      // Deny is also the only mode this call can use here: SmartX's adapter permits Allow
+      // only with a written justification plus a contract-level floor, and `stake` takes
+      // (amount, affiliate) with no argument that could ever carry a floor.
+      //
+      // What Deny buys is a bound on the outflow, and nothing more. The sUSDh arrives by
+      // mint with no sender principal, so there is no receive side to pin and the exchange
+      // rate cannot be bounded by a post-condition. Do not describe this as rate-bounded.
       if (token === "usdh") {
         instructions.push({
           tool: "call_contract",
@@ -1275,12 +1298,15 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
             contractAddress: HERMETICA,
             contractName: "staking-v1-1",
             functionName: "stake",
-            functionArgs: [{ type: "uint", value: amount }, null],
-            postConditionMode: "allow",
-            // allow mode required: staking mints sUSDh back to caller (not expressible as sender-side PC).
-            // Belt-and-suspenders: outgoing USDh transfer is still asserted.
+            // `affiliate` is (optional (buff 64)) and we pass none. It must be written as a
+            // tagged {"type":"none"}, not a bare null: the chain wants Clarity `none` (hex
+            // 0x09), and a bare null is not a tagged value, so the adapter refuses it rather
+            // than guess that null was meant to be `none`.
+            functionArgs: [{ type: "uint", value: amount }, { type: "none" }],
+            postConditionMode: "deny",
+            // The one bound this call can carry: the caller sends at most `amount` USDh.
             postConditions: [
-              { type: "ft", principal: wallet, asset: USDH_TOKEN, assetName: "usdh-token", conditionCode: "lte", amount },
+              { type: "ft", principal: wallet, asset: USDH_TOKEN, assetName: "usdh", conditionCode: "lte", amount },
             ],
           },
           description: `Stake ${amount} USDh into Hermetica sUSDh (earning yield)`,
@@ -1307,12 +1333,11 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
             contractAddress: HERMETICA,
             contractName: "staking-v1-1",
             functionName: "stake",
-            functionArgs: [{ type: "uint", value: hermeticaEstimate }, null],
-            postConditionMode: "allow",
-            // allow mode required: staking mints sUSDh (not expressible as sender-side PC).
-            // Belt-and-suspenders: outgoing USDh transfer is still asserted.
+            // See the deny-mode note on the direct stake above. Same call, same reasoning.
+            functionArgs: [{ type: "uint", value: hermeticaEstimate }, { type: "none" }],
+            postConditionMode: "deny",
             postConditions: [
-              { type: "ft", principal: wallet, asset: USDH_TOKEN, assetName: "usdh-token", conditionCode: "lte", amount: hermeticaEstimate },
+              { type: "ft", principal: wallet, asset: USDH_TOKEN, assetName: "usdh", conditionCode: "lte", amount: hermeticaEstimate },
             ],
             requires_substitution: true,
             _note: "SEQUENTIAL: execute after Step 1 confirms. Replace amount with actual swap output from tx receipt.",
@@ -1338,11 +1363,14 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
               { type: "uint", value: amount },
               { type: "principal", value: wallet },
             ],
-            postConditionMode: "allow",
-            // allow mode required: deposit mints LP tokens back to caller (not expressible as sender-side PC).
-            // Belt-and-suspenders: outgoing aeUSDC transfer is still asserted.
+            // Deny, for the same reason as the Hermetica stake above: the LP token mint is
+            // not a transfer, so Deny does not require it to be declared. Verified on chain,
+            // reference transaction
+            // 0x65f31fc4e9b6cc1f6d474b7a3bb8e6a0022897bdf06498c7d24ecb47e2725d3b is a
+            // successful deny deposit carrying an uncovered state-v1::lp-token mint event.
+            postConditionMode: "deny",
             postConditions: [
-              { type: "ft", principal: wallet, asset: AEUSDC_TOKEN, assetName: "bridged-usdc", conditionCode: "lte", amount },
+              { type: "ft", principal: wallet, asset: AEUSDC_TOKEN, assetName: "aeUSDC", conditionCode: "lte", amount },
             ],
           },
           description: `Deposit ${amount} aeUSDC to Granite lending pool`,
@@ -1373,11 +1401,10 @@ function buildDeployInstructions(protocol: Protocol, amount: number, token: stri
               { type: "uint", value: graniteEstimate },
               { type: "principal", value: wallet },
             ],
-            postConditionMode: "allow",
-            // allow mode required: deposit mints LP tokens (not expressible as sender-side PC).
-            // Belt-and-suspenders: outgoing aeUSDC transfer is still asserted.
+            // See the deny-mode note on the direct deposit above. Same call, same reasoning.
+            postConditionMode: "deny",
             postConditions: [
-              { type: "ft", principal: wallet, asset: AEUSDC_TOKEN, assetName: "bridged-usdc", conditionCode: "lte", amount: graniteEstimate },
+              { type: "ft", principal: wallet, asset: AEUSDC_TOKEN, assetName: "aeUSDC", conditionCode: "lte", amount: graniteEstimate },
             ],
             requires_substitution: true,
             _note: "SEQUENTIAL: execute after Step 1 confirms. Replace amount with actual swap output from tx receipt.",
@@ -1487,11 +1514,26 @@ function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult): Exec
             contractName: "staking-v1-1",
             functionName: "unstake",
             functionArgs: [{ type: "uint", value: susdhSats }],
+            // STILL ALLOW, AND STILL WRONG, but wrong in a way that refuses rather than
+            // misfires. Unlike the mint on `stake`, a burn IS attributed to a sender, so the
+            // sUSDh burn is expressible as a sender-side post-condition and Deny is
+            // achievable here. All 25 `unstake` calls in the last 100 transactions used deny
+            // and succeeded, for example
+            // 0x90b27bbfef9700ccdcef16f8a5e7c8c5417d5073a4b8f2da03b3513be240e968.
+            //
+            // Deny needs TWO post-conditions, not the one below:
+            //   1. the caller sends <= amount of susdh-token-v1::susdh (the burn)
+            //   2. staking-reserve-v1 sends <= amount-usdh of usdh-token-v1::usdh, the
+            //      reserve paying the silo. Deny covers third-party transfers too.
+            // The second needs amount-usdh = amount * ratio / 1e8 from get-usdh-per-susdh at
+            // build time, which is real work and is not being guessed at here.
+            //
+            // Until that lands this instruction is refused by the SmartX adapter, which
+            // permits Allow only with a written justification plus a contract-level floor.
+            // An honest refusal is the correct failure while the amount is unknown.
             postConditionMode: "allow",
-            // allow mode required: unstake burns sUSDh and creates a claim (not expressible as sender-side PC).
-            // Belt-and-suspenders: outgoing sUSDh transfer is still asserted.
             postConditions: [
-              { type: "ft", principal: wallet, asset: SUSDH_TOKEN, assetName: "susdh-token", conditionCode: "lte", amount: String(susdhSats) },
+              { type: "ft", principal: wallet, asset: SUSDH_TOKEN, assetName: "susdh", conditionCode: "lte", amount: String(susdhSats) },
             ],
           },
           description: `Unstake ${susdhSats} sUSDh (creates claim in staking-silo)`,
