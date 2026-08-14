@@ -8,18 +8,18 @@ description: "Autonomous yield executor that scans, verifies, and moves capital 
 
 ## Decision Order
 
-1. Run `doctor` — verify crypto self-tests and data sources before any operation
-2. Run `scan --wallet <address>` — read wallet, positions, yields, PoR status, guardian gates
+1. Run `doctor`: verify crypto self-tests and data sources before any operation
+2. Run `scan --wallet <address>`: read wallet, positions, yields, PoR status, guardian gates
 3. If user requests a write operation (deploy, withdraw, rebalance, migrate):
-   a. Run Scout — read current state
-   b. Run Reserve (PoR) — verify sBTC backing
+   a. Run Scout: read current state
+   b. Run Reserve (PoR): verify sBTC backing
    c. If PoR RED or DATA_UNAVAILABLE -> refuse write, suggest `emergency`
    d. If PoR YELLOW -> refuse write, explain reserve below threshold
    e. If PoR GREEN -> proceed to Guardian
-   f. Run Guardian — check all 6 gates
+   f. Run Guardian: check all 6 gates
    g. If any gate fails -> refuse with specific reason(s)
    h. If all pass -> output transaction instructions for execution
-4. For `emergency` — bypass Guardian gates (speed matters), output all withdrawal instructions
+4. For `emergency`: bypass Guardian gates (speed matters), output all withdrawal instructions
 
 ## Guardrails
 
@@ -47,7 +47,7 @@ description: "Autonomous yield executor that scans, verifies, and moves capital 
 - HODLMM rebalance = withdraw (tx 1) + re-add (tx 2)
 - If tx 1 confirms but tx 2 fails: capital is safe in wallet, not lost
 - Agent should retry tx 2 before reporting failure
-- migrate = withdraw (tx 1) + deploy (tx 2) — same pattern
+- migrate = withdraw (tx 1) + deploy (tx 2): same pattern
 
 ## Protocol-Specific Rules
 
@@ -55,15 +55,15 @@ description: "Autonomous yield executor that scans, verifies, and moves capital 
 - Supply via `zest_supply` (MCP native)
 - Withdraw via `zest_withdraw` (MCP native)
 - APY read live from `v0-vault-sbtc.get-utilization` + `get-interest-rate`
-- Currently 0% APY (no borrowing demand) — skip in recommendations unless user forces
+- Currently 0% APY (no borrowing demand): skip in recommendations unless user forces
 
 ### Granite
 - Supply via `call_contract` -> `liquidity-provider-v1.deposit(assets, recipient)`
 - Withdraw via `call_contract` -> `liquidity-provider-v1.withdraw(assets, recipient)`
 - Repay loans via `call_contract` -> `borrower-v1.repay(amount, on-behalf-of)`
-- **Cannot** remove collateral (requires trait_reference — blocked by MCP)
+- **Cannot** remove collateral (requires trait_reference: blocked by MCP)
 - **Workaround:** repay loan to drop LTV to 0 (equivalent safety)
-- No borrowing operations (requires Pyth price feed data — out of scope)
+- No borrowing operations (requires Pyth price feed data: out of scope)
 
 ### HODLMM (Bitflow DLMM)
 - Add liquidity via `bitflow add-liquidity-simple`

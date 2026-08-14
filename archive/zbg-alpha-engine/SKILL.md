@@ -3,7 +3,7 @@ name: zbg-alpha-engine
 description: "Cross-protocol yield executor for Zest, Granite, and HODLMM with sBTC Proof-of-Reserve verification and multi-gate safety pipeline"
 metadata:
   author: "cliqueengagements"
-  author-agent: "Micro Basilisk (Agent 77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
+  author-agent: "Micro Basilisk (Agent 77): SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "false"
   arguments: "scan --wallet <SP...> | deploy --wallet <SP...> --protocol <zest|granite|hodlmm> --amount <sats> | withdraw --wallet <SP...> --protocol <name> | rebalance --wallet <SP...> --pool-id <dlmm_N> | migrate --wallet <SP...> --from <protocol> --to <protocol> | emergency --wallet <SP...> | doctor"
   entry: "zbg-alpha-engine/zbg-alpha-engine.ts"
@@ -27,7 +27,7 @@ Cross-protocol yield executor for **sBTC, STX, and USDCx** across Zest v2, Grani
 
 ## Why agents need it
 
-Agents holding sBTC, STX, or USDCx currently have to manually check each protocol, compare yields across different assets, verify the sBTC peg is safe, and execute transactions one at a time. ZBG Alpha Engine does all of this in a single pipeline — scan 3 protocols in parallel for all three assets, verify reserves are cryptographically sound, check 6 market safety gates, then move capital to the highest-yielding opportunity. It also handles emergencies: if the sBTC peg breaks, one `emergency` command withdraws everything across all protocols. No other skill combines cross-protocol reads, writes, AND cryptographic reserve verification.
+Agents holding sBTC, STX, or USDCx currently have to manually check each protocol, compare yields across different assets, verify the sBTC peg is safe, and execute transactions one at a time. ZBG Alpha Engine does all of this in a single pipeline: scan 3 protocols in parallel for all three assets, verify reserves are cryptographically sound, check 6 market safety gates, then move capital to the highest-yielding opportunity. It also handles emergencies: if the sBTC peg breaks, one `emergency` command withdraws everything across all protocols. No other skill combines cross-protocol reads, writes, AND cryptographic reserve verification.
 
 ## Safety notes
 
@@ -40,7 +40,7 @@ Agents holding sBTC, STX, or USDCx currently have to manually check each protoco
 - Deploy refuses to send more than wallet balance. Refuses 0% APY protocols unless explicitly forced.
 - Emergency command bypasses Guardian (speed matters) but NEVER bypasses PoR.
 - Signer rotation guard: reserve ratio below 50% is flagged DATA_UNAVAILABLE, not false RED.
-- Engine outputs transaction instructions — does not hold keys or sign directly. Agent runtime executes via MCP.
+- Engine outputs transaction instructions: does not hold keys or sign directly. Agent runtime executes via MCP.
 - Granite collateral removal blocked by trait_reference. Workaround: `repay` drops LTV to 0.
 
 ## Output contract
@@ -60,9 +60,9 @@ All commands output JSON to stdout:
 }
 ```
 
-- `status: "ok"` — operation completed or instructions ready
-- `status: "refused"` — safety gate blocked the write, `refusal_reasons` explains why
-- `status: "error"` — invalid input or system failure
+- `status: "ok"`: operation completed or instructions ready
+- `status: "refused"`: safety gate blocked the write, `refusal_reasons` explains why
+- `status: "error"`: invalid input or system failure
 - `doctor` outputs `{ "status": "ok"|"degraded"|"critical", "checks": [...], "message" }`
 - Error output: `{ "status": "error", "error": "descriptive message" }`
 
@@ -155,13 +155,13 @@ If sBTC signer aggregate pubkey rotates and BTC has not fully migrated to the ne
 ## Dependencies
 
 - `commander` (CLI parsing, registry convention)
-- `tiny-secp256k1` (BIP-341 elliptic curve point addition — see note below)
-- Node.js built-ins: `crypto` (SHA-256), `os`/`path`/`fs` (cooldown state) — same pattern as Day 3 winner hodlmm-bin-guardian
+- `tiny-secp256k1` (BIP-341 elliptic curve point addition: see note below)
+- Node.js built-ins: `crypto` (SHA-256), `os`/`path`/`fs` (cooldown state): same pattern as Day 3 winner hodlmm-bin-guardian
 - All bech32m encoding is hand-rolled (no external bech32 library)
 
 ### Why `tiny-secp256k1`?
 
-The sBTC Proof-of-Reserve module derives the signer's Bitcoin P2TR address from the aggregate pubkey registered on Stacks. This requires a BIP-341 Taproot key tweak: `output_key = internal_key + H_TapTweak(internal_key) * G`. The tweak operation is elliptic curve point addition on secp256k1 — Node.js/Bun `crypto` module supports ECDSA signing and ECDH key agreement but does **not** expose raw EC point addition. This single operation cannot be implemented without either:
+The sBTC Proof-of-Reserve module derives the signer's Bitcoin P2TR address from the aggregate pubkey registered on Stacks. This requires a BIP-341 Taproot key tweak: `output_key = internal_key + H_TapTweak(internal_key) * G`. The tweak operation is elliptic curve point addition on secp256k1: Node.js/Bun `crypto` module supports ECDSA signing and ECDH key agreement but does **not** expose raw EC point addition. This single operation cannot be implemented without either:
 
 1. An EC library (`tiny-secp256k1`, `@noble/secp256k1`), or
 2. Hand-rolling secp256k1 field arithmetic (~400 lines, security anti-pattern for production crypto)
@@ -194,7 +194,7 @@ ZBG Alpha Engine is free to run directly from the registry. For agents that want
 | `/break-prices` | HODLMM range exit prices + safety buffer | 200 sats | One rebalance save |
 | `/guardian` | 6-gate pre-flight safety check | 100 sats | One blocked bad tx |
 
-All endpoints return the same JSON output as the CLI. x402 protocol shows price before payment — no surprises.
+All endpoints return the same JSON output as the CLI. x402 protocol shows price before payment: no surprises.
 
 ## Disclaimers
 
@@ -202,4 +202,4 @@ All endpoints return the same JSON output as the CLI. x402 protocol shows price 
 ZBG Alpha Engine provides data-driven yield analysis for informational purposes only. This is not financial advice. Users are solely responsible for their own investment decisions. Past yields do not guarantee future returns. Smart contract risk, impermanent loss, and sBTC peg failure are real possibilities. Always verify on-chain data independently before acting.
 
 ### Accuracy Disclaimer
-Data is live but not guaranteed. Yield rates are based on trailing 24h volume and may not reflect future returns. Position values use Bitflow-reported TVL which may lag real-time. PoR checks confirmed UTXO balances only — pending transactions are not reflected. Signer key rotation may cause temporary false readings. The engine reads 11 data sources; if any are unavailable, output may be incomplete (status: "degraded").
+Data is live but not guaranteed. Yield rates are based on trailing 24h volume and may not reflect future returns. Position values use Bitflow-reported TVL which may lag real-time. PoR checks confirmed UTXO balances only: pending transactions are not reflected. Signer key rotation may cause temporary false readings. The engine reads 11 data sources; if any are unavailable, output may be incomplete (status: "degraded").

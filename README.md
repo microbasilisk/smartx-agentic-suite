@@ -28,7 +28,7 @@ The skills compose into a full liquidity management pipeline. Each stage consume
 | **Monitor** | `hodlmm-bin-guardian` | Whether an LP position has drifted out of its earning range |
 | **Decide** | `hodlmm-rebalance-arbiter` | Combines drift and peg health into one REBALANCE, BLOCKED or IN_RANGE verdict |
 | **Allocate** | `sbtc-capital-allocator` | Whether capital goes to HODLMM or Zest, and whether to deploy as a lump sum or DCA |
-| **Allocate** | `usdcx-yield-optimizer` | Which of seven HODLMM pools and the XYK venues earns most on USDCx |
+| **Allocate** | `usdcx-yield-optimizer` | Which HODLMM or XYK venue earns most on USDCx, ranked over every pool the Bitflow API returns |
 | **Rotate** | `hermetica-yield-rotator` | Whether the Hermetica USDh versus HODLMM differential justifies moving |
 | **Execute** | `stacks-alpha-engine` | Four protocol yield execution with three tier mapping and a multi gate pipeline |
 | **Execute** | `hodlmm-move-liquidity` | Withdraw from drifted bins and redeploy around the active bin |

@@ -65,13 +65,13 @@ const ZEST_VAULT_SBTC     = "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-
 const DLMM_CORE           = "SP1PFR4V08H1RAZXREBGFFQ59WB739XM8VVGTFSEA.dlmm-core-v-1-1";
 const HODLMM_POOLS: PoolDef[] = [
   { id: 1, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-sbtc-usdcx-v-1-bps-10", name: "sBTC-USDCx-10bps", tokenX: "sbtc", tokenY: "usdcx" },
-  { id: 2, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-sbtc-usdcx-v-1-bps-1",  name: "sBTC-USDCx-1bps",  tokenX: "sbtc", tokenY: "usdcx" },
-  { id: 3, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-1-bps-10",  name: "STX-USDCx-10bps",  tokenX: "stx",  tokenY: "usdcx" },
-  { id: 4, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-1-bps-4",   name: "STX-USDCx-4bps",   tokenX: "stx",  tokenY: "usdcx" },
-  { id: 5, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-1-bps-1",   name: "STX-USDCx-1bps",   tokenX: "stx",  tokenY: "usdcx" },
-  { id: 6, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-1-bps-15",   name: "STX-sBTC-15bps",   tokenX: "stx",  tokenY: "sbtc" },
+  { id: 2, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-sbtc-usdcx-v-1-bps-1", name: "sBTC-USDCx-1bps", tokenX: "sbtc", tokenY: "usdcx" },
+  { id: 3, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-1-bps-10", name: "STX-USDCx-10bps", tokenX: "stx", tokenY: "usdcx" },
+  { id: 4, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-1-bps-4",  name: "STX-USDCx-4bps",  tokenX: "stx", tokenY: "usdcx" },
+  { id: 5, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-1-bps-1",  name: "STX-USDCx-1bps",  tokenX: "stx", tokenY: "usdcx" },
+  { id: 6, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-1-bps-15",  name: "STX-sBTC-15bps",  tokenX: "stx", tokenY: "sbtc" },
   { id: 7, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-aeusdc-usdcx-v-1-bps-1", name: "aeUSDC-USDCx-1bps", tokenX: "aeusdc", tokenY: "usdcx" },
-  { id: 8, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-usdh-usdcx-v-1-bps-1",  name: "USDh-USDCx-1bps",  tokenX: "usdh", tokenY: "usdcx" },
+  { id: 8, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-usdh-usdcx-v-1-bps-1", name: "USDh-USDCx-1bps", tokenX: "usdh", tokenY: "usdcx" },
 ];
 
 // Token contracts
@@ -345,7 +345,7 @@ function verifyBech32mTestVectors(): { pass: boolean; detail: string } {
 
 async function scoutWallet(wallet: string): Promise<ScoutResult> {
   if (!/^SP[A-Z0-9]{30,}$/i.test(wallet)) {
-    throw new Error("Invalid wallet address — must be Stacks mainnet (SP...)");
+    throw new Error("Invalid wallet address: must be Stacks mainnet (SP...)");
   }
 
   const allSources: string[] = [];
@@ -362,9 +362,9 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
 
   const stxMicro = BigInt(((hiroBalance as Record<string, Record<string, string>>)?.stx?.balance) ?? "0");
   const ft = (hiroBalance as Record<string, Record<string, Record<string, string>>>)?.fungible_tokens ?? {};
-  const sbtcKey = Object.keys(ft).find(k => k.startsWith(SBTC_CONTRACT + "::"));
+  const sbtcKey = Object.keys(ft).find(k => k.startsWith(SBTC_CONTRACT + ":"));
   const sbtcSats = BigInt(ft[sbtcKey ?? ""]?.balance ?? "0");
-  const usdcxKey = Object.keys(ft).find(k => k.startsWith(USDCX_CONTRACT + "::"));
+  const usdcxKey = Object.keys(ft).find(k => k.startsWith(USDCX_CONTRACT + ":"));
   const usdcxMicro = BigInt(ft[usdcxKey ?? ""]?.balance ?? "0");
 
   const sd = (teneroSbtc as Record<string, Record<string, unknown>>)?.data as Record<string, unknown> | undefined;
@@ -580,7 +580,7 @@ async function getYieldOptions(balances: WalletBalances, prices: { sbtc: number;
   // Granite
   if (granite.supply_apy_pct && granite.supply_apy_pct > 0) {
     const d = (balances.sbtc.usd * granite.supply_apy_pct / 100) / 365;
-    options.push({ protocol: "Granite", pool: "sBTC Supply", apy_pct: granite.supply_apy_pct, daily_usd: round(d, 4), monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.05, note: `Lending — ${granite.utilization_pct}% util, ${granite.borrow_apr_pct}% borrow APR.` });
+    options.push({ protocol: "Granite", pool: "sBTC Supply", apy_pct: granite.supply_apy_pct, daily_usd: round(d, 4), monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.05, note: `Lending: ${granite.utilization_pct}% util, ${granite.borrow_apr_pct}% borrow APR.` });
     sources.push("granite-apy");
   }
 
@@ -600,7 +600,7 @@ async function getYieldOptions(balances: WalletBalances, prices: { sbtc: number;
     }
   } catch { /* unavailable */ }
 
-  // Zest (live read already done in scoutZest — use cached value or re-read)
+  // Zest (live read already done in scoutZest: use cached value or re-read)
   try {
     const [utilR, rateR] = await Promise.all([
       callReadOnly(ZEST_VAULT_SBTC, "get-utilization", []),
@@ -611,9 +611,9 @@ async function getYieldOptions(balances: WalletBalances, prices: { sbtc: number;
     const supplyApy = round(borrowPct * (utilPct / 100) * 0.9, 2);
     if (supplyApy > 0) {
       const d = (balances.sbtc.usd * supplyApy / 100) / 365;
-      options.push({ protocol: "Zest", pool: "sBTC Supply (v2)", apy_pct: supplyApy, daily_usd: round(d, 4), monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, note: `Lending — ${round(utilPct, 1)}% utilization.` });
+      options.push({ protocol: "Zest", pool: "sBTC Supply (v2)", apy_pct: supplyApy, daily_usd: round(d, 4), monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, note: `Lending: ${round(utilPct, 1)}% utilization.` });
     } else {
-      options.push({ protocol: "Zest", pool: "sBTC Supply (v2)", apy_pct: 0, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, note: `0% utilization — no borrowing demand. APY will rise when borrowers arrive.` });
+      options.push({ protocol: "Zest", pool: "sBTC Supply (v2)", apy_pct: 0, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, note: `0% utilization: no borrowing demand. APY will rise when borrowers arrive.` });
     }
     sources.push("zest-apy-live");
   } catch { /* skip */ }
@@ -698,7 +698,7 @@ async function checkReserve(): Promise<ReserveResult> {
         signal: "DATA_UNAVAILABLE", reserve_ratio: round(reserveRatio, 6), score: 0,
         sbtc_circulating: round(sbtcCirculating, 4), btc_reserve: round(btcReserve, 4),
         signer_address: signerAddress,
-        recommendation: `Reserve ratio ${(reserveRatio * 100).toFixed(1)}% — likely signer key rotation in progress. Manual verification required. Treating as DATA_UNAVAILABLE.`,
+        recommendation: `Reserve ratio ${(reserveRatio * 100).toFixed(1)}%: likely signer key rotation in progress. Manual verification required. Treating as DATA_UNAVAILABLE.`,
       };
     }
 
@@ -727,7 +727,7 @@ async function checkReserve(): Promise<ReserveResult> {
     return {
       signal: "DATA_UNAVAILABLE", reserve_ratio: null, score: 0,
       sbtc_circulating: 0, btc_reserve: 0, signer_address: "",
-      recommendation: "Reserve check failed. Treat as RED — do not proceed.",
+      recommendation: "Reserve check failed. Treat as RED: do not proceed.",
       error: err instanceof Error ? err.message : String(err),
     };
   }
@@ -752,7 +752,7 @@ async function checkGuardian(scout: ScoutResult): Promise<GuardianResult> {
 
   // 1. Price source gate
   const pricesOk = scout.prices.sbtc > 0 && scout.prices.stx > 0;
-  if (!pricesOk) refusals.push("Price data unavailable — cannot calculate USD values safely");
+  if (!pricesOk) refusals.push("Price data unavailable: cannot calculate USD values safely");
 
   // 2. Slippage check (HODLMM active bin vs market price)
   let slippagePct = 0;
@@ -780,7 +780,7 @@ async function checkGuardian(scout: ScoutResult): Promise<GuardianResult> {
         }
       }
     }
-  } catch { /* slippage check unavailable — allow */ }
+  } catch { /* slippage check unavailable: allow */ }
 
   // 3. Volume gate
   let volumeUsd = 0;
@@ -818,7 +818,7 @@ async function checkGuardian(scout: ScoutResult): Promise<GuardianResult> {
   let relayOk = true;
   let relayDetail = "not checked";
   try {
-    // Check relay via a lightweight endpoint — if available via MCP, use that
+    // Check relay via a lightweight endpoint: if available via MCP, use that
     // For now, mark as ok (relay check requires MCP tool at runtime)
     relayDetail = "relay check deferred to MCP runtime";
   } catch { relayDetail = "relay check failed"; }
@@ -1006,7 +1006,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
   if (reserve.signal === "RED" || reserve.signal === "DATA_UNAVAILABLE") {
     return {
       status: "refused", command, scout, reserve,
-      refusal_reasons: [`PoR signal: ${reserve.signal} — ${reserve.recommendation}`],
+      refusal_reasons: [`PoR signal: ${reserve.signal}: ${reserve.recommendation}`],
       action: { description: "Write refused. Run 'emergency' to withdraw all positions." },
     };
   }
@@ -1015,7 +1015,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
   if (reserve.signal === "YELLOW") {
     return {
       status: "refused", command, scout, reserve,
-      refusal_reasons: ["PoR signal: YELLOW — reserve below 99.9%. Read-only operations only."],
+      refusal_reasons: ["PoR signal: YELLOW: reserve below 99.9%. Read-only operations only."],
     };
   }
 
@@ -1164,7 +1164,7 @@ async function runDoctor(): Promise<void> {
   // 7. sBTC Signer Reserve (Golden Chain)
   try {
     const r = await checkReserve();
-    checks.push({ name: "sBTC Proof of Reserve", ok: r.signal === "GREEN", detail: `${r.signal} — ratio ${r.reserve_ratio ?? "N/A"}, ${round(r.btc_reserve, 2)} BTC backing ${round(r.sbtc_circulating, 2)} sBTC` });
+    checks.push({ name: "sBTC Proof of Reserve", ok: r.signal === "GREEN", detail: `${r.signal}: ratio ${r.reserve_ratio ?? "N/A"}, ${round(r.btc_reserve, 2)} BTC backing ${round(r.sbtc_circulating, 2)} sBTC` });
   } catch (e: unknown) { checks.push({ name: "sBTC Proof of Reserve", ok: false, detail: e instanceof Error ? e.message : String(e) }); }
 
   // 8. Zest v2 vault
@@ -1196,7 +1196,7 @@ async function runDoctor(): Promise<void> {
       ? "CRITICAL: Cryptographic self-tests failed. Engine will not operate."
       : allOk
       ? `All ${checks.length} checks passed. Engine ready.`
-      : "Some data sources unavailable — engine may operate in degraded mode.",
+      : "Some data sources unavailable: engine may operate in degraded mode.",
   }, null, 2));
 
   if (!cryptoOk) process.exit(2);
@@ -1215,7 +1215,7 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   const L: string[] = [];
 
   L.push("");
-  L.push("ZBG Alpha Engine — Full Report");
+  L.push("ZBG Alpha Engine: Full Report");
   L.push(`Wallet: ${scout.wallet}`);
   L.push("");
 
@@ -1239,24 +1239,24 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
 
   const z = scout.positions.zest;
   const zDetail = z.has_position ? z.detail : `${z.detail} (APY: ${z.supply_apy_pct ?? 0}%, util: ${z.utilization_pct ?? 0}%)`;
-  L.push(`| Zest     | ${z.has_position ? "**ACTIVE**" : "No position"} | ${zDetail} | — |`);
+  L.push(`| Zest     | ${z.has_position ? "**ACTIVE**" : "No position"} | ${zDetail} |: |`);
 
   const g = scout.positions.granite;
   const gDetail = g.has_position ? g.detail : `${g.detail} (APY: ${g.supply_apy_pct}%, util: ${g.utilization_pct}%)`;
-  L.push(`| Granite  | ${g.has_position ? "**ACTIVE**" : "No position"} | ${gDetail} | — |`);
+  L.push(`| Granite  | ${g.has_position ? "**ACTIVE**" : "No position"} | ${gDetail} |: |`);
 
   const h = scout.positions.hodlmm;
   let deployedUsd = 0;
   if (h.has_position) {
     for (const p of h.pools) {
       const rangeTag = p.in_range ? "**IN RANGE**" : "**OUT OF RANGE**";
-      const binStr = p.user_bins ? `${p.user_bins.count} bins (${p.user_bins.min}–${p.user_bins.max})` : "no bins";
-      const valueStr = p.estimated_value_usd !== null ? `$${p.estimated_value_usd}` : "—";
+      const binStr = p.user_bins ? `${p.user_bins.count} bins (${p.user_bins.min}, ${p.user_bins.max})` : "no bins";
+      const valueStr = p.estimated_value_usd !== null ? `$${p.estimated_value_usd}` : ", ";
       if (p.estimated_value_usd) deployedUsd += p.estimated_value_usd;
-      L.push(`| HODLMM   | **ACTIVE** | ${p.name} — ${rangeTag} at bin ${p.active_bin}, ${binStr} | ${valueStr} |`);
+      L.push(`| HODLMM   | **ACTIVE** | ${p.name}: ${rangeTag} at bin ${p.active_bin}, ${binStr} | ${valueStr} |`);
     }
   } else {
-    L.push("| HODLMM   | No position | No positions across 8 pools | — |");
+    L.push("| HODLMM   | No position | No positions across 8 pools |: |");
   }
   if (deployedUsd > 0) L.push(`| **Deployed Total** | | | **$${round(deployedUsd, 2)}** |`);
 
@@ -1314,7 +1314,7 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   if (bp.hodlmm_range_exit_low_usd && bp.hodlmm_range_exit_high_usd) {
     const bufLow = round(bp.current_sbtc_price_usd - bp.hodlmm_range_exit_low_usd, 0);
     const bufHigh = round(bp.hodlmm_range_exit_high_usd - bp.current_sbtc_price_usd, 0);
-    L.push(`Your position is safe — $${bufLow.toLocaleString()} above low exit, $${bufHigh.toLocaleString()} below high exit.`);
+    L.push(`Your position is safe: $${bufLow.toLocaleString()} above low exit, $${bufHigh.toLocaleString()} below high exit.`);
     L.push("");
   }
 

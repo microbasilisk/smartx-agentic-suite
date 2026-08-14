@@ -1,9 +1,9 @@
 ---
 name: hodlmm-tenure-protector
-description: "Nakamoto tenure-aware risk monitor that protects HODLMM concentrated liquidity positions from toxic arbitrage flow during stale Bitcoin block tenures — the only skill that correlates Bitcoin L1 block timing with L2 LP risk."
+description: "Nakamoto tenure-aware risk monitor that protects HODLMM concentrated liquidity positions from toxic arbitrage flow during stale Bitcoin block tenures: the only skill that correlates Bitcoin L1 block timing with L2 LP risk."
 metadata:
   author: "cliqueengagements"
-  author-agent: "Micro Basilisk (Agent 77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
+  author-agent: "Micro Basilisk (Agent 77): SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "true"
   arguments: "doctor | install-packs | run [--pool <id>] [--wallet <address>] [--verbose]"
   entry: "hodlmm-tenure-protector/hodlmm-tenure-protector.ts"
@@ -13,34 +13,34 @@ metadata:
 
 # hodlmm-tenure-protector
 
-> **⚠️ DEPRECATED** — This skill's core premise was flawed. Bitcoin L1 has no price awareness, so tenure staleness is not a valid safety signal for LP rebalancing. Identified by [@JakeBlockchain in PR #125 review](https://github.com/BitflowFinance/bff-skills/pull/125). PR closed. The useful parts (decision gate architecture) were absorbed into [day-8-hodlmm-rebalance-arbiter](../day-8-hodlmm-rebalance-arbiter/), which uses only defensible signals. Kept here as historical record.
+> **⚠️ DEPRECATED**: This skill's core premise was flawed. Bitcoin L1 has no price awareness, so tenure staleness is not a valid safety signal for LP rebalancing. Identified by [@JakeBlockchain in PR #125 review](https://github.com/BitflowFinance/bff-skills/pull/125). PR closed. The useful parts (decision gate architecture) were absorbed into [day-8-hodlmm-rebalance-arbiter](../day-8-hodlmm-rebalance-arbiter/), which uses only defensible signals. Kept here as historical record.
 
 ## What it does
 
-Monitors the age of the current Bitcoin block tenure and correlates it with HODLMM concentrated liquidity risk. Under Nakamoto, Stacks produces fast blocks (~5s) within a "tenure" anchored to each Bitcoin block. Between Bitcoin blocks, L2 prices can drift from L1 reality — creating a window where informed arbitrageurs exploit stale-priced HODLMM bins.
+Monitors the age of the current Bitcoin block tenure and correlates it with HODLMM concentrated liquidity risk. Under Nakamoto, Stacks produces fast blocks (~5s) within a "tenure" anchored to each Bitcoin block. Between Bitcoin blocks, L2 prices can drift from L1 reality: creating a window where informed arbitrageurs exploit stale-priced HODLMM bins.
 
 The protector reads real-time Bitcoin block timing from Hiro APIs, computes tenure freshness, and assesses every active HODLMM pool for toxic flow exposure based on tenure age, pool volume, bin width, bin price deviation, and (optionally) the LP's individual position overlap with the active trading range.
 
 Output is a four-level risk signal:
-- **GREEN / SAFE** — Tenure fresh, bins safe at current spreads
-- **YELLOW / CAUTION** — Tenure aging, monitor high-volume pools
-- **RED / WIDEN** — Stale tenure, widen bin spreads to reduce arb exposure
-- **CRITICAL / SHELTER** — Tenure change imminent, move to outer bins or pause
+- **GREEN / SAFE**: Tenure fresh, bins safe at current spreads
+- **YELLOW / CAUTION**: Tenure aging, monitor high-volume pools
+- **RED / WIDEN**: Stale tenure, widen bin spreads to reduce arb exposure
+- **CRITICAL / SHELTER**: Tenure change imminent, move to outer bins or pause
 
 ## Why agents need it
 
-Every HODLMM LP is silently exposed to tenure-drift risk. When a Bitcoin block is overdue (>15 minutes), the L2/L1 price gap widens and arbitrageurs with faster L1 data trade against your bins. No existing skill monitors this — LPs currently have zero visibility into when their positions are mechanically vulnerable.
+Every HODLMM LP is silently exposed to tenure-drift risk. When a Bitcoin block is overdue (>15 minutes), the L2/L1 price gap widens and arbitrageurs with faster L1 data trade against your bins. No existing skill monitors this: LPs currently have zero visibility into when their positions are mechanically vulnerable.
 
 This is the HODLMM circuit breaker: it tells LPs exactly when their money is safe and when they are about to get picked off.
 
 ## Safety notes
 
-- **Read-only skill** — never executes transactions, only reads chain state and pool data
-- **Fail-safe default** — if any data source is unreachable, defaults to CRITICAL/SHELTER (maximum caution)
-- **No API keys required** — all data sources are public Hiro and Bitflow endpoints
-- **Pool TVL gate** — ignores pools below $10,000 TVL to avoid noise from dust pools
-- **APR sanity check** — rejects pools with >500% APR as data anomalies
-- **Structured exit codes** — 0 (safe), 1 (widen), 2 (shelter/critical), 3 (error)
+- **Read-only skill**: never executes transactions, only reads chain state and pool data
+- **Fail-safe default**: if any data source is unreachable, defaults to CRITICAL/SHELTER (maximum caution)
+- **No API keys required**: all data sources are public Hiro and Bitflow endpoints
+- **Pool TVL gate**: ignores pools below $10,000 TVL to avoid noise from dust pools
+- **APR sanity check**: rejects pools with >500% APR as data anomalies
+- **Structured exit codes**: 0 (safe), 1 (widen), 2 (shelter/critical), 3 (error)
 
 ## Commands
 
@@ -93,7 +93,7 @@ When provided, fetches the user's bin positions from Bitflow and checks whether 
     "stacks_tip_height": 7428849,
     "stacks_blocks_in_tenure": 153,
     "risk_level": "GREEN | YELLOW | RED | CRITICAL",
-    "risk_description": "Tenure fresh (8.1m). Bitcoin block recent — L2 prices aligned with L1."
+    "risk_description": "Tenure fresh (8.1m). Bitcoin block recent: L2 prices aligned with L1."
   },
   "timing": {
     "avg_gap_s": 612,
@@ -117,7 +117,7 @@ When provided, fetches the user's bin positions from Bitflow and checks whether 
       "recommended_spread_bps": 10,
       "spread_action": "HOLD | WIDEN | WIDEN_URGENT | EXIT_RISK",
       "toxic_flow_exposure": "LOW | MODERATE | HIGH | CRITICAL",
-      "rationale": "Tenure fresh — normal spreads safe.",
+      "rationale": "Tenure fresh: normal spreads safe.",
       "position_overlap": {
         "pool_id": "dlmm_1",
         "wallet": "SP3K8...",
@@ -159,14 +159,14 @@ When provided, fetches the user's bin positions from Bitflow and checks whether 
 
 This skill directly monitors all active HODLMM DLMM pools and provides per-pool risk assessments. It is designed to be the first check before any HODLMM operation:
 
-- **Before deploying liquidity** — check tenure is GREEN before committing capital
-- **During active positions** — poll periodically to detect tenure drift
-- **Before rebalancing** — verify tenure is fresh so rebalance doesn't execute at stale prices
-- **Composable** — exports `assessTenureRisk()` for other skills to import
+- **Before deploying liquidity**: check tenure is GREEN before committing capital
+- **During active positions**: poll periodically to detect tenure drift
+- **Before rebalancing**: verify tenure is fresh so rebalance doesn't execute at stale prices
+- **Composable**: exports `assessTenureRisk()` for other skills to import
 
 ## Known constraints
 
-- Bitcoin block times are inherently unpredictable (range: 1–60+ minutes). The skill provides probabilistic guidance, not guarantees.
+- Bitcoin block times are inherently unpredictable (range: 1 to 60+ minutes). The skill provides probabilistic guidance, not guarantees.
 - `dynamicFee` is currently 0 on all HODLMM pools. If Bitflow enables dynamic fees based on volatility, this skill's spread recommendations should be adjusted to account for automatic fee widening.
-- Read-only — cannot execute bin adjustments. Outputs actionable recommendations for the agent or human to execute.
+- Read-only: cannot execute bin adjustments. Outputs actionable recommendations for the agent or human to execute.
 - Tenure age calculation depends on system clock accuracy. NTP-synced hosts recommended.

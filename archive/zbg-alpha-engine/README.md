@@ -1,11 +1,11 @@
-# Day 10 — ZBG Alpha Engine (SUPERSEDED)
+# Day 10: ZBG Alpha Engine (SUPERSEDED)
 
 > **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/196 (closed)
-> **Superseded by:** [Day 12 — Stacks Alpha Engine](../day-12-stacks-alpha-engine/) (PR #213)
+> **Superseded by:** [Day 12: Stacks Alpha Engine](../day-12-stacks-alpha-engine/) (PR #213)
 
 ## Why it was closed
 
-The Granite LP pool accepts **aeUSDC only** — not sBTC as originally assumed. Attempting to deposit sBTC returned `(err u1)` on-chain: [`dd4061b3...`](https://explorer.hiro.so/txid/dd4061b3fe418a0dfda273fd5bccc07ebd905146966ce622d516f64c75272e50?chain=mainnet)
+The Granite LP pool accepts **aeUSDC only**: not sBTC as originally assumed. Attempting to deposit sBTC returned `(err u1)` on-chain: [`dd4061b3...`](https://explorer.hiro.so/txid/dd4061b3fe418a0dfda273fd5bccc07ebd905146966ce622d516f64c75272e50?chain=mainnet)
 
 This was a fundamental routing bug that required a full rebuild rather than a patch.
 
@@ -29,7 +29,7 @@ See [day-12-stacks-alpha-engine](../day-12-stacks-alpha-engine/) for the working
 zbg-alpha-engine
 
 **Author:** cliqueengagements
-**Author Agent:** Micro Basilisk (Agent #77) — SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
+**Author Agent:** Micro Basilisk (Agent #77): SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 
 ## Category
 
@@ -37,7 +37,7 @@ zbg-alpha-engine
 
 ## What it does
 
-**One question:** "I hold sBTC, STX, and USDCx — where should each be earning yield, is the peg safe, and can you move it there?"
+**One question:** "I hold sBTC, STX, and USDCx: where should each be earning yield, is the peg safe, and can you move it there?"
 
 No other skill answers all three. ZBG Alpha Engine scans **sBTC, STX, and USDCx** positions across Zest v2, Granite, and all 8 HODLMM pools in parallel, derives the sBTC signer's P2TR address on-chain to cryptographically verify the BTC reserve, checks 6 market safety gates, then outputs executable transaction instructions to deploy, withdraw, rebalance, migrate, or emergency-exit capital.
 
@@ -65,11 +65,11 @@ No other skill answers all three. ZBG Alpha Engine scans **sBTC, STX, and USDCx*
 
 Agents holding sBTC today face three separate problems that no single skill solves:
 
-1. **Fragmented reads** — checking Zest, Granite, and HODLMM for sBTC/STX/USDCx requires 3 different tools with different interfaces and return formats
-2. **No peg verification** — agents deploy sBTC capital without knowing if it's actually backed by BTC. If the peg breaks, they're earning yield on nothing.
-3. **No cross-protocol execution** — moving capital between protocols or between assets requires manual withdraw + deposit with no safety checks between them
+1. **Fragmented reads**: checking Zest, Granite, and HODLMM for sBTC/STX/USDCx requires 3 different tools with different interfaces and return formats
+2. **No peg verification**: agents deploy sBTC capital without knowing if it's actually backed by BTC. If the peg breaks, they're earning yield on nothing.
+3. **No cross-protocol execution**: moving capital between protocols or between assets requires manual withdraw + deposit with no safety checks between them
 
-ZBG Alpha Engine collapses all three into one pipeline. Scan → verify → check safety → execute. One tool, one command, one answer. The emergency exit alone justifies the skill — when the peg breaks, every second of delay costs real money.
+ZBG Alpha Engine collapses all three into one pipeline. Scan → verify → check safety → execute. One tool, one command, one answer. The emergency exit alone justifies the skill: when the peg breaks, every second of delay costs real money.
 
 **How the safety pipeline works:**
 
@@ -97,7 +97,7 @@ Every write goes through this pipeline. No exceptions. No shortcuts.
 
 ## Evolution from v1
 
-This is a **v2 evolution** of [zbg-yield-scout (PR #191)](https://github.com/BitflowFinance/bff-skills/pull/191) — our Day 9 read-only scanner. The scout was always designed as the foundation for an executor. Alpha Engine keeps the full scout intact and layers three additional modules on top:
+This is a **v2 evolution** of [zbg-yield-scout (PR #191)](https://github.com/BitflowFinance/bff-skills/pull/191): our Day 9 read-only scanner. The scout was always designed as the foundation for an executor. Alpha Engine keeps the full scout intact and layers three additional modules on top:
 
 | Module | Source | What it contributes |
 |--------|--------|-------------------|
@@ -118,13 +118,13 @@ This is a **v2 evolution** of [zbg-yield-scout (PR #191)](https://github.com/Bit
 
 ## On-chain proof
 
-**Granite deposit tx:** [`dd4061b3fe418a0dfda273fd5bccc07ebd905146966ce622d516f64c75272e50`](https://explorer.hiro.so/txid/dd4061b3fe418a0dfda273fd5bccc07ebd905146966ce622d516f64c75272e50?chain=mainnet) — 1,000 sats sBTC deposited via `call_contract` → `liquidity-provider-v1.deposit`, the exact write path the engine specifies. Post-conditions enforced.
+**Granite deposit tx:** [`dd4061b3fe418a0dfda273fd5bccc07ebd905146966ce622d516f64c75272e50`](https://explorer.hiro.so/txid/dd4061b3fe418a0dfda273fd5bccc07ebd905146966ce622d516f64c75272e50?chain=mainnet): 1,000 sats sBTC deposited via `call_contract` → `liquidity-provider-v1.deposit`, the exact write path the engine specifies. Post-conditions enforced.
 
-**PoR Golden Chain live:** Derived signer address `bc1p6ys2ervatu00766eeqfmverzegg9fkprn3xjn0ppn70h53qu5vus3yzl0x` — 4,071.10 BTC backing 4,071.10 sBTC (ratio 1.0, signal GREEN).
+**PoR Golden Chain live:** Derived signer address `bc1p6ys2ervatu00766eeqfmverzegg9fkprn3xjn0ppn70h53qu5vus3yzl0x`: 4,071.10 BTC backing 4,071.10 sBTC (ratio 1.0, signal GREEN).
 
 ## Does this integrate HODLMM?
 
-- [x] Yes — eligible for the HODLMM bonus
+- [x] Yes: eligible for the HODLMM bonus
 
 Scans all 8 HODLMM pool contracts, reads user positions via `get-user-bins`, `get-overall-balance`, `get-active-bin-id`. Calculates break prices via DLMM Core `get-bin-price`. Generates `add-liquidity-simple` and `withdraw-liquidity-simple` instructions. Detects two-token vs one-sided add requirements. Rebalance command withdraws from out-of-range bins and re-adds centered on active bin.
 
@@ -147,7 +147,7 @@ Scans all 8 HODLMM pool contracts, reads user positions via `get-user-bins`, `ge
 | Granite | `call_contract` → `liquidity-provider-v1.deposit` | `.withdraw`/`.redeem` | No trait_reference | **Tx proof** ✓ |
 | HODLMM | `bitflow add-liquidity-simple` | `withdraw-liquidity-simple` | Bitflow skill | Read ✓ |
 
-**Granite contract discovery:** `SP26NGV9AFZBX7XBDBS2C7EC7FCPSAV9PKREQNMVS.liquidity-provider-v1` — supply/withdraw use `uint` + `principal` args only (no `trait_reference`), making them callable via MCP `call_contract`. Borrower operations (`add-collateral`, `remove-collateral`) are blocked by `trait_reference` — documented honestly.
+**Granite contract discovery:** `SP26NGV9AFZBX7XBDBS2C7EC7FCPSAV9PKREQNMVS.liquidity-provider-v1`: supply/withdraw use `uint` + `principal` args only (no `trait_reference`), making them callable via MCP `call_contract`. Borrower operations (`add-collateral`, `remove-collateral`) are blocked by `trait_reference`: documented honestly.
 
 **Zest v2 live APY:** Reads `get-utilization` + `get-interest-rate` from `SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-sbtc`. Currently 0% (650 BTC supplied, ~0 borrowed). 8-point interest curve with kink at 85% (rate jumps 7% → 82%). Will auto-detect when borrowing demand arrives.
 
@@ -171,7 +171,7 @@ name: zbg-alpha-engine
 description: "Cross-protocol yield executor..."  # ✓ quoted string
 metadata:
   author: "cliqueengagements"                     # ✓ present under metadata
-  author-agent: "Micro Basilisk (Agent 77) — SP219...| bc1q..."  # ✓ full format
+  author-agent: "Micro Basilisk (Agent 77): SP219...| bc1q..."  # ✓ full format
   user-invocable: "false"                         # ✓ string, not boolean
   entry: "zbg-alpha-engine/zbg-alpha-engine.ts"   # ✓ repo-root-relative
   requires: "wallet, signing, settings"           # ✓ comma-separated quoted string
@@ -199,7 +199,7 @@ description: "Autonomous yield..."  # ✓ present
 ## Smoke test results
 
 <details>
-<summary>doctor — 10/10 checks pass (crypto vectors + 8 data sources + PoR)</summary>
+<summary>doctor: 10/10 checks pass (crypto vectors + 8 data sources + PoR)</summary>
 
 ```json
 {
@@ -211,7 +211,7 @@ description: "Autonomous yield..."  # ✓ present
     { "name": "Tenero Price Oracle", "ok": true, "detail": "sBTC: $70429.46" },
     { "name": "Bitflow HODLMM API", "ok": true, "detail": "8 pools" },
     { "name": "mempool.space", "ok": true, "detail": "2 sat/vB" },
-    { "name": "sBTC Proof of Reserve", "ok": true, "detail": "GREEN — ratio 1, 4071.1 BTC backing 4071.1 sBTC" },
+    { "name": "sBTC Proof of Reserve", "ok": true, "detail": "GREEN: ratio 1, 4071.1 BTC backing 4071.1 sBTC" },
     { "name": "Zest v2 sBTC Vault", "ok": true, "detail": "utilization readable" },
     { "name": "Granite Protocol", "ok": true, "detail": "get-lp-params readable" },
     { "name": "HODLMM Pool Contracts", "ok": true, "detail": "active bin: 514" }
@@ -222,9 +222,9 @@ description: "Autonomous yield..."  # ✓ present
 </details>
 
 <details>
-<summary>scan --format text — full rendered report (7 sections)</summary>
+<summary>scan --format text: full rendered report (7 sections)</summary>
 
-### ZBG Alpha Engine — Full Report
+### ZBG Alpha Engine: Full Report
 Wallet: SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
 
 ## 1. What You Have (available in wallet)
@@ -240,9 +240,9 @@ Wallet: SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
 
 | Protocol | Status     | Detail | Value |
 |----------|------------|--------|------:|
-| Zest     | No position | No sBTC supply on Zest v2 (APY: 0%, util: 0%) | — |
-| Granite  | No position | No supply on Granite (APY: 3%, util: 89.08%) | — |
-| HODLMM   | **ACTIVE** | sBTC-USDCx-10bps — **IN RANGE** at bin 514, 221 bins (460–680) | $35.49 |
+| Zest     | No position | No sBTC supply on Zest v2 (APY: 0%, util: 0%) |: |
+| Granite  | No position | No supply on Granite (APY: 3%, util: 89.08%) |: |
+| HODLMM   | **ACTIVE** | sBTC-USDCx-10bps: **IN RANGE** at bin 514, 221 bins (460 to 680) | $35.49 |
 | **Deployed Total** | | | **$35.49** |
 
 **Total portfolio: $214.12** (wallet: $178.63 + deployed: $35.49)
@@ -264,10 +264,10 @@ Wallet: SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
 |---|----------|------|----:|------:|--------:|-----|------|
 | 1 | HODLMM | sBTC-USDCx-1bps | 23.05% | $0.0951 | $2.85 | 0.05 STX | Fee-based. TVL: $82. |
 | 2 | HODLMM | STX-sBTC-15bps | 6.4% | $0.0264 | $0.79 | 0.05 STX | Fee-based. TVL: $15,707. |
-| 3 | Granite | sBTC Supply | 3% | $0.0124 | $0.37 | 0.05 STX | Lending — 89.08% util, 3.37% borrow APR. |
+| 3 | Granite | sBTC Supply | 3% | $0.0124 | $0.37 | 0.05 STX | Lending: 89.08% util, 3.37% borrow APR. |
 | 4 | HODLMM | sBTC-USDCx-10bps | 0.29% | $0.0012 | $0.04 | 0.05 STX | Fee-based. TVL: $189,443. |
 | 5 | HODLMM | STX-USDCx-10bps | 0.19% | $0 | $0 | 0.05 STX | Fee-based. TVL: $993,505. |
-| 6 | Zest | sBTC Supply (v2) | 0% | $0 | $0 | 0.03 STX | 0% utilization — no borrowing demand. |
+| 6 | Zest | sBTC Supply (v2) | 0% | $0 | $0 | 0.03 STX | 0% utilization: no borrowing demand. |
 
 ## 5. Best Safe Move
 
@@ -281,7 +281,7 @@ Wallet: SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
 | Current sBTC price | $66,840.62 |
 | HODLMM range exit (high) | **$79,242.05** |
 
-Your position is safe — $3,240 above low exit, $12,401 below high exit.
+Your position is safe: $3,240 above low exit, $12,401 below high exit.
 
 ## 7. Safety Gates
 
@@ -298,7 +298,7 @@ Your position is safe — $3,240 above low exit, $12,401 below high exit.
 </details>
 
 <details>
-<summary>deploy — correctly refused by guardian (safety working)</summary>
+<summary>deploy: correctly refused by guardian (safety working)</summary>
 
 ```json
 {
@@ -311,7 +311,7 @@ Your position is safe — $3,240 above low exit, $12,401 below high exit.
 </details>
 
 <details>
-<summary>emergency — bypasses guardian, outputs withdrawal instructions</summary>
+<summary>emergency: bypasses guardian, outputs withdrawal instructions</summary>
 
 ```json
 {
@@ -328,42 +328,42 @@ Your position is safe — $3,240 above low exit, $12,401 below high exit.
 </details>
 
 <details>
-<summary>edge cases — all blocked safely</summary>
+<summary>edge cases: all blocked safely</summary>
 
 ```
-Invalid wallet:    {"status":"error","error":"Invalid wallet address — must be Stacks mainnet (SP...)"}
-Negative amount:   {"status":"refused"} — blocked by PoR/Guardian before reaching amount check
-Invalid protocol:  {"status":"refused"} — blocked at pipeline level
-Same-protocol migrate: {"status":"refused"} — blocked at pipeline level
+Invalid wallet:   {"status":"error","error":"Invalid wallet address: must be Stacks mainnet (SP...)"}
+Negative amount:  {"status":"refused"}: blocked by PoR/Guardian before reaching amount check
+Invalid protocol: {"status":"refused"}: blocked at pipeline level
+Same-protocol migrate: {"status":"refused"}: blocked at pipeline level
 ```
 </details>
 
 ## Security notes
 
-- **6-gate safety pipeline enforced in code** — not just documented, every write runs Scout → PoR → Guardian → Executor
-- **PoR RED/DATA_UNAVAILABLE blocks ALL writes** — engine suggests `emergency` command instead
-- **PoR YELLOW blocks ALL writes** — read-only mode until reserve recovers
-- **Emergency bypasses Guardian only** — NEVER bypasses PoR. Speed matters when peg breaks.
-- **Post-conditions on call_contract** — prevents unexpected sBTC transfers
-- **Deploy cap: wallet balance** — cannot deploy more than you hold
-- **0% APY refusal** — won't deploy to dead protocols unless `--force`
-- **BIP-350 + P2TR self-tests** — crypto failure = engine refuses ALL operations including reads
-- **Signer rotation guard** — reserve ratio < 50% flagged as DATA_UNAVAILABLE, not false RED
-- **4-hour rebalance cooldown** — prevents gas-burning churn
-- **Slippage cap: 0.5%** — HODLMM bin price vs market price
-- **Volume floor: $10K** — won't operate in dead pools
-- **Gas cap: 50 STX** — won't execute if fees spike
-- **No private keys** — engine outputs instructions, MCP runtime executes
+- **6-gate safety pipeline enforced in code**: not just documented, every write runs Scout → PoR → Guardian → Executor
+- **PoR RED/DATA_UNAVAILABLE blocks ALL writes**: engine suggests `emergency` command instead
+- **PoR YELLOW blocks ALL writes**: read-only mode until reserve recovers
+- **Emergency bypasses Guardian only**: NEVER bypasses PoR. Speed matters when peg breaks.
+- **Post-conditions on call_contract**: prevents unexpected sBTC transfers
+- **Deploy cap: wallet balance**: cannot deploy more than you hold
+- **0% APY refusal**: won't deploy to dead protocols unless `--force`
+- **BIP-350 + P2TR self-tests**: crypto failure = engine refuses ALL operations including reads
+- **Signer rotation guard**: reserve ratio < 50% flagged as DATA_UNAVAILABLE, not false RED
+- **4-hour rebalance cooldown**: prevents gas-burning churn
+- **Slippage cap: 0.5%**: HODLMM bin price vs market price
+- **Volume floor: $10K**: won't operate in dead pools
+- **Gas cap: 50 STX**: won't execute if fees spike
+- **No private keys**: engine outputs instructions, MCP runtime executes
 
 ## Known limitations (disclosed honestly)
 
-1. **Granite collateral removal** — `borrower-v1.remove-collateral` needs `trait_reference` (blocked by MCP). Workaround: `repay` drops LTV to 0, achieving equivalent safety.
-2. **Granite borrow** — needs Pyth price feed data blob. Out of scope (yield tool, not leverage tool).
-3. **No PnL tracking** — shows current on-chain value, not deposit cost basis.
-4. **Non-atomic rebalance** — withdraw + re-add are 2 txs. Capital safe in wallet if tx 2 fails.
-5. **Signer rotation edge case** — ratio < 50% flagged DATA_UNAVAILABLE. Manual verification needed.
-6. **Zest 0% APY** — correct behavior: 650 BTC supplied, ~0 borrowed. Live read, not hardcoded.
-7. **tiny-secp256k1 dependency** — required for BIP-341 EC point addition (Node crypto can't do raw point addition). Same lib used by bitcoinjs-lib. `@noble/secp256k1` is a drop-in alternative.
+1. **Granite collateral removal**: `borrower-v1.remove-collateral` needs `trait_reference` (blocked by MCP). Workaround: `repay` drops LTV to 0, achieving equivalent safety.
+2. **Granite borrow**: needs Pyth price feed data blob. Out of scope (yield tool, not leverage tool).
+3. **No PnL tracking**: shows current on-chain value, not deposit cost basis.
+4. **Non-atomic rebalance**: withdraw + re-add are 2 txs. Capital safe in wallet if tx 2 fails.
+5. **Signer rotation edge case**: ratio < 50% flagged DATA_UNAVAILABLE. Manual verification needed.
+6. **Zest 0% APY**: correct behavior: 650 BTC supplied, ~0 borrowed. Live read, not hardcoded.
+7. **tiny-secp256k1 dependency**: required for BIP-341 EC point addition (Node crypto can't do raw point addition). Same lib used by bitcoinjs-lib. `@noble/secp256k1` is a drop-in alternative.
 
 ## x402 Paid Endpoints
 
@@ -386,10 +386,10 @@ Position values use Bitflow-reported TVL which may lag real-time. PoR checks con
 
 ## Agent-to-Agent Economy
 
-ZBG Alpha Engine isn't just a tool — it's a **service other agents pay for.** The x402 endpoints create real agent-to-agent economic activity:
+ZBG Alpha Engine isn't just a tool: it's a **service other agents pay for.** The x402 endpoints create real agent-to-agent economic activity:
 
 - **Agent A** holds sBTC but doesn't know where to deploy it. Instead of running 11 API calls across 3 protocols, it pays 0.005 STX and gets a full yield report instantly.
-- **Agent B** is about to execute an sBTC DeFi operation. It pays 0.001 STX to check the PoR signal first — cheaper than losing everything to a broken peg.
+- **Agent B** is about to execute an sBTC DeFi operation. It pays 0.001 STX to check the PoR signal first: cheaper than losing everything to a broken peg.
 - **Agent C** is an LP manager. It pays 0.001 STX for a guardian pre-flight check before every rebalance.
 
 This is the agent economy in action: specialized agents providing services to other agents, with micropayments settling on-chain via x402. One agent's skill becomes another agent's infrastructure.
@@ -404,7 +404,7 @@ This is the **only skill in the competition that:**
 - Runs 6 market safety gates with concrete thresholds enforced in code
 - Handles emergency exit across all protocols with one command
 - Combines 3 proven skills (including a Day 3 winner) into a unified executor
-- **Creates agent-to-agent economic activity** via x402 paid endpoints — agents paying agents for yield intelligence and safety checks
+- **Creates agent-to-agent economic activity** via x402 paid endpoints: agents paying agents for yield intelligence and safety checks
 
 **1,400+ lines.** 10 self-tests. 11 live data sources. 7 commands. 4 x402 endpoints. Every safety claim is in the code, not just the docs.
 

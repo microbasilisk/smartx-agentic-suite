@@ -1,4 +1,4 @@
-# Day 7 — HODLMM Tenure Protector (DEPRECATED)
+# Day 7: HODLMM Tenure Protector (DEPRECATED)
 
 > **Original PR:** https://github.com/BitflowFinance/bff-skills/pull/125 (closed)
 
@@ -25,11 +25,11 @@ Outputs a four-level risk signal: GREEN (safe), YELLOW (caution), RED (widen spr
 
 ## Safety notes
 
-- **Read-only** — never executes transactions
-- **Fail-safe default** — unreachable data sources default to CRITICAL/SHELTER
-- **No API keys required** — all public endpoints
-- **Pool TVL gate** — ignores pools below $10K TVL
-- **APR sanity check** — rejects pools with >500% APR
+- **Read-only**: never executes transactions
+- **Fail-safe default**: unreachable data sources default to CRITICAL/SHELTER
+- **No API keys required**: all public endpoints
+- **Pool TVL gate**: ignores pools below $10K TVL
+- **APR sanity check**: rejects pools with >500% APR
 
 ## HODLMM integration
 
@@ -48,9 +48,9 @@ Directly monitors all active HODLMM DLMM pools with per-pool risk assessments. D
 
 ## Known constraints
 
-- Core premise invalidated — L1 has no price awareness, tenure age is not a valid LP risk signal
+- Core premise invalidated: L1 has no price awareness, tenure age is not a valid LP risk signal
 - Bitcoin block times are inherently unpredictable (1-60+ min)
-- Read-only — cannot execute bin adjustments
+- Read-only: cannot execute bin adjustments
 - Kept as historical record only
 
 ## PR Description
@@ -58,7 +58,7 @@ Directly monitors all active HODLMM DLMM pools with per-pool risk assessments. D
 ## Author & Agent
 
 - **Author:** cliqueengagements
-- **Agent:** Micro Basilisk (Agent 77) — `SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY` | `bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5`
+- **Agent:** Micro Basilisk (Agent 77): `SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY` | `bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5`
 
 ## Category
 
@@ -88,7 +88,7 @@ The protector reads real-time Bitcoin block timing from Hiro APIs, computes tenu
 
 ## Smoke test results
 
-### `doctor` — 5/5 sources green
+### `doctor`: 5/5 sources green
 ```json
 {
   "status": "ok",
@@ -103,7 +103,7 @@ The protector reads real-time Bitcoin block timing from Hiro APIs, computes tenu
 }
 ```
 
-### `run` — pool-level assessment (live)
+### `run`: pool-level assessment (live)
 ```json
 {
   "status": "ok",
@@ -113,7 +113,7 @@ The protector reads real-time Bitcoin block timing from Hiro APIs, computes tenu
     "burn_block_height": 943252,
     "tenure_age_s": 259,
     "risk_level": "GREEN",
-    "risk_description": "Tenure fresh (4.3m). Bitcoin block recent — L2 prices aligned with L1."
+    "risk_description": "Tenure fresh (4.3m). Bitcoin block recent: L2 prices aligned with L1."
   },
   "pools": [
     {
@@ -131,7 +131,7 @@ The protector reads real-time Bitcoin block timing from Hiro APIs, computes tenu
 }
 ```
 
-### `run --wallet` — position-level assessment (live)
+### `run --wallet`: position-level assessment (live)
 ```json
 {
   "status": "degraded",
@@ -141,7 +141,7 @@ The protector reads real-time Bitcoin block timing from Hiro APIs, computes tenu
       "pool_id": "dlmm_1",
       "pair": "sBTC/USDCx",
       "toxic_flow_exposure": "LOW",
-      "rationale": "Tenure fresh — normal spreads safe. [Position override: wallet bins are outside active trading range — zero toxic flow exposure.]",
+      "rationale": "Tenure fresh: normal spreads safe. [Position override: wallet bins are outside active trading range: zero toxic flow exposure.]",
       "position_overlap": {
         "total_bins": 221,
         "active_bins": 0,
@@ -180,7 +180,7 @@ The protector reads real-time Bitcoin block timing from Hiro APIs, computes tenu
 
 ## Known constraints / edge cases
 
-- Bitcoin block times are inherently unpredictable (1–60+ min). Skill provides probabilistic guidance, not guarantees.
+- Bitcoin block times are inherently unpredictable (1 to 60+ min). Skill provides probabilistic guidance, not guarantees.
 - `dynamicFee` is currently 0 on all HODLMM pools. If Bitflow enables dynamic fees, spread recommendations should account for automatic fee widening.
 - Bin position endpoints may return partial data for wallets with no active positions: handled via graceful degradation.
 - Tenure age depends on system clock accuracy: NTP-synced hosts recommended.

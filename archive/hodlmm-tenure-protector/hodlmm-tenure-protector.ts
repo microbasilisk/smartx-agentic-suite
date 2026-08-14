@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
- * hodlmm-tenure-protector — Nakamoto tenure-aware risk monitor for HODLMM LPs.
+ * hodlmm-tenure-protector: Nakamoto tenure-aware risk monitor for HODLMM LPs.
  *
  * Monitors Bitcoin L1 block timing to detect "stale tenure" windows where
  * HODLMM LPs are exposed to toxic arbitrage flow. During tenure changes,
- * L2 prices can lag L1 reality — informed traders exploit this gap.
+ * L2 prices can lag L1 reality: informed traders exploit this gap.
  *
  * This skill is the LP's circuit breaker: GREEN when safe, RED when exposed.
  */
@@ -20,10 +20,10 @@ const BITFLOW_BIN_QUOTES = "https://bff.bitflowapis.finance/api/quotes/v1/bins";
 const USER_AGENT = "bff-skills/hodlmm-tenure-protector";
 
 // Tenure risk thresholds (seconds since last Bitcoin block)
-const TENURE_GREEN_MAX_S = 600;     // 0–10 min: normal, safe
-const TENURE_YELLOW_MAX_S = 900;    // 10–15 min: elevated, caution
-const TENURE_RED_MAX_S = 1200;      // 15–20 min: high risk, widen bins
-                                     // >20 min:   critical, consider exit
+const TENURE_GREEN_MAX_S = 600;     // 0 to 10 min: normal, safe
+const TENURE_YELLOW_MAX_S = 900;    // 10 to 15 min: elevated, caution
+const TENURE_RED_MAX_S = 1200;      // 15 to 20 min: high risk, widen bins
+                                     // >20 min:  critical, consider exit
 
 // HODLMM safety gates
 const MIN_TVL_USD = 10_000;          // skip pools below this TVL
@@ -320,13 +320,13 @@ function riskDescription(level: TenureStatus["risk_level"], ageS: number): strin
   const ageMin = (ageS / 60).toFixed(1);
   switch (level) {
     case "GREEN":
-      return `Tenure fresh (${ageMin}m). Bitcoin block recent — L2 prices aligned with L1. Normal bin spreads safe.`;
+      return `Tenure fresh (${ageMin}m). Bitcoin block recent: L2 prices aligned with L1. Normal bin spreads safe.`;
     case "YELLOW":
-      return `Tenure aging (${ageMin}m). Approaching typical BTC block interval. Monitor for drift — no action yet.`;
+      return `Tenure aging (${ageMin}m). Approaching typical BTC block interval. Monitor for drift: no action yet.`;
     case "RED":
       return `Tenure stale (${ageMin}m). L2 prices may lag L1 reality. Arbitrageurs have informational edge. Widen bin spreads to reduce toxic flow exposure.`;
     case "CRITICAL":
-      return `Tenure critically stale (${ageMin}m). High probability of tenure change imminent. Maximum toxic flow risk — widen to outer bins or pause new deployments.`;
+      return `Tenure critically stale (${ageMin}m). High probability of tenure change imminent. Maximum toxic flow risk: widen to outer bins or pause new deployments.`;
   }
 }
 
@@ -537,14 +537,14 @@ function assessPoolRisk(pool: HodlmmPool, tenure: TenureStatus, positionOverlap?
       spreadAction = "HOLD";
       toxicExposure = "LOW";
       rationale = isHighVolume
-        ? "Tenure fresh — normal spreads safe. High volume but low arb risk during fresh tenure."
-        : "Tenure fresh — normal spreads safe.";
+        ? "Tenure fresh: normal spreads safe. High volume but low arb risk during fresh tenure."
+        : "Tenure fresh: normal spreads safe.";
       break;
 
     case "YELLOW":
       if (isHighVolume) {
         toxicExposure = "MODERATE";
-        rationale = "Tenure aging with high volume — arbitrageurs may begin positioning. Monitor closely.";
+        rationale = "Tenure aging with high volume: arbitrageurs may begin positioning. Monitor closely.";
       } else {
         toxicExposure = "LOW";
         rationale = "Tenure aging but low volume reduces arb incentive. Hold current spreads.";
@@ -565,7 +565,7 @@ function assessPoolRisk(pool: HodlmmPool, tenure: TenureStatus, positionOverlap?
       } else {
         spreadAction = "HOLD";
         toxicExposure = "LOW";
-        rationale = "Stale tenure but thin volume — arb cost exceeds profit. Spreads can hold.";
+        rationale = "Stale tenure but thin volume: arb cost exceeds profit. Spreads can hold.";
       }
       break;
 
@@ -574,7 +574,7 @@ function assessPoolRisk(pool: HodlmmPool, tenure: TenureStatus, positionOverlap?
       if (isHighVolume || isMediumVolume) {
         spreadAction = "EXIT_RISK";
         toxicExposure = "CRITICAL";
-        rationale = `Critically stale tenure (${(tenure.tenure_age_s / 60).toFixed(0)}m) — tenure change imminent. High toxic flow probability. Move to outer bins (${recommendedSpreadBps} bps) or pause deployments.`;
+        rationale = `Critically stale tenure (${(tenure.tenure_age_s / 60).toFixed(0)}m): tenure change imminent. High toxic flow probability. Move to outer bins (${recommendedSpreadBps} bps) or pause deployments.`;
       } else {
         spreadAction = "WIDEN";
         toxicExposure = "HIGH";
@@ -585,30 +585,30 @@ function assessPoolRisk(pool: HodlmmPool, tenure: TenureStatus, positionOverlap?
 
   // ── Position-level downgrade: if wallet bins don't overlap active range, reduce risk ──
   if (positionOverlap && positionOverlap.position_exposure === "NONE") {
-    // LP's bins are entirely in outer range — no toxic flow exposure regardless of tenure
+    // LP's bins are entirely in outer range: no toxic flow exposure regardless of tenure
     toxicExposure = "LOW";
     spreadAction = "HOLD";
-    rationale += " [Position override: wallet bins are outside active trading range — zero toxic flow exposure.]";
+    rationale += " [Position override: wallet bins are outside active trading range: zero toxic flow exposure.]";
   } else if (positionOverlap && positionOverlap.position_exposure === "PARTIAL") {
-    // Partial overlap — reduce severity by one level
+    // Partial overlap: reduce severity by one level
     if (toxicExposure === "CRITICAL") toxicExposure = "HIGH";
     else if (toxicExposure === "HIGH") toxicExposure = "MODERATE";
     if (spreadAction === "EXIT_RISK") spreadAction = "WIDEN_URGENT";
     else if (spreadAction === "WIDEN_URGENT") spreadAction = "WIDEN";
-    rationale += ` [Position override: only ${positionOverlap.bins_in_active_range}/${positionOverlap.total_bins} bins overlap active range — reduced exposure.]`;
+    rationale += ` [Position override: only ${positionOverlap.bins_in_active_range}/${positionOverlap.total_bins} bins overlap active range: reduced exposure.]`;
   }
 
   // ── Bin price deviation: if deviation is measurable, adjust toxic flow assessment ──
   if (binPriceDeviation && binPriceDeviation.price_deviation_pct !== null) {
     const devPct = binPriceDeviation.price_deviation_pct;
     if (devPct > 2.0 && tenure.risk_level !== "GREEN") {
-      // Significant price deviation during stale tenure — confirms toxic flow risk
+      // Significant price deviation during stale tenure: confirms toxic flow risk
       if (toxicExposure === "LOW") toxicExposure = "MODERATE";
       else if (toxicExposure === "MODERATE") toxicExposure = "HIGH";
-      rationale += ` [Bin price deviation ${devPct.toFixed(2)}% detected — confirms L2/L1 price lag.]`;
+      rationale += ` [Bin price deviation ${devPct.toFixed(2)}% detected: confirms L2/L1 price lag.]`;
     } else if (devPct < 0.5 && tenure.risk_level !== "GREEN") {
-      // Minimal deviation despite stale tenure — prices are tracking well
-      rationale += ` [Bin price deviation only ${devPct.toFixed(2)}% — L2 prices tracking L1 despite tenure age.]`;
+      // Minimal deviation despite stale tenure: prices are tracking well
+      rationale += ` [Bin price deviation only ${devPct.toFixed(2)}%: L2 prices tracking L1 despite tenure age.]`;
     }
   }
 
@@ -639,7 +639,7 @@ function overallDecision(tenure: TenureStatus, pools: PoolRisk[]): { decision: P
   if (hasExitRisk) {
     return {
       decision: "SHELTER",
-      action: `CRITICAL: Tenure stale ${(tenure.tenure_age_s / 60).toFixed(0)}m — move HODLMM liquidity to outer bins or pause. Tenure change imminent, toxic flow risk maximum.`,
+      action: `CRITICAL: Tenure stale ${(tenure.tenure_age_s / 60).toFixed(0)}m: move HODLMM liquidity to outer bins or pause. Tenure change imminent, toxic flow risk maximum.`,
     };
   }
 
@@ -657,18 +657,18 @@ function overallDecision(tenure: TenureStatus, pools: PoolRisk[]): { decision: P
     };
   }
 
-  // Tenure is YELLOW/RED but no pool needs widening yet — still flag caution
+  // Tenure is YELLOW/RED but no pool needs widening yet: still flag caution
   if (tenure.risk_level === "YELLOW" && hasModerate) {
     return {
       decision: "CAUTION",
-      action: `Tenure aging (${(tenure.tenure_age_s / 60).toFixed(0)}m). High-volume pools showing moderate toxic flow exposure. Monitor — no spread change yet.`,
+      action: `Tenure aging (${(tenure.tenure_age_s / 60).toFixed(0)}m). High-volume pools showing moderate toxic flow exposure. Monitor: no spread change yet.`,
     };
   }
 
   if (tenure.risk_level === "RED" || tenure.risk_level === "CRITICAL") {
     return {
       decision: "CAUTION",
-      action: `Tenure stale (${(tenure.tenure_age_s / 60).toFixed(0)}m) but pool volume too thin for profitable arb. Monitor closely — risk escalates if volume spikes.`,
+      action: `Tenure stale (${(tenure.tenure_age_s / 60).toFixed(0)}m) but pool volume too thin for profitable arb. Monitor closely: risk escalates if volume spikes.`,
     };
   }
 
@@ -684,12 +684,12 @@ function failSafeResult(sourcesUsed: string[], sourcesFailed: string[], errorMsg
   return {
     status: "error",
     decision: "SHELTER",
-    action: "Data sources unavailable — assume maximum risk. Do not deploy new liquidity.",
+    action: "Data sources unavailable: assume maximum risk. Do not deploy new liquidity.",
     tenure: {
       burn_block_height: 0, burn_block_time_iso: "", burn_block_time_unix: 0,
       tenure_age_s: 9999, tenure_height: 0, stacks_tip_height: 0,
       stacks_blocks_in_tenure: 0, risk_level: "CRITICAL",
-      risk_description: "Unable to determine tenure status — defaulting to maximum risk.",
+      risk_description: "Unable to determine tenure status: defaulting to maximum risk.",
     },
     timing: { blocks: [], avg_gap_s: 0, min_gap_s: 0, max_gap_s: 0, stddev_s: 0, predicted_next_block_s: 0 },
     pools: [],
@@ -805,7 +805,7 @@ async function runProtector(opts: { pool?: string; verbose?: boolean; wallet?: s
   const burnBlocks = burnData?.results ?? [];
   const timing = computeTimingStats(burnBlocks);
 
-  // Assess each HODLMM pool — with optional position-level and bin price analysis
+  // Assess each HODLMM pool: with optional position-level and bin price analysis
   const dlmmPools = filterDlmmPools(pools, opts.pool);
 
   // Pre-fetch bin quotes for all pools in parallel (graceful degradation on failure)
