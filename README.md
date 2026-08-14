@@ -52,9 +52,9 @@ Three ideas run through every skill. They are documented in full in [docs/SAFETY
 These are not simulations. The four skills whose write paths have executed on mainnet:
 
 - **`hodlmm-position-exit`** executed a live mainnet exit on 2026-04-19 at block 7,663,125, calling `withdraw-liquidity-same-multi` on `dlmm-liquidity-router-v-1-1`. Status success. Transaction [`be20b594...632e9811`](https://explorer.hiro.so/txid/0xbe20b59464b94286cd6478483fcdf41b2eec21b2c496ed821aa004fd632e9811?chain=mainnet).
-- **`hodlmm-inventory-balancer`** completed a three leg criterion-met rebalance on `dlmm_1` with post-conditions pinned on both send and receive sides.
-- **`hermetica-yield-rotator`** closed a full leveraged yield cycle end to end, including the silo claim path.
-- **`stacks-alpha-engine`** ships in the AIBTC registry with post-condition hardening, fail-closed guardian logic and corrected Granite and USDh paths.
+- **`hodlmm-inventory-balancer`** completed a three leg criterion-met rebalance on `dlmm_1` on 2026-04-18, moving the position from a 50% deviation to 0.05%. The withdraw and redeposit legs carry no post-conditions by design, because those router calls move liquidity across many bins; the bound on them is enforced at the contract level through `min-dlp`. A separate proof swap, `0xf4f49328...`, is what demonstrates the post-condition envelope pinned on both the send and receive sides.
+- **`hermetica-yield-rotator`** closed a full leveraged yield cycle end to end, including the silo claim path. Transaction `0xe1f1598b...` on 2026-04-29, `staking-silo-v1-1.withdraw`, status success.
+- **`stacks-alpha-engine`** drove the multi-transaction proof run of 2026-04-22 across Zest, Granite and Hermetica, which is also what surfaced the Granite post-condition bugs documented in [docs/SAFETY.md](docs/SAFETY.md). Nine transactions are cited as proofs, including the deliberate failures kept as bug evidence.
 
 Full record with pull request links in [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
@@ -85,7 +85,15 @@ Skills read live on-chain state through the Hiro API and protocol-native endpoin
 
 This is working software that moves real value on a live network. It is offered as open source under the MIT license, without warranty. Read the code and understand the gates before running any write path against your own capital.
 
-Two different statuses apply to these skills and they are worth keeping apart. As standalone software, the write paths listed above have executed on mainnet. As a library inside [SmartX](https://smartx.finance), all fourteen are listed **under review**: they run and reach their data sources, but they have not yet been re-validated against a real DeFi position under the product's own gates. SmartX shows that status on every answer it returns.
+Two different statuses apply to these skills and they are worth keeping apart. As standalone software, the write paths listed above have executed on mainnet. As a library inside [SmartX](https://smartx.finance), none is yet **live**, and the fourteen do not all sit in the same place:
+
+| Status in SmartX | Count | What it means |
+|---|---:|---|
+| Under review | 11 | Runs and reaches its data sources, correctness not yet validated against a real position |
+| In conversion | 2 | Needs a caller parameter or a plan-emitting change before it can be offered. `hermetica-yield-rotator` and `hodlmm-inventory-balancer` |
+| Out of scope | 1 | `bns-agent-manager`, identity rather than asset management |
+
+Of the 11 under review, the console will select from **9**. `hodlmm-position-exit` and `hodlmm-move-liquidity` run, but they still sign for themselves, so SmartX does not offer them until they emit a plan for the wallet holder to sign instead. SmartX shows the status on every answer it returns.
 
 ## Related
 
