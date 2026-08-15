@@ -1588,13 +1588,32 @@ function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult): Exec
               asset: AEUSDC_TOKEN, assetName: "aeUSDC",
               conditionCode: "lte", amount: expectedAeusdcCap,
             },
-            // Burn floor: wallet sends ≥ shares of lp-token (the redeem burn). Binds the
-            // caller-side outflow to the actual share count, so a buggy call path that tried
-            // to burn more shares than requested would abort.
+            // Burn BAND: wallet sends exactly `shares` of lp-token (the redeem burn),
+            // expressed as a floor and a ceiling at the same amount.
+            //
+            // The floor alone used to be the whole of it, and its comment claimed it
+            // stopped a buggy call path burning MORE shares than requested. It cannot:
+            // `gte` aborts when FEWER move and permits any larger amount. The comment
+            // described an upper bound while the code wrote a lower one, so the
+            // protection it named did not exist. Under deny mode, which is an
+            // allow-list, naming lp-token here is also what makes lp-token movable at
+            // all, so the floor was licensing an unbounded caller-side outflow.
+            //
+            // Both amounts are `shares` because ERC-4626 `redeem(shares)` burns exactly
+            // the share count it is given. Live proof tx
+            // 0xd4aa0c4ed51b0951e91bb6680e44bc01da36722525fa7b28c39d98219e3eeba9 passed
+            // `shares` of u4936276 and its burn event is 4936276 exactly, so the
+            // ceiling added here would have been satisfied on that transaction without
+            // changing its outcome.
             {
               type: "ft", principal: wallet,
               asset: GRANITE_STATE, assetName: "lp-token",
               conditionCode: "gte", amount: shares,
+            },
+            {
+              type: "ft", principal: wallet,
+              asset: GRANITE_STATE, assetName: "lp-token",
+              conditionCode: "lte", amount: shares,
             },
           ],
         },
