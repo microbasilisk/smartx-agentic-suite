@@ -150,8 +150,11 @@ Rules a consumer can rely on:
 - When `available.balances` is false, every number under `scout.balances` is
   meaningless. Do not render it. The rendered report prints `unknown` in those
   cells and says so above the table.
-- `best_move.idle_capital_usd` and `best_move.opportunity_cost_daily_usd` are
-  `null`, not `0`, when the balance read failed.
+- `best_move.opportunity_cost_daily_usd` is `null`, not `0`, when the balance
+  read failed. `best_move.idle_capital_usd` is `null` in that case AND when a
+  price feed died on a token the person holds, since the dollar total would
+  otherwise understate what they have. `available.balances === true` does not on
+  its own guarantee a number in `idle_capital_usd`.
 - Any unavailable read forces `scout.status` to `degraded`, and the top-level
   `status` is derived from it rather than hardcoded. Counting `data_sources` is
   NOT a substitute: four of eight sources satisfied the old check, so the one

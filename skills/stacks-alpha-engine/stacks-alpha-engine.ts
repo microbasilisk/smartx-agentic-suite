@@ -254,9 +254,17 @@ interface ScoutResult {
   positions: { zest: ZestPosition; hermetica: HermeticaPosition; granite: GranitePosition; hodlmm: HodlmmPositions };
   options: YieldOption[];
   /**
-   * `idle_capital_usd` and `opportunity_cost_daily_usd` are null, not 0, when the
-   * balance read failed. Zero is a claim about somebody's money and this run did
-   * not earn the right to make it.
+   * Both are null, not 0, when the balance read failed. Zero is a claim about
+   * somebody's money and a run that could not read it has not earned the right
+   * to make that claim.
+   *
+   * The two do NOT share one condition, and saying they did was wrong: a dead
+   * price feed on a token the person actually holds leaves the amounts correct
+   * but makes any dollar TOTAL an understatement, so `idle_capital_usd` also
+   * goes null there while `opportunity_cost_daily_usd` stays a number. Written
+   * out because a consumer reading "null when the balance read failed" would
+   * conclude that `available.balances === true` guarantees a number here, and
+   * would then meet a null on a Tenero outage.
    */
   best_move: { recommendation: string; idle_capital_usd: number | null; opportunity_cost_daily_usd: number | null };
   break_prices: BreakPrices;
@@ -280,9 +288,9 @@ interface EngineResult {
    * what actually happened. Consumers gate on this string, so a constant "ok"
    * silently promotes an unknown into a fact for every one of them.
    *
-   * `preview` was missing from this union while four `return` statements below
-   * emitted it, so the type describing the skill's own output did not admit its
-   * most common answer: every dry run without `--confirm` returns it. Added here
+   * `preview` was missing from this union while two `return` statements below
+   * emitted it, so the type describing the skill's own output did not admit the
+   * answer every dry run without `--confirm` gets. Added here
    * rather than left as a standing type error, because this union is the thing a
    * consumer reads to learn what statuses it must handle.
    */
@@ -2050,10 +2058,22 @@ let economics: {
         // of $0.2849, the whole wallet's number. A projection on a signing
         // preview has to describe the thing being signed, or it is worse than no
         // projection at all.
+        // `scout.prices`, not a bare `prices`, and the arithmetic written out
+        // rather than borrowed. Both names existed only inside the scout and the
+        // option builder, so this block referenced two identifiers that are not
+        // in scope here: the deploy path threw "prices is not defined" the moment
+        // it cleared the gates, which is the SIGNING path. It shipped, masked by
+        // a reserve feed that happened to be refusing every write that day.
+        //
+        // It typechecked in my hands because I filtered the compiler output and
+        // never looked for these two names. The lesson is the same one this
+        // codebase keeps relearning: a filtered check is not a check.
         const meta = TOKENS[token];
-        const priceUsd = (prices as unknown as Record<string, number>)[token] ?? 0;
+        const priceUsd = (scout.prices as unknown as Record<string, number>)[token] ?? 0;
         const amountUsd = meta ? (amount / Math.pow(10, meta.decimals)) * priceUsd : 0;
-        const dailyForThis = amountUsd > 0 ? dailyUsd(amountUsd, targetOpt.apy_pct) : 0;
+        const dailyForThis = amountUsd > 0
+          ? round((amountUsd * targetOpt.apy_pct / 100) / 365, 4)
+          : 0;
         economics = {
           apy_pct: targetOpt.apy_pct,
           amount_usd: round(amountUsd, 4),
@@ -2489,7 +2509,14 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   L.push("| Trigger | sBTC Price |");
   L.push("|---------|----------:|");
   if (bp.hodlmm_range_exit_low_usd) L.push(`| HODLMM range exit (low) | **$${bp.hodlmm_range_exit_low_usd.toLocaleString()}** |`);
-  L.push(`| Current sBTC price | $${bp.current_sbtc_price_usd.toLocaleString()} |`);
+  // The last unguarded zero in the report. `getBreakPrices` is handed
+  // `prices.sbtc`, which is 0 when the Tenero read fails, and passes it straight
+  // through, so a run that printed "unknown" for sBTC in section 1 and named the
+  // dead price feed in its own footer still stated down here that Bitcoin is
+  // worth nothing. The two range rows above were already guarded; this one was
+  // not. A break price is the number somebody sets an alarm against, so it is
+  // the last place a placeholder should be allowed to read as a quote.
+  L.push(`| Current sBTC price | ${avail.price_sbtc ? `$${bp.current_sbtc_price_usd.toLocaleString()}` : "unknown"} |`);
   if (bp.hodlmm_range_exit_high_usd) L.push(`| HODLMM range exit (high) | **$${bp.hodlmm_range_exit_high_usd.toLocaleString()}** |`);
   L.push("");
 
@@ -2520,13 +2547,21 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   // Non-GREEN is the test, not RED, because YELLOW refuses too. That is exactly
   // the condition the PoR row above already prints as FAIL, so the two rows now
   // agree by construction.
+  // THERE ARE THREE GATES IN FRONT OF A WRITE, NOT TWO, and this row has to ask
+  // all of them. The unreadable-balance refusal added to `_runPipeline` runs
+  // FIRST, ahead of the reserve, and a first draft of this fix forgot it: on a
+  // Hiro rate-limit with a healthy reserve and a passing guardian, the same page
+  // printed "Wallet Total unknown" in section 1 and "Can execute writes? YES"
+  // down here. That is this very defect reopened one gate to the left, which is
+  // what a verdict assembled from a hand-picked subset of the gates will always
+  // eventually do. The rule the row now follows: every condition that can return
+  // `refused` before the executor is named here, in the order the pipeline hits
+  // them, so the reason a person reads is the reason they would actually get.
+  const balancesBlockWrites = !avail.balances;
   const porBlocksWrites = reserve.signal !== "GREEN";
-  const canWrite = !porBlocksWrites && guardian.can_proceed;
-  // Reasons in the pipeline's own order: the reserve first, because it refuses
-  // first, and the guardian's refusals after it. On a non-GREEN reserve the
-  // guardian list is describing a scan-time check rather than the write's fate,
-  // so the reserve reason leads and says which one stopped it.
+  const canWrite = !balancesBlockWrites && !porBlocksWrites && guardian.can_proceed;
   const writeBlockers = [
+    ...(balancesBlockWrites ? [`Wallet balances could not be read (${avail.unavailable.join(", ")}): writes are refused before the reserve and guardian gates are reached, because the instruction builders size a transaction from those numbers. 'emergency' withdrawal is still available.`] : []),
     ...(porBlocksWrites ? [`PoR signal ${reserve.signal}: writes are refused before the guardian gates are reached. 'emergency' withdrawal is still available.`] : []),
     ...guardian.refusals,
   ];
