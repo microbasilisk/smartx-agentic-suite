@@ -616,6 +616,13 @@ interface PlanVerdict {
   slippage_bps: number;
   min_position_usd: number;
   blockers: string[];
+  /**
+   * Things worth telling the person that do NOT stop the exit.
+   *
+   * Separate from `blockers` because `safe_to_broadcast` is derived from that
+   * list, so anything pushed there stops somebody withdrawing their own money.
+   */
+  notes: string[];
   safe_to_broadcast: boolean;
 }
 
@@ -660,14 +667,22 @@ async function buildPlan(opts: PlanOptions): Promise<PlanVerdict> {
   const cooldown = cooldownRemainingMs(loadState(), opts.pool);
 
   const blockers: string[] = [];
+  const notes: string[] = [];
   if (plans.length === 0) blockers.push("No bins selected: nothing to exit");
   if (missing.length > 0) blockers.push(`Unknown bins for this position: ${missing.join(",")}`);
   if (chunks.length === 0) blockers.push("Empty chunk plan");
   if (cooldown > 0) {
     blockers.push(`Pool cooldown: ${Math.round(cooldown / 60_000)}m remaining`);
   }
+  // A NOTE, not a blocker, and the difference matters more here than anywhere
+  // else in this file. Every other check stops somebody entering a position.
+  // This one stopped them LEAVING one: a position that fell under the floor was
+  // declared unsafe to broadcast, so the skill refused to build the exit and the
+  // money stayed where it was. There is no reading under which withdrawing your
+  // own funds becomes unsafe because they are few. The fee is theirs to weigh,
+  // which is what the note now lets them do.
   if (usd.usd_total > 0 && usd.usd_total < minPositionUsd) {
-    blockers.push(`Position value $${usd.usd_total.toFixed(2)} < floor $${minPositionUsd}`);
+    notes.push(`Position value $${usd.usd_total.toFixed(2)} is below $${minPositionUsd}, so the exit fee is large next to what you are withdrawing.`);
   }
   if (chunks.some((c) => c.length > CHUNK_SIZE)) {
     blockers.push(`One or more chunks exceed safety cap ${CHUNK_SIZE}`);
@@ -686,6 +701,7 @@ async function buildPlan(opts: PlanOptions): Promise<PlanVerdict> {
     slippage_bps: slippageBps,
     min_position_usd: minPositionUsd,
     blockers,
+    notes,
     safe_to_broadcast: blockers.length === 0,
   };
 }
