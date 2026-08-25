@@ -44,7 +44,7 @@ Full-position exit on `dlmm_1` (sBTC/USDCx, 10bps): 2026-04-19:
 
 Triple-gate pre-broadcast:
 1. Per-bin slippage floor (`--slippage-bps`, default 500 = 5%) on min X/Y amounts
-2. Minimum position value (`--min-position-usd`, default 0.50): rejects dust exits that would waste gas
+2. Minimum position value (`--min-position-usd`, default 0.50): NOTED on the plan when the position is below it, never enforced. Blocking a small exit would stop somebody withdrawing their own money.
 3. Wallet-address match: refuses to broadcast unless the signing wallet is the position owner
 
 Plus:

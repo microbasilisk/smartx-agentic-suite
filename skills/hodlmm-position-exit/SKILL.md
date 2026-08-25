@@ -64,7 +64,7 @@ Selector (mutually exclusive, one required):
 
 Gating:
 - `--slippage-bps <n>` (default `500` = 5%): per-bin floor on min X/Y amounts
-- `--min-position-usd <n>` (default `0.50`): triple-gate item 2; rejects dust-exits that would waste gas
+- `--min-position-usd <n>` (default `0.50`): reported as a note when the position is below it. Never enforced: blocking a small exit would stop somebody withdrawing their own money.
 
 ### `withdraw`
 Execute the withdraw on mainnet. Requires `--confirm`. Prints the exact amounts that will move, then prompts for the wallet password interactively on stderr. Echo is suppressed; the password is never accepted via CLI flag or environment variable, and a TTY is required.

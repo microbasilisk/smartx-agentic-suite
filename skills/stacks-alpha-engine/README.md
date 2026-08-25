@@ -46,7 +46,7 @@ Every yield option gets a YTG ratio: `7-day projected yield / gas cost`. Below 3
 
 ## Why agents need it
 
-No other skill covers all 4 Stacks DeFi protocols with working read and write paths. The YTG profit gate prevents agents from burning gas on unprofitable moves. The 3-tier mapping shows swap routes and acquisition paths, not just flat lists.
+No other skill covers all 4 Stacks DeFi protocols with working read and write paths. The YTG economics tell an agent what a move costs against what it earns. The 3-tier mapping shows swap routes and acquisition paths, not just flat lists.
 
 ## On-chain proof
 
@@ -94,7 +94,7 @@ withdraw zest                        # recover sBTC
 - **Emergency bypasses Guardian only**, never bypasses PoR
 - **Post-conditions on all call_contract writes**: prevents unexpected token transfers
 - **All write commands require `--confirm`**: dry-run preview without it
-- **YTG gate**: blocks deploys where 7d yield < 3x gas cost
+- **YTG economics**: reports 7d yield against gas cost on every deploy. Informs, never blocks.
 - **Granite routes aeUSDC**: the bug that killed PR #196 is fixed
 - **Hermetica correct functions**: `unstake` + `silo.withdraw` (not wrong `initiate-unstake` from PR #56)
 - **BIP-350 + P2TR self-tests**: crypto failure blocks ALL operations
@@ -163,7 +163,7 @@ stacks-alpha-engine
 
 **One question:** "I hold sBTC, STX, USDCx, USDh, or aeUSDC, where should each be earning yield, is the move worth the gas, is the peg safe, and can you move it there?"
 
-No other skill answers all four across all 4 protocols. Stacks Alpha Engine scans **6 tokens** across **4 protocols** (Zest v2, Hermetica, Granite, HODLMM), maps yield opportunities into **3 tiers** (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios** on every option, verifies sBTC reserve via BIP-341 P2TR derivation, checks 6 market safety gates + YTG profit gate, then outputs executable transaction instructions. Every write runs: Scout -> Reserve -> Guardian -> YTG -> Executor. No bypasses.
+No other skill answers all four across all 4 protocols. Stacks Alpha Engine scans **6 tokens** across **4 protocols** (Zest v2, Hermetica, Granite, HODLMM), maps yield opportunities into **3 tiers** (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios** on every option, verifies sBTC reserve via BIP-341 P2TR derivation, checks 6 market safety gates and reports Yield-to-Gas economics without blocking on them, then outputs executable transaction instructions. Every write runs: Scout -> Reserve -> Guardian -> YTG -> Executor. No bypasses.
 
 **YTG (Yield-to-Gas): the profit gate:**
 
@@ -195,7 +195,7 @@ Agents holding tokens today face four problems no single skill solves:
 3. **Gas-burning deploys**: agents deploy to pools where gas costs more than the yield. No profitability check exists.
 4. **No peg verification**: agents deploy sBTC capital without knowing if it's backed.
 
-Stacks Alpha Engine solves all four. The **YTG profit gate** alone prevents agents from wasting gas on unprofitable moves: a feature the judge called a **"genuine differentiator"** when scoring 82/100 on our Smart Yield Migrator.
+Stacks Alpha Engine solves all four. The **YTG economics** alone tell an agent what a move costs against what it earns: a feature the judge called a **"genuine differentiator"** when scoring 82/100 on our Smart Yield Migrator. It reports rather than refuses, because a small return is the holder's call.
 
 ## Evolution from zbg-alpha-engine (PR #196)
 
@@ -203,7 +203,7 @@ PR #196 was closed because of a **fundamental Granite bug**: the LP pool accepts
 
 - **Fixes Granite**: correctly routes aeUSDC to LP deposit (not sBTC)
 - **Adds Hermetica**: USDh staking via correct `staking-v1-1.stake(uint, optional buff)` / `unstake(uint)` (not the wrong `initiate-unstake`/`complete-unstake` from PR #56, and not the deactivated `staking-v1`)
-- **Adds YTG profit gate**: 7d yield must exceed 3x gas cost or deploy is refused
+- **Adds YTG economics**: 7d yield against gas cost, reported on every deploy
 - **Expands token scanning**: 6 tokens (was 3)
 - **3-tier yield mapping**: shows swap routes and acquisition paths (was flat list)
 - **11 doctor checks**: added Hermetica staking read (was 10)
@@ -360,7 +360,7 @@ _YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x mea
 
 > Best option: HODLMM sBTC-USDCx-1bps at 30.15% APY (YTG: 76.24x)
 
-**YTG verdict:** 5 options profitable (yield > 3x gas), 4 blocked (gas eats yield, hold until capital or APY grows).
+**YTG verdict:** 5 options where a week of yield comfortably clears the entry fee, 4 where it does not. Both are shown; neither is blocked.
 
 ## 6. Break Prices
 | HODLMM range exit (low) | **$63,600** | Current: $70,082 | HODLMM range exit (high) | **$79,242** |
@@ -437,7 +437,7 @@ Specialized agents providing services to other agents, with micropayments settli
 ## Security notes
 
 - **Safety pipeline: Scout -> Reserve -> Guardian -> YTG -> Executor**, enforced in code on every write
-- **YTG (Yield-to-Gas) profit gate**: blocks deploys where 7d yield < 3x gas cost. Prevents gas-burning moves.
+- **YTG (Yield-to-Gas) economics**: 7d yield against gas cost on every deploy, reported so the holder can weigh it.
 - **PoR RED/DATA_UNAVAILABLE blocks ALL writes**: suggests `emergency` instead
 - **PoR YELLOW blocks ALL writes**: read-only until reserve recovers
 - **Emergency bypasses Guardian only**, NEVER bypasses PoR

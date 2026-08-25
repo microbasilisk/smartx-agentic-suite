@@ -24,7 +24,7 @@ Do NOT use this skill to:
 2. Run `status --pool --address` to inspect current holdings. Record bin count, active bin, aggregate X/Y totals.
 3. Run `plan` with your desired selector (`--all`, `--inactive-only`, or `--bins`). Read `blockers[]` and `safe_to_broadcast`.
    - `blockers[]` contains a cooldown message → wait, retry later.
-   - `blockers[]` contains the `min-position-usd` message → either lower the floor or do not exit.
+   - `notes[]` may say the position is below `--min-position-usd`. That is INFORMATION, not a blocker: the exit still builds. Nobody is stopped from withdrawing their own money because there is little of it.
    - `safe_to_broadcast: true` → proceed to step 4.
 4. Run `withdraw --confirm`. The skill prints the exact withdrawal plan and then prompts `Wallet password:` on stderr. Type it; it will not echo. There is no flag or env var that bypasses this prompt.
 5. Capture the `data.txids[]` from the `broadcast` response. Each chunk produces one tx in order.
@@ -37,7 +37,7 @@ Three plan-level gates + two runtime checks at `withdraw --confirm`:
 | Gate | Source | Enforced |
 |---|---|---|
 | `safe_to_broadcast: true` | `plan` verdict (every blocker cleared) | Before every `withdraw` |
-| Position USD ≥ `--min-position-usd` | `plan` blocker | Before every `withdraw` |
+| Position USD ≥ `--min-position-usd` | `plan` NOTE, never a blocker | Reported, never enforced |
 | `--confirm` flag | CLI | Always |
 | Mempool depth == 0 | `withdraw` runtime check | At broadcast time |
 | Wallet address == `--address` | `withdraw` runtime check | At broadcast time |
@@ -57,7 +57,7 @@ Failing any gate = the tx is never signed.
 The skill will refuse to broadcast and emit `status: "blocked"` for any of:
 
 - Plan had any blocker (`safe_to_broadcast: false`)
-- Position USD < `--min-position-usd` floor (default $0.50)
+
 - Pool cooldown remaining > 0
 - Mempool depth > 0 on sender at broadcast time
 - Unlocked wallet's address ≠ `--address`
@@ -83,7 +83,7 @@ The skill will refuse and emit `status: "error"` for any of:
 | `Wallet address ... != --address ...` | Unlocked wallet doesn't own the position | Switch to the correct wallet (`wallet switch`) before running withdraw |
 | `Mempool has N pending tx(s)` | Depth guard aborted: sender has pending txs | Wait for the pending tx via `mempool-watch tx-status` |
 | `Pool cooldown: Nm remaining` | 4h cooldown hasn't cleared | Wait or run against a different pool |
-| `Position value $X < floor $Y` | Dust-exit protection | Either lower `--min-position-usd` or skip |
+| `Position value $X is below $Y` | A note on `notes[]`, not a blocker | Nothing to do. The exit builds. |
 | `Wallet password must be entered interactively. This command requires a TTY` | No TTY attached | Run the skill from a real terminal, not a pipe/cron/container without `tty:true` |
 | `Withdraw broadcast failed: ...` | Router rejected the tx | Read `reason`; common causes: insufficient DLP balance, slippage violation, stale bin data. Re-run `plan` against fresh data. |
 

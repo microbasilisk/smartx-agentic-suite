@@ -864,7 +864,7 @@ function buildProgram(): Command {
   program
     .command("withdraw")
     .description(
-      "Execute the withdraw on mainnet. Requires --confirm. Triple-gated: (1) plan verdict must be safe_to_broadcast, (2) position USD ≥ --min-position-usd, (3) --confirm flag. Mempool depth + 4h cooldown additionally enforced. Password entered interactively, no flag, no env var, no stored credential paths."
+      "Execute the withdraw on mainnet. Requires --confirm. Double-gated: (1) plan verdict must be safe_to_broadcast, (2) --confirm flag. Mempool depth + 4h cooldown additionally enforced. A position below --min-position-usd is NOTED on the plan and still builds: nobody is blocked from withdrawing their own money because there is little of it. Password entered interactively, no flag, no env var, no stored credential paths."
     )
     .requiredOption("--pool <id>", "Bitflow pool id")
     .requiredOption("--address <stx>", "STX address (must match wallet)")

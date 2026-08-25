@@ -34,7 +34,10 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 - Any price source (Tenero, Bitflow) unavailable -> refuse all writes
 - Rebalance cooldown not elapsed (4 hours) -> refuse rebalance
 - Target protocol APY is 0% -> refuse deploy (unless --force)
-- YTG unprofitable (7d yield < 3x gas cost) -> refuse deploy (unless --force)
+- (YTG is NOT a refusal condition. A 7d yield under 3x the gas estimate is reported
+  on the result as `economics` and the deploy proceeds. It used to refuse, and that
+  was a wealth test rather than a safety gate: solve its formula for capital and it
+  is a dollar threshold on the person, since gas and APY are the only other terms.)
 - Insufficient wallet balance for requested token/amount -> refuse deploy
 - Invalid wallet address -> refuse all operations
 - Crypto self-tests fail (bech32m, P2TR) -> refuse all operations

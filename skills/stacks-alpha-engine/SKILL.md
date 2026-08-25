@@ -15,7 +15,7 @@ metadata:
 
 ## What it does
 
-Cross-protocol yield executor covering **all 4 major Stacks DeFi protocols**: Zest v2, Hermetica, Granite, and HODLMM (Bitflow DLMM). Scans 6 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC) across the wallet, reads positions and live yields from all 4 protocols, maps yield opportunities into 3 tiers (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios**, verifies sBTC reserve integrity via BIP-341 P2TR derivation, checks 5 market safety gates + YTG profit gate, then executes deploy/withdraw/rebalance/migrate/emergency operations. Every write runs a mandatory safety pipeline: Scout -> Reserve -> Guardian -> YTG -> Executor. No bypasses.
+Cross-protocol yield executor covering **all 4 major Stacks DeFi protocols**: Zest v2, Hermetica, Granite, and HODLMM (Bitflow DLMM). Scans 6 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC) across the wallet, reads positions and live yields from all 4 protocols, maps yield opportunities into 3 tiers (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios**, verifies sBTC reserve integrity via BIP-341 P2TR derivation, checks 5 market safety gates and reports Yield-to-Gas economics without blocking on them, then executes deploy/withdraw/rebalance/migrate/emergency operations. Every write runs a mandatory safety pipeline: Scout -> Reserve -> Guardian -> YTG -> Executor. No bypasses.
 
 **Protocol coverage:**
 
@@ -96,7 +96,7 @@ layer enforce the same safety invariants.
 1. **`--confirm` dry-run gate**: every write command returns a preview without `--confirm`. No transaction is emitted until the agent explicitly opts in.
 2. **Guardian (5 gates)**: pool-vs-market divergence <=0.5%, 24h volume >=$10K, gas <=50 STX, 4h rebalance cooldown, price source availability. Relay health is checked at the MCP runtime layer. Any gate failure blocks the write.
 3. **PoR (Proof of Reserve)**: sBTC reserve ratio check. YELLOW (99.5-99.9%) blocks all writes. RED (<99.5%) triggers emergency withdrawal recommendation.
-4. **YTG profit gate**: blocks deploys where 7-day projected yield < 3x gas cost.
+4. **YTG economics**: reports 7-day projected yield against the gas estimate on every deploy. Informs, never blocks: whether a small return is worth a fee is the holder's judgement.
 5. **Crypto self-test**: bech32m vectors + P2TR derivation must pass before any operation, including reads.
 
 ### Additional safety notes
@@ -163,7 +163,7 @@ All 4 protocols have **zero trait_reference** requirements in their write paths.
 1. **Scout** reads wallet (6 tokens) + 4 protocols + yields + prices + YTG ratios
 2. **Reserve (PoR)** verifies sBTC is fully backed by real BTC
 3. **Guardian** checks 5 gates: pool-vs-market divergence (<=0.5%), volume (>=$10K), gas (<=50 STX), cooldown (4h), prices. Relay health deferred to MCP runtime.
-4. **YTG gate** checks 7d projected yield > 3x gas cost (refuses unprofitable deploys)
+4. **YTG economics** reports 7d projected yield against gas cost (informs, does not refuse)
 5. All pass -> **Executor** outputs transaction instructions
 6. Any fail -> refuse with specific reasons, no transaction
 

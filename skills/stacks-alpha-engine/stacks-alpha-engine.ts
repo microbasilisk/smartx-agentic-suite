@@ -156,6 +156,16 @@ type YieldTier = "deploy_now" | "swap_first" | "acquire_to_unlock";
 interface YieldOption {
   tier: YieldTier;
   protocol: string; pool: string; token_needed: string; apy_pct: number;
+  /**
+   * The router's own pool id, `dlmm_N`, for the protocols that have more than
+   * one pool. Absent for the single-pool protocols.
+   *
+   * Carried because `pool` is a display NAME and `--pool-id` is an id, so there
+   * was no way to tell which option a deploy actually targeted. Matching on the
+   * protocol alone described the highest-APY pool while building instructions
+   * for a different one: 377.87% reported against a pool scored 140.4%.
+   */
+  pool_id?: string;
   daily_usd: number; monthly_usd: number; gas_to_enter_stx: number;
   swap_cost_note: string | null; note: string;
   ytg_ratio: number;       // 7d projected yield / gas cost in USD (>3 = profitable); set by post-processing
@@ -496,7 +506,13 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   if (outOfRange.length > 0) {
     recommendation = `WARNING: ${outOfRange.length} HODLMM position(s) OUT OF RANGE (${outOfRange.map(p => p.name).join(", ")}). Consider rebalancing.`;
     opportunityCost = bestOpt?.daily_usd ?? 0;
-  } else if (bestOpt && bestOpt.apy_pct > 0 && walletUsd > 10) {
+  // No wallet-size cutoff here. This branch used to require `walletUsd > 10`,
+  // which meant the headline verdict a person reads FIRST still told a small
+  // holder there was nothing for them, even after the deploy gate stopped
+  // refusing: a $3.93 wallet got two HODLMM pools at 377% and 298% APY in
+  // `options` and "No yield opportunities available for your current holdings"
+  // in `best_move`. Missing that copy is how a fix looks done and is not.
+  } else if (bestOpt && bestOpt.apy_pct > 0 && walletUsd > 0) {
     opportunityCost = round((walletUsd * bestOpt.apy_pct / 100) / 365, 4);
     recommendation = `Best option: ${bestOpt.protocol} ${bestOpt.pool} (${bestOpt.token_needed}) at ${bestOpt.apy_pct}% APY (~$${opportunityCost}/day missed).`;
   }
@@ -839,7 +855,8 @@ async function getYieldOptions(
 
         const d = dailyUsd(capUsd, bp.apr24h);
         options.push({
-          tier, protocol: "HODLMM", pool: def.name, token_needed: `${tokenXMeta.symbol}/${tokenYMeta.symbol}`,
+          tier, protocol: "HODLMM", pool: def.name, pool_id: bp.poolId,
+          token_needed: `${tokenXMeta.symbol}/${tokenYMeta.symbol}`,
           apy_pct: round(bp.apr24h, 2), daily_usd: d, monthly_usd: round(d * 30, 2),
           gas_to_enter_stx: 0.05, swap_cost_note: swapNote,
           note: `Fee-based LP. TVL: $${Math.round(bp.tvlUsd).toLocaleString()}.`,
@@ -1798,8 +1815,8 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
  * on the one input that is none of the product's business: how much they have.
  */
 let economics: {
-  apy_pct: number; yield_7d_usd: number; yield_30d_usd: number;
-  gas_estimate_stx: number; ytg_ratio: number; note: string;
+  apy_pct: number; amount_usd: number; yield_7d_usd: number; yield_30d_usd: number;
+  gas_estimate_stx: number; ytg_ratio_for_wallet: number; note: string;
 } | null = null;
   let description = "";
 
@@ -1811,7 +1828,18 @@ let economics: {
       const amount = parseInt(opts.amount ?? "0", 10);
 
       // Check 0% APY
-      const targetOpt = scout.options.find(o => o.protocol.toLowerCase() === protocol);
+      // Matched on the POOL as well as the protocol where one was named. HODLMM
+      // offers several pools with wildly different APYs, and matching on protocol
+      // alone described the highest-APY pool while the instructions built for the
+      // one actually requested: a review measured 377.87% reported against a pool
+      // scored 140.4%. Falls back to the protocol match when no pool is named, so
+      // the 0% APY check below behaves as it always did.
+      const poolWanted = (opts as Record<string, string>).poolId;
+      const targetOpt =
+        (poolWanted
+          ? scout.options.find(o => o.protocol.toLowerCase() === protocol && o.pool_id === poolWanted)
+          : undefined)
+        ?? scout.options.find(o => o.protocol.toLowerCase() === protocol);
       if (targetOpt && targetOpt.apy_pct === 0 && !opts.force) {
         return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [`${protocol} APY is 0%. Use --force to override.`] };
       }
@@ -1833,22 +1861,37 @@ let economics: {
       // So the arithmetic still runs and now travels with the result instead of
       // ending it.
       if (targetOpt) {
+        // Projected from the amount BEING DEPLOYED, not from the whole wallet.
+        // `targetOpt.daily_usd` is a ranking figure computed over everything the
+        // person holds, and attaching it to one transaction was measured at
+        // roughly 400x too high: a 0.001 STX deploy was shown a seven day yield
+        // of $0.2849, the whole wallet's number. A projection on a signing
+        // preview has to describe the thing being signed, or it is worse than no
+        // projection at all.
+        const meta = TOKENS[token];
+        const priceUsd = (prices as unknown as Record<string, number>)[token] ?? 0;
+        const amountUsd = meta ? (amount / Math.pow(10, meta.decimals)) * priceUsd : 0;
+        const dailyForThis = amountUsd > 0 ? dailyUsd(amountUsd, targetOpt.apy_pct) : 0;
         economics = {
           apy_pct: targetOpt.apy_pct,
-          yield_7d_usd: round(targetOpt.daily_usd * 7, 4),
-          yield_30d_usd: targetOpt.monthly_usd,
+          amount_usd: round(amountUsd, 4),
+          yield_7d_usd: round(dailyForThis * 7, 4),
+          yield_30d_usd: round(dailyForThis * 30, 4),
           gas_estimate_stx: targetOpt.gas_to_enter_stx,
-          ytg_ratio: targetOpt.ytg_ratio,
+          // The option's own ratio is a RANKING figure over the whole wallet, so
+          // it is reported as that and not as a claim about this transaction.
+          ytg_ratio_for_wallet: targetOpt.ytg_ratio,
           // The honest headline, and it is deliberately the unflattering one.
           // `gas_estimate_stx` is a DIVISOR this skill uses to rank options, not
           // the fee anybody pays: SmartX puts a real fee on the transaction with
-          // its own floor, and that floor is over ten times this estimate.
+          // its own floor of 0.25 STX. Against the estimates in this file that
+          // floor is 2.5x to 12.5x larger depending on the route, and an earlier
+          // version of this comment claimed "over ten times", which is true only
+          // of Hermetica's 0.02 and wrong for the other five.
           // Whoever renders this must show the fee actually charged, or a small
           // holder is told it costs less than it does, which is the same
           // disservice as refusing them, wearing better manners.
-          note: targetOpt.ytg_profitable
-            ? `Projected 7d yield $${round(targetOpt.daily_usd * 7, 4)} against an entry gas estimate of ${targetOpt.gas_to_enter_stx} STX.`
-            : `Projected 7d yield $${round(targetOpt.daily_usd * 7, 4)} is small next to the fee to enter. Worth doing only if you plan to stay in. Your money, your call.`,
+          note: `Depositing about $${round(amountUsd, 4)} at ${targetOpt.apy_pct}% earns about $${round(dailyForThis * 7, 4)} in seven days, against an entry gas estimate of ${targetOpt.gas_to_enter_stx} STX. Worth doing only if you plan to stay in. Your money, your call.`,
         };
       }
 
@@ -2196,7 +2239,7 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   } else if (profitable.length > 0) {
     L.push(`**YTG verdict:** All ${profitable.length} options are profitable, gas cost is negligible relative to yield.`);
   } else if (unprofitable.length > 0) {
-    L.push(`**YTG verdict:** No profitable options at current capital. Hold: gas would eat all yield. Accumulate more or wait for higher APY.`);
+    L.push(`**YTG verdict:** On every option the entry fee is large next to a week of yield. Worth doing only if you plan to stay in. Your money, your call.`);
   }
   L.push("");
 
