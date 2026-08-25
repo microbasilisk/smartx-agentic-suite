@@ -821,7 +821,13 @@ async function getYieldOptions(
         } else {
           // Check if user has any token that could be swapped
           const totalUsd = balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd + balances.usdh.usd + balances.aeusdc.usd;
-          if (totalUsd > 10) {
+          // Holding SOMETHING swappable is the question, not holding ten dollars
+          // of it. This used to require `totalUsd > 10` and otherwise set the
+          // projected yield to zero, which then guaranteed the gate below refused.
+          // Nothing said so. A person under ten dollars simply watched their
+          // options come back empty, with no message naming the reason, and the
+          // number was a bare comparison of their net worth against a constant.
+          if (totalUsd > 0) {
             tier = "swap_first";
             capUsd = totalUsd * 0.5; // conservative: assume half could be swapped
             swapNote = `Swap to ${tokenXMeta.symbol} or ${tokenYMeta.symbol} on Bitflow first`;
@@ -1784,6 +1790,17 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
 
   // Step 4: Execute
   let instructions: ExecuteInstruction[] = [];
+  /**
+ * What this action is projected to earn, and what entering it costs.
+ *
+ * Carried on the result so the console can show a person the arithmetic and let
+ * them decide. Replaces a refusal that made the decision for them, and made it
+ * on the one input that is none of the product's business: how much they have.
+ */
+let economics: {
+  apy_pct: number; yield_7d_usd: number; yield_30d_usd: number;
+  gas_estimate_stx: number; ytg_ratio: number; note: string;
+} | null = null;
   let description = "";
 
   switch (command) {
@@ -1799,9 +1816,40 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
         return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [`${protocol} APY is 0%. Use --force to override.`] };
       }
 
-      // YTG profit gate: 7d yield must exceed 3x gas cost
-      if (targetOpt && !targetOpt.ytg_profitable && !opts.force) {
-        return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [`YTG gate: 7d yield ($${round(targetOpt.daily_usd * 7, 4)}) < 3x gas cost. Ratio: ${targetOpt.ytg_ratio}x. Use --force to override.`] };
+      // Yield against gas: this INFORMS, it does not block. See the note on
+      // `economics` below for why that changed.
+      //
+      // It used to return `refused` here whenever 7d yield came in under 3x the
+      // gas estimate. Read as a safety gate that is reasonable. It is not one.
+      // The test is capital x APY x 7/365 > 3 x gas, and of those terms only
+      // capital varies with the person: gas is a per-protocol constant and APY
+      // belongs to the market. Solve it for capital and the gate is a plain
+      // dollar threshold on the human, roughly $17 on the cheapest route. A $4
+      // deposit is not less safe than a $4,000 one. The post-conditions bound
+      // both identically. What the refusal actually protected somebody from was
+      // a POOR RETURN, and that is a judgement only they can make about their
+      // own money.
+      //
+      // So the arithmetic still runs and now travels with the result instead of
+      // ending it.
+      if (targetOpt) {
+        economics = {
+          apy_pct: targetOpt.apy_pct,
+          yield_7d_usd: round(targetOpt.daily_usd * 7, 4),
+          yield_30d_usd: targetOpt.monthly_usd,
+          gas_estimate_stx: targetOpt.gas_to_enter_stx,
+          ytg_ratio: targetOpt.ytg_ratio,
+          // The honest headline, and it is deliberately the unflattering one.
+          // `gas_estimate_stx` is a DIVISOR this skill uses to rank options, not
+          // the fee anybody pays: SmartX puts a real fee on the transaction with
+          // its own floor, and that floor is over ten times this estimate.
+          // Whoever renders this must show the fee actually charged, or a small
+          // holder is told it costs less than it does, which is the same
+          // disservice as refusing them, wearing better manners.
+          note: targetOpt.ytg_profitable
+            ? `Projected 7d yield $${round(targetOpt.daily_usd * 7, 4)} against an entry gas estimate of ${targetOpt.gas_to_enter_stx} STX.`
+            : `Projected 7d yield $${round(targetOpt.daily_usd * 7, 4)} is small next to the fee to enter. Worth doing only if you plan to stay in. Your money, your call.`,
+        };
       }
 
       // Balance check: refuse if requested amount exceeds wallet balance
@@ -1898,7 +1946,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
       status: "preview", command, scout, reserve, guardian,
       action: {
         description: `[DRY RUN] ${description}, add --confirm to execute`,
-        details: { instructions, instruction_count: instructions.length },
+        details: { instructions, instruction_count: instructions.length, economics },
       },
     };
   }
@@ -1910,7 +1958,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
 
   return {
     status: "ok", command, scout, reserve, guardian,
-    action: { description, details: { instructions, instruction_count: instructions.length } },
+    action: { description, details: { instructions, instruction_count: instructions.length, economics } },
   };
 }
 
@@ -2111,7 +2159,7 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
       L.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.token_needed} | ${o.apy_pct}% | $${o.daily_usd} | $${o.monthly_usd} | ${ytg} | ${o.note} |`);
     });
     L.push("");
-    L.push("_YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x means gas eats your yield: hold until capital or APY grows. Use --force to override._");
+    L.push("_YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x means the fee to enter is large next to a week of yield. It is shown so you can weigh it, and it does not stop you._");
     L.push("");
   }
 
@@ -2144,7 +2192,7 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   const profitable = scout.options.filter(o => o.ytg_profitable && o.tier !== "acquire_to_unlock");
   const unprofitable = scout.options.filter(o => !o.ytg_profitable && o.tier !== "acquire_to_unlock");
   if (profitable.length > 0 && unprofitable.length > 0) {
-    L.push(`**YTG verdict:** ${profitable.length} option${profitable.length > 1 ? "s" : ""} profitable (yield > 3x gas), ${unprofitable.length} blocked (gas eats yield, hold until capital or APY grows).`);
+    L.push(`**YTG verdict:** ${profitable.length} option${profitable.length > 1 ? "s" : ""} profitable (yield > 3x gas), ${unprofitable.length} where the entry fee is large next to a week of yield.`);
   } else if (profitable.length > 0) {
     L.push(`**YTG verdict:** All ${profitable.length} options are profitable, gas cost is negligible relative to yield.`);
   } else if (unprofitable.length > 0) {
