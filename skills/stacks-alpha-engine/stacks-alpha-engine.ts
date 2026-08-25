@@ -132,6 +132,51 @@ interface WalletBalances {
   usdh: TokenBalance; susdh: TokenBalance; aeusdc: TokenBalance;
 }
 
+/**
+ * Which of the reads behind `balances` and `prices` actually returned.
+ *
+ * A FAILED READ AND A GENUINE ZERO ARE NOT THE SAME FACT and this file used to
+ * publish them as the same number. Every upstream read in the scout is wrapped
+ * in `.catch(() => null)`, and a null Hiro response then flows into
+ * `BigInt(... ?? "0")`, so a rate-limited balance read produces a wallet of
+ * exactly zero of everything. A production audit provoked it with a Hiro HTTP
+ * 429 and the report told the holder of $3.93 that they had "Wallet Total $0"
+ * and "No yield opportunities available for your current holdings". Both
+ * sentences are false, and false in the direction that makes a person act:
+ * somebody who believes their wallet is empty goes looking for what went wrong
+ * with their money.
+ *
+ * The count of `data_sources` cannot stand in for this. There are eight sources
+ * and only four are needed for the old "ok", so the one read that carries the
+ * person's own money can fail while the run still calls itself healthy: an
+ * observed failure run kept SEVEN sources and reported `status: "ok"` with
+ * `hiro-balances` quietly absent from the list. `smartx-app/server.ts` records
+ * the same trap against the sibling skill and notes that no server-side check
+ * can see it, because the only evidence was that one string missing from an
+ * array. So the scout states it in a field instead of leaving it to be inferred.
+ *
+ * These flags describe the READ, never the value. A wallet that truly holds
+ * nothing still reads `balances: true` with every amount at 0, and still renders
+ * as $0, because an empty wallet is a real and common state that a person is
+ * entitled to see stated plainly.
+ *
+ * Prices are split from balances because they fail independently and lie
+ * differently: a dead price feed leaves the AMOUNTS correct and zeroes only the
+ * USD column. A price of 0 counts as unavailable rather than as a quote, since
+ * no token here is ever genuinely worth nothing; that is what a schema change or
+ * an empty body looks like coming out of `?? 0`.
+ */
+interface ScoutAvailability {
+  /** The Hiro address-balances read returned. False means every amount is unknown, NOT zero. */
+  balances: boolean;
+  /** A usable sBTC price came back. False means the sBTC USD column is unknown. */
+  price_sbtc: boolean;
+  /** A usable STX price came back. False means the STX USD column is unknown. */
+  price_stx: boolean;
+  /** Plain names of the reads that did not return, for a person to read directly. */
+  unavailable: string[];
+}
+
 interface ZestPosition { has_position: boolean; detail: string; supply_amount?: number; supply_apy_pct?: number; utilization_pct?: number }
 interface GranitePosition {
   has_position: boolean; detail: string;
@@ -199,11 +244,21 @@ interface GuardianResult {
 interface ScoutResult {
   status: "ok" | "degraded" | "error";
   wallet: string;
+  /**
+   * Read availability for `balances` and `prices`. Read this BEFORE reading a
+   * zero out of either: see `ScoutAvailability`.
+   */
+  available: ScoutAvailability;
   balances: WalletBalances;
   prices: { sbtc: number; stx: number; usdcx: number; usdh: number; aeusdc: number };
   positions: { zest: ZestPosition; hermetica: HermeticaPosition; granite: GranitePosition; hodlmm: HodlmmPositions };
   options: YieldOption[];
-  best_move: { recommendation: string; idle_capital_usd: number; opportunity_cost_daily_usd: number };
+  /**
+   * `idle_capital_usd` and `opportunity_cost_daily_usd` are null, not 0, when the
+   * balance read failed. Zero is a claim about somebody's money and this run did
+   * not earn the right to make it.
+   */
+  best_move: { recommendation: string; idle_capital_usd: number | null; opportunity_cost_daily_usd: number | null };
   break_prices: BreakPrices;
   data_sources: string[];
 }
@@ -212,7 +267,26 @@ interface ScoutResult {
 const DISCLAIMER = "Data-driven yield analysis for informational purposes only. Not financial advice. Past yields do not guarantee future returns. Smart contract risk, impermanent loss, and peg failure are real possibilities. Verify on-chain data independently before acting.";
 
 interface EngineResult {
-  status: "ok" | "refused" | "partial" | "error";
+  /**
+   * `degraded` means the run finished but at least one read behind the answer did
+   * not return, so part of what is printed is unknown rather than measured. It is
+   * a separate outcome from `error` (nothing came back) and from `refused` (a
+   * gate ruled against the operation).
+   *
+   * The top-level status must be derived from the payload's own inner status, not
+   * asserted as a constant. `scan` used to hardcode `"ok"` here while
+   * `scout.status` next to it said `"degraded"`, which is the same bug the
+   * project already recorded once about exit codes: a status field has to read
+   * what actually happened. Consumers gate on this string, so a constant "ok"
+   * silently promotes an unknown into a fact for every one of them.
+   *
+   * `preview` was missing from this union while four `return` statements below
+   * emitted it, so the type describing the skill's own output did not admit its
+   * most common answer: every dry run without `--confirm` returns it. Added here
+   * rather than left as a standing type error, because this union is the thing a
+   * consumer reads to learn what statuses it must handle.
+   */
+  status: "ok" | "degraded" | "preview" | "refused" | "partial" | "error";
   command: string; disclaimer: string;
   scout?: ScoutResult; reserve?: ReserveResult; guardian?: GuardianResult;
   action?: { description: string; txids?: string[]; details?: Record<string, unknown> };
@@ -437,6 +511,12 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   if (teneroSbtc) allSources.push("tenero-sbtc-price");
   if (teneroStx) allSources.push("tenero-stx-price");
 
+  // Whether the balance read RETURNED, recorded before any of its values are
+  // touched. Everything below this line reads a zero out of a null response
+  // without being able to tell the difference, so the difference is captured
+  // here and carried on the result. See `ScoutAvailability`.
+  const balancesAvailable = hiroBalance !== null;
+
   const stxMicro = BigInt(((hiroBalance as Record<string, Record<string, string>>)?.stx?.balance) ?? "0");
   const ft = (hiroBalance as Record<string, Record<string, Record<string, string>>>)?.fungible_tokens ?? {};
 
@@ -456,6 +536,26 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   const sbtcPrice = (sd?.price_usd as number) ?? ((sd?.price as Record<string, number>)?.current_price) ?? 0;
   const xd = (teneroStx as Record<string, Record<string, unknown>>)?.data as Record<string, unknown> | undefined;
   const stxPrice = (xd?.price_usd as number) ?? ((xd?.price as Record<string, number>)?.current_price) ?? 0;
+
+  // A price of 0 is treated as "did not return", not as a quote. Both prices are
+  // read through `?? 0`, so a dead feed, an empty body and a renamed field all
+  // arrive here as the number zero, and neither of these two tokens is ever
+  // genuinely worth nothing. Judging the VALUE rather than the response object
+  // catches the schema-change case that a null check alone would miss.
+  const priceSbtcAvailable = sbtcPrice > 0;
+  const priceStxAvailable = stxPrice > 0;
+
+  const unavailable: string[] = [];
+  if (!balancesAvailable)   unavailable.push("wallet balances (Hiro)");
+  if (!priceSbtcAvailable)  unavailable.push("sBTC price (Tenero)");
+  if (!priceStxAvailable)   unavailable.push("STX price (Tenero)");
+  const available: ScoutAvailability = {
+    balances: balancesAvailable,
+    price_sbtc: priceSbtcAvailable,
+    price_stx: priceStxAvailable,
+    unavailable,
+  };
+
   // Stablecoins pegged at $1
   const usdhPrice = 1.0;
   const aeUsdcPrice = 1.0;
@@ -500,7 +600,14 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   const deployNow = options.filter(o => o.tier === "deploy_now");
   const bestOpt = deployNow[0];
   let recommendation = "No yield opportunities available for your current holdings.";
-  let opportunityCost = 0;
+  let opportunityCost: number | null = 0;
+  let idleCapital: number | null = round(walletUsd, 2);
+
+  // A holding whose price did not come back, where the person actually holds
+  // some. The AMOUNT is known and correct; only its dollar value is missing, so
+  // any total that silently drops it understates what they have.
+  const unpricedHolding = (!priceSbtcAvailable && balances.sbtc.amount > 0)
+    || (!priceStxAvailable && balances.stx.amount > 0);
 
   const outOfRange = hodlmm.positions.pools.filter(p => !p.in_range);
   if (outOfRange.length > 0) {
@@ -517,16 +624,52 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
     recommendation = `Best option: ${bestOpt.protocol} ${bestOpt.pool} (${bestOpt.token_needed}) at ${bestOpt.apy_pct}% APY (~$${opportunityCost}/day missed).`;
   }
 
+  // The headline is overwritten LAST when the balance read failed, because every
+  // branch above computes from `balances` and every one of those numbers is a
+  // zero this run invented. "No yield opportunities available for your current
+  // holdings" is the worst of them: it is a ruling ABOUT their holdings, printed
+  // by a run that never saw their holdings, and it reads as a considered answer
+  // rather than as a missing one.
+  //
+  // The position reads are separate calls and survive a balance failure, so an
+  // out-of-range warning that DID come off chain is kept and attributed, instead
+  // of being thrown away with the unknown numbers.
+  if (!balancesAvailable) {
+    const positionNote = outOfRange.length > 0
+      ? ` Your deployed positions did read: ${outOfRange.length} HODLMM position(s) OUT OF RANGE (${outOfRange.map(p => p.name).join(", ")}).`
+      : "";
+    recommendation = `Could not read your wallet balances this run, so what you hold is UNKNOWN, not zero. Nothing in this report states how much you have. Did not respond: ${unavailable.join(", ")}. Run the scan again.${positionNote}`;
+    idleCapital = null;
+    opportunityCost = null;
+  } else if (unpricedHolding) {
+    // Amounts are real here, only the dollar conversion is missing, so the
+    // recommendation stands and the total is what has to stop claiming precision.
+    recommendation = `${recommendation} Dollar values are incomplete: ${unavailable.join(", ")} did not respond, and you hold some of what could not be priced.`;
+    idleCapital = null;
+  }
+
   // -- Break prices -----------------------------------------------------------
   const { breakPrices, sources: bpSrc } = await getBreakPrices(hodlmm.positions, prices.sbtc);
   allSources.push(...bpSrc);
 
+  // A COUNT OF SOURCES IS NOT A TEST OF THE ONE THAT MATTERS. There are eight
+  // sources here and four satisfied the old test, so the read carrying the
+  // person's own balances could fail while the other seven kept the run calling
+  // itself "ok": that is not a hypothetical, it is what a failure run printed,
+  // with `hiro-balances` missing from `data_sources` as the only trace. Any read
+  // whose absence changes a number a person acts on now flips the status by name
+  // rather than by arithmetic, and the count is kept as an additional, weaker
+  // condition rather than as the whole test.
+  const status = (!balancesAvailable || !priceSbtcAvailable || !priceStxAvailable || allSources.length < 4)
+    ? "degraded" as const
+    : "ok" as const;
+
   return {
-    status: allSources.length >= 4 ? "ok" : "degraded",
-    wallet, balances, prices,
+    status,
+    wallet, available, balances, prices,
     positions: { zest: zest.position, hermetica: hermetica.position, granite: granite.position, hodlmm: hodlmm.positions },
     options,
-    best_move: { recommendation, idle_capital_usd: round(walletUsd, 2), opportunity_cost_daily_usd: opportunityCost },
+    best_move: { recommendation, idle_capital_usd: idleCapital, opportunity_cost_daily_usd: opportunityCost },
     break_prices: breakPrices,
     data_sources: [...new Set(allSources)],
   };
@@ -1750,6 +1893,35 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     return { status: "error", command, error: `Scout failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 
+  // Step 1b: refuse to BUILD a transaction out of a balance nobody read.
+  //
+  // The zero that the scout invents on a failed read does not stop at the report.
+  // It reaches the builders: a Hermetica withdrawal takes its unstake amount from
+  // `scout.balances.susdh.amount`, and the HODLMM deploy sizes both legs off the
+  // same object. A rate-limited read therefore produces an unstake of nothing
+  // described as "No sUSDh position to withdraw", which is a false statement
+  // about somebody's stake, and the deploy path refuses with "Insufficient
+  // balance: have 0", which names the wrong reason for the right refusal.
+  //
+  // Nothing here was ever at risk of moving the wrong amount of money, because
+  // every one of those paths fails downward, to zero or to a refusal. What was at
+  // risk was the person believing the reason. Refusing by name costs no working
+  // path: today every one of these commands already fails on an unread balance,
+  // just without saying why.
+  //
+  // `emergency` is deliberately exempt. It is the escape hatch and it already
+  // bypasses the guardian and the reserve gates on purpose, so it must not
+  // acquire a new way to say no. It gets a warning attached instead, below.
+  if (command !== "emergency" && !scout.available.balances) {
+    return {
+      status: "refused", command, scout,
+      refusal_reasons: [
+        `Wallet balances could not be read this run (${scout.available.unavailable.join(", ")}), so your holdings are unknown rather than zero. Refusing to build a transaction sized against a balance nobody read.`,
+      ],
+      action: { description: "Write refused. Run the command again; if it keeps failing, the upstream data source is down." },
+    };
+  }
+
   // Step 2: Reserve check
   const reserve = await checkReserve();
 
@@ -1759,19 +1931,29 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
   // Emergency bypasses guardian
   if (command === "emergency") {
     const instructions = buildEmergencyInstructions(scout);
+    // An emergency exit built on an unread balance is INCOMPLETE, not wrong. The
+    // Hermetica leg is the one that suffers: whether a stake exists is inferred
+    // from the wallet's sUSDh, so on a failed read that leg is silently dropped
+    // and the operation count comes back short. Saying so is the whole fix here.
+    // The alternative, refusing, would take the escape hatch away on exactly the
+    // day somebody needs it, and three of the four legs still build correctly
+    // from position reads that did return.
+    const incomplete = !scout.available.balances
+      ? " INCOMPLETE: wallet balances could not be read, so any Hermetica stake is invisible to this run and its unstake leg may be missing. Check Hermetica by hand before relying on this list."
+      : "";
     if (!confirmed) {
       return {
         status: "preview", command, scout, reserve,
         action: {
-          description: `[DRY RUN] EMERGENCY EXIT: ${instructions.length} operations, add --confirm to execute`,
+          description: `[DRY RUN] EMERGENCY EXIT: ${instructions.length} operations, add --confirm to execute.${incomplete}`,
           details: { instructions },
         },
       };
     }
     return {
-      status: "ok", command, scout, reserve,
+      status: incomplete ? "degraded" : "ok", command, scout, reserve,
       action: {
-        description: `EMERGENCY EXIT: ${instructions.length} operations to withdraw all positions`,
+        description: `EMERGENCY EXIT: ${instructions.length} operations to withdraw all positions.${incomplete}`,
         details: { instructions },
       },
     };
@@ -2126,19 +2308,59 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   L.push("");
 
   // Section 1: What You Have
-  const walletUsd = round(scout.balances.sbtc.usd + scout.balances.stx.usd + scout.balances.usdcx.usd + scout.balances.usdh.usd + scout.balances.susdh.usd + scout.balances.aeusdc.usd, 2);
+  //
+  // THIS TABLE IS WHERE THE ZERO GETS TOLD TO A PERSON. It used to print
+  // `amount` and `usd` straight out of the scout, which cannot tell a wallet
+  // that holds nothing apart from a wallet nobody managed to read: both arrive
+  // as 0. During a production audit a Hiro 429 rendered here as six zero rows
+  // and "Wallet Total $0" over a real $3.93, and there is no worse thing this
+  // report can say. An empty wallet is disappointing; a wallet reported empty
+  // that is not sends somebody looking for stolen money.
+  //
+  // So the cells now render UNKNOWN when the read failed, and still render 0
+  // when the read succeeded and the answer was zero. The distinction is the
+  // scout's `available` flags, which describe the RESPONSE and never the value,
+  // so a genuinely empty wallet is untouched by all of this.
+  const avail = scout.available;
+  // Amounts come from one read, dollar values from that read plus a price. They
+  // fail apart: a dead price feed leaves "14.879089 STX" correct and only its
+  // dollar column unknown, so the two columns are judged separately rather than
+  // blanking a number that is actually in hand.
+  const amt = (n: number) => avail.balances ? String(n) : "unknown";
+  // A missing price does not make every dollar cell unknown. NONE of something
+  // is worth $0 whatever it trades at, so a zero holding still prints an exact
+  // $0 through a dead feed. Hiding a figure that IS known is a smaller failure
+  // than inventing one, but it is still a failure, and it would have left this
+  // table saying "unknown" beside a total the same run stated exactly.
+  const usd = (b: TokenBalance, priced: boolean) =>
+    avail.balances && (priced || b.amount === 0) ? `$${b.usd}` : "unknown";
   L.push("## 1. What You Have (available in wallet)");
   L.push("");
   L.push("| Token   | Amount             | USD      |");
   L.push("|---------|--------------------|---------:|");
-  L.push(`| sBTC    | ${pad(String(scout.balances.sbtc.amount), 18)} | $${scout.balances.sbtc.usd} |`);
-  L.push(`| STX     | ${pad(String(scout.balances.stx.amount), 18)} | $${scout.balances.stx.usd} |`);
-  L.push(`| USDCx   | ${pad(String(scout.balances.usdcx.amount), 18)} | $${scout.balances.usdcx.usd} |`);
-  L.push(`| USDh    | ${pad(String(scout.balances.usdh.amount), 18)} | $${scout.balances.usdh.usd} |`);
-  L.push(`| sUSDh   | ${pad(String(scout.balances.susdh.amount), 18)} | $${scout.balances.susdh.usd} |`);
-  L.push(`| aeUSDC  | ${pad(String(scout.balances.aeusdc.amount), 18)} | $${scout.balances.aeusdc.usd} |`);
-  L.push(`| **Wallet Total** |              | **$${walletUsd}** |`);
+  L.push(`| sBTC    | ${pad(amt(scout.balances.sbtc.amount), 18)} | ${usd(scout.balances.sbtc, avail.price_sbtc)} |`);
+  L.push(`| STX     | ${pad(amt(scout.balances.stx.amount), 18)} | ${usd(scout.balances.stx, avail.price_stx)} |`);
+  // The four stablecoins are pegged at $1 in this file rather than quoted, so
+  // their dollar column depends on the balance read alone and survives a dead
+  // price feed.
+  L.push(`| USDCx   | ${pad(amt(scout.balances.usdcx.amount), 18)} | ${usd(scout.balances.usdcx, true)} |`);
+  L.push(`| USDh    | ${pad(amt(scout.balances.usdh.amount), 18)} | ${usd(scout.balances.usdh, true)} |`);
+  L.push(`| sUSDh   | ${pad(amt(scout.balances.susdh.amount), 18)} | ${usd(scout.balances.susdh, true)} |`);
+  L.push(`| aeUSDC  | ${pad(amt(scout.balances.aeusdc.amount), 18)} | ${usd(scout.balances.aeusdc, true)} |`);
+  // The total is the line a person reads first and remembers, so it is the line
+  // held to the strictest test. It prints a figure only when every component of
+  // it was measured. A missing price on a token they hold NONE of leaves the sum
+  // exact, so that case still shows the number instead of hiding a good answer.
+  const walletUsd = round(scout.balances.sbtc.usd + scout.balances.stx.usd + scout.balances.usdcx.usd + scout.balances.usdh.usd + scout.balances.susdh.usd + scout.balances.aeusdc.usd, 2);
+  const totalKnown = avail.balances
+    && (avail.price_sbtc || scout.balances.sbtc.amount === 0)
+    && (avail.price_stx || scout.balances.stx.amount === 0);
+  L.push(`| **Wallet Total** |              | ${totalKnown ? `**$${walletUsd}**` : "**unknown**"} |`);
   L.push("");
+  if (avail.unavailable.length > 0) {
+    L.push(`> **Some reads did not return this run: ${avail.unavailable.join(", ")}.** Every cell above marked "unknown" is exactly that: unknown. It is NOT zero, and it is not a statement about what you hold. Run the scan again.`);
+    L.push("");
+  }
 
   // Section 2: Positions (4 protocols)
   L.push("## 2. Positions (deployed capital)");
@@ -2150,10 +2372,18 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   L.push(`| Zest       | ${z.has_position ? "**ACTIVE**" : "Idle"} | ${z.detail} |`);
 
   const herm = scout.positions.hermetica;
-  const hermDetail = scout.balances.susdh.amount > 0
+  // Hermetica is the one protocol whose position is inferred from a WALLET
+  // balance rather than from a position read, because a stake shows up as sUSDh
+  // held. That makes this row depend on the same read as section 1, so when that
+  // read fails the honest answer is "unknown", not "Idle". Printing Idle here
+  // would tell somebody their stake is gone.
+  const hermStaked = scout.balances.susdh.amount > 0;
+  const hermDetail = !avail.balances
+    ? `Position unknown: the wallet read failed, so a sUSDh stake could not be seen either way (rate: ${herm.exchange_rate})`
+    : hermStaked
     ? `${scout.balances.susdh.amount} sUSDh staked (rate: ${herm.exchange_rate})`
     : herm.detail;
-  L.push(`| Hermetica  | ${scout.balances.susdh.amount > 0 ? "**ACTIVE**" : "Idle"} | ${hermDetail} |`);
+  L.push(`| Hermetica  | ${!avail.balances ? "**UNKNOWN**" : hermStaked ? "**ACTIVE**" : "Idle"} | ${hermDetail} |`);
 
   const g = scout.positions.granite;
   L.push(`| Granite    | ${g.has_position ? "**ACTIVE**" : "Idle"} | ${g.detail} (accepts: ${g.accepted_token}) |`);
@@ -2188,6 +2418,15 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   // Section 4: Yield Options (3-tier)
   L.push("## 4. Yield Options");
   L.push("");
+  // The three tiers are sorted by what the wallet holds, so a failed balance read
+  // sorts every option as though the wallet were empty and pushes real, already
+  // fundable moves into "acquire to unlock". The APYs below are still live market
+  // reads and worth showing; which tier each one landed in is not trustworthy
+  // this run, and saying so beats quietly presenting a mis-sorted table.
+  if (!avail.balances) {
+    L.push("> **The wallet read failed, so these are sorted against an unknown balance.** The APY figures are live. Which tier an option landed in is not: an option you could fund today may be listed under \"acquire to unlock\" because this run could not see what you hold.");
+    L.push("");
+  }
 
   const deployNow = scout.options.filter(o => o.tier === "deploy_now");
   const swapFirst = scout.options.filter(o => o.tier === "swap_first");
@@ -2265,11 +2504,41 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   L.push(`| Gas | ${guardian.gas.ok ? "PASS" : "**FAIL**"} | ${guardian.gas.estimated_stx} STX (max ${MAX_GAS_STX}) |`);
   L.push(`| Cooldown | ${guardian.cooldown.ok ? "PASS" : "**FAIL**"} | ${guardian.cooldown.remaining_hours > 0 ? `${guardian.cooldown.remaining_hours}h remaining` : "Ready"} |`);
   L.push(`| Prices | ${guardian.prices.ok ? "PASS" : "**FAIL**"} | ${guardian.prices.detail} |`);
-  L.push(`| **Can execute writes?** | **${guardian.can_proceed ? "YES" : "NO"}** | ${guardian.refusals.length > 0 ? guardian.refusals.join("; ") : "All gates pass"} |`);
+  // THE VERDICT ROW USED TO ASK THE SECOND GATE AND SKIP THE FIRST. It read
+  // `guardian.can_proceed` alone, and the guardian is not the gate that decides
+  // this: `_runPipeline` checks the reserve BEFORE the guardian and returns
+  // `status: "refused"` on RED, on DATA_UNAVAILABLE and on YELLOW, so on a
+  // non-GREEN reserve the guardian never runs at all and its `can_proceed`
+  // describes a check that was not reached. The audit caught the table printing
+  // `PoR Reserve | **FAIL**` and, two rows down, `Can execute writes? | YES |
+  // All gates pass`, which is the table contradicting itself on the same screen.
+  //
+  // The code was right and the money was safe throughout. It is the REPORT that
+  // was wrong, and a safety table that a person catches lying about a refusal is
+  // worth nothing to them on the day it says a write is fine.
+  //
+  // Non-GREEN is the test, not RED, because YELLOW refuses too. That is exactly
+  // the condition the PoR row above already prints as FAIL, so the two rows now
+  // agree by construction.
+  const porBlocksWrites = reserve.signal !== "GREEN";
+  const canWrite = !porBlocksWrites && guardian.can_proceed;
+  // Reasons in the pipeline's own order: the reserve first, because it refuses
+  // first, and the guardian's refusals after it. On a non-GREEN reserve the
+  // guardian list is describing a scan-time check rather than the write's fate,
+  // so the reserve reason leads and says which one stopped it.
+  const writeBlockers = [
+    ...(porBlocksWrites ? [`PoR signal ${reserve.signal}: writes are refused before the guardian gates are reached. 'emergency' withdrawal is still available.`] : []),
+    ...guardian.refusals,
+  ];
+  L.push(`| **Can execute writes?** | **${canWrite ? "YES" : "NO"}** | ${writeBlockers.length > 0 ? writeBlockers.join("; ") : "All gates pass"} |`);
   L.push("");
 
   L.push("---");
-  L.push(`Data sources: ${scout.data_sources.length} live reads | Status: ${scout.status} | Engine: stacks-alpha-engine v2.0.0`);
+  // The footer names the reads that FAILED, not just the count that worked. A
+  // count of successes is what let a run print "8 live reads" while the one read
+  // holding the person's balances was missing from the list.
+  const missing = avail.unavailable.length > 0 ? ` | Did not return: ${avail.unavailable.join(", ")}` : "";
+  L.push(`Data sources: ${scout.data_sources.length} live reads | Status: ${scout.status}${missing} | Engine: stacks-alpha-engine v2.0.0`);
   L.push("");
 
   return L.join("\n");
@@ -2301,10 +2570,22 @@ program
       const scout = await scoutWallet(opts.wallet);
       const reserve = await checkReserve();
       const guardian = await checkGuardian(scout);
+      // The top-level status is DERIVED from the scout's own, never asserted.
+      // This line used to be the literal `"ok"`, printed directly above a
+      // `scout.status` of `"degraded"` in the same object, so a run that had just
+      // failed to read somebody's balances announced itself as healthy. The
+      // project already recorded this rule once about exit codes: `ok` must read
+      // the payload's own status. It applies just as much to a hardcoded string,
+      // and more so, because consumers gate on this field and cannot see one
+      // level down. `smartx-app`'s server treats `degraded` as "the skill could
+      // not answer", which is the correct handling of a scan whose balances are
+      // unknown: it shows the person that something failed instead of showing
+      // them an invented empty wallet.
+      const status = scout.status === "ok" ? "ok" : "degraded";
       if (opts.format === "text") {
         console.log(renderReport(scout, reserve, guardian));
       } else {
-        console.log(JSON.stringify({ status: "ok", command: "scan", disclaimer: DISCLAIMER, scout, reserve, guardian, rendered_report: renderReport(scout, reserve, guardian) }, null, 2));
+        console.log(JSON.stringify({ status, command: "scan", disclaimer: DISCLAIMER, scout, reserve, guardian, rendered_report: renderReport(scout, reserve, guardian) }, null, 2));
       }
     } catch (err: unknown) {
       console.error(JSON.stringify({ status: "error", command: "scan", error: err instanceof Error ? err.message : String(err) }));

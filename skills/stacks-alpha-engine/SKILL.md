@@ -113,9 +113,9 @@ All commands output JSON to stdout:
 
 ```json
 {
-  "status": "ok" | "refused" | "partial" | "error",
+  "status": "ok" | "degraded" | "preview" | "refused" | "partial" | "error",
   "command": "scan" | "deploy" | "withdraw" | "rebalance" | "migrate" | "emergency",
-  "scout": { "status", "wallet", "balances" (6 tokens), "positions" (4 protocols), "options" (3-tier, each with ytg_ratio + ytg_profitable), "best_move", "break_prices", "data_sources" },
+  "scout": { "status", "wallet", "available", "balances" (6 tokens), "positions" (4 protocols), "options" (3-tier, each with ytg_ratio + ytg_profitable), "best_move", "break_prices", "data_sources" },
   "reserve": { "signal": "GREEN|YELLOW|RED|DATA_UNAVAILABLE", "reserve_ratio", "score", "sbtc_circulating", "btc_reserve", "signer_address", "recommendation" },
   "guardian": { "can_proceed", "refusals", "slippage", "volume", "gas", "cooldown", "prices" },
   "action": { "description", "txids", "details": { "instructions": [...] } },
@@ -123,6 +123,42 @@ All commands output JSON to stdout:
   "error": "..."
 }
 ```
+
+### A failed read is not a zero
+
+Every upstream read is wrapped so a failure returns nothing rather than throwing,
+and a missing balance response used to flow straight into `0`. That made an
+unreadable wallet indistinguishable from an empty one, and the report said
+"Wallet Total $0" to somebody holding $3.93.
+
+`scout.available` now states which reads returned:
+
+```json
+"available": {
+  "balances": true,
+  "price_sbtc": true,
+  "price_stx": true,
+  "unavailable": []
+}
+```
+
+Rules a consumer can rely on:
+
+- These flags describe the RESPONSE, never the value. A wallet that genuinely
+  holds nothing reports `balances: true` with every amount at `0`, and the
+  rendered report still shows `$0`.
+- When `available.balances` is false, every number under `scout.balances` is
+  meaningless. Do not render it. The rendered report prints `unknown` in those
+  cells and says so above the table.
+- `best_move.idle_capital_usd` and `best_move.opportunity_cost_daily_usd` are
+  `null`, not `0`, when the balance read failed.
+- Any unavailable read forces `scout.status` to `degraded`, and the top-level
+  `status` is derived from it rather than hardcoded. Counting `data_sources` is
+  NOT a substitute: four of eight sources satisfied the old check, so the one
+  read carrying the balances could fail while the run still called itself `ok`.
+- Writes are refused when `available.balances` is false, because the instruction
+  builders size transactions from those numbers. `emergency` is exempt, since it
+  is the escape hatch, and carries an INCOMPLETE warning instead.
 
 ## Architecture
 
