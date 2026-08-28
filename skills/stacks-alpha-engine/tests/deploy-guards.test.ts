@@ -16,7 +16,7 @@
  * different reason. Only the reason assertion noticed. All seven mutations of
  * these guards are killed by these cases, with no survivors.
  */
-import { buildDeployInstructions, parseAtomicAmount, inferTargetPoolId, poolGateScope, selectTargetOption, classifySlippage, explainsDestinationPool, checkGuardian, scanGuardianInput, buildWithdrawInstructions, liveGuardianReads } from "../stacks-alpha-engine.ts";
+import { sizeHodlmmOption, markOptionGates, bestMove, verdictLine, gateCellFor, swapTableNeedsPairNote, applyGateResults, buildDeployInstructions, parseAtomicAmount, inferTargetPoolId, poolGateScope, selectTargetOption, classifySlippage, explainsDestinationPool, checkGuardian, scanGuardianInput, buildWithdrawInstructions, liveGuardianReads } from "../stacks-alpha-engine.ts";
 
 // sbtc has 8 decimals, usdcx has 6. `amount` in balances is HUMAN units.
 const scout = (sbtcAtomic: number, usdcxAtomic: number) => ({
@@ -959,6 +959,232 @@ console.log("\n== The seam itself, not just the function behind it ==");
       && typeof liveGuardianReads.fetchBins === "function"
       && typeof liveGuardianReads.fetchFeeRate === "function",
     JSON.stringify(Object.keys(liveGuardianReads)));
+}
+
+
+// ---------------------------------------------------------------------------
+// Two sided entry: which tier, and how much of it the wallet can fund.
+//
+// Every one of these guards survived a mutation run on 2026-08-28 with all 203
+// cases green, because they sat inside `getYieldOptions`, which does network reads
+// in the same function and so cannot be driven by a test. Reverting the entire
+// tiering change was invisible. They live in `sizeHodlmmOption` now.
+// ---------------------------------------------------------------------------
+
+console.log("BA sizeHodlmmOption");
+
+{
+  const r = sizeHodlmmOption(100, 40, 140, "STX", "USDCx", 100, 40);
+  check("BA both sides held is deploy_now", r.tier === "deploy_now", r.tier);
+  // The SMALLER side bounds the pair. `Math.max` described a position the wallet
+  // cannot fund: $100 of STX against $40 of USDCx cannot put $200 to work.
+  check("BA both sides sized on the smaller side", r.capUsd === 80, String(r.capUsd));
+  check("BA both sides need no swap note", r.swapNote === null, String(r.swapNote));
+}
+
+{
+  const r = sizeHodlmmOption(100, 0, 100, "STX", "USDCx", 100, 0);
+  // Holding ONE side is not readiness. A one sided deposit sits outside the active
+  // bin and earns nothing until price reaches it, so the pool APY beside it would
+  // describe money the person does not receive.
+  check("BA one side held is swap_first, not deploy_now", r.tier === "swap_first", r.tier);
+  check("BA one side keeps its full value", r.capUsd === 100, String(r.capUsd));
+  check("BA one side names what to swap into", (r.swapNote ?? "").includes("STX to USDCx"), String(r.swapNote));
+}
+
+{
+  const r = sizeHodlmmOption(0, 60, 60, "STX", "USDCx", 0, 60);
+  check("BA the other side held is also swap_first", r.tier === "swap_first", r.tier);
+  check("BA the other side names the reverse swap", (r.swapNote ?? "").includes("USDCx to STX"), String(r.swapNote));
+}
+
+{
+  const r = sizeHodlmmOption(0, 0, 100, "STX", "USDCx", 0, 0);
+  check("BA neither side but something swappable is swap_first", r.tier === "swap_first", r.tier);
+  // The FULL value. Halving was right under a one sided model; under two sided
+  // entry $100 becomes $50 into each side and $100 in the pool.
+  check("BA neither side keeps the full value, not half", r.capUsd === 100, String(r.capUsd));
+}
+
+{
+  const r = sizeHodlmmOption(0, 0, 0, "STX", "USDCx", 0, 0);
+  check("BA an empty wallet unlocks nothing", r.tier === "acquire_to_unlock", r.tier);
+  check("BA an empty wallet funds nothing", r.capUsd === 0, String(r.capUsd));
+}
+
+// ---------------------------------------------------------------------------
+// What the Gates column may say. Three states, because two made "nobody measured
+// this" indistinguishable from "measured and failed", and only one of those is a
+// reason to avoid the pool.
+// ---------------------------------------------------------------------------
+
+console.log("BB markOptionGates");
+
+check("BB both passing is passed", markOptionGates("pass", "pass") === "passed", markOptionGates("pass", "pass"));
+check("BB both failing is failed", markOptionGates("fail", "fail") === "failed", markOptionGates("fail", "fail"));
+
+// The live case that made this blocking: dlmm_4's 24h volume is a permanent fail
+// against the floor, and its slippage read sat behind a rate limited endpoint. The
+// column told the reader nobody had looked.
+check("BB a real failure beats an unreadable sibling",
+  markOptionGates("unknown", "fail") === "failed", markOptionGates("unknown", "fail"));
+check("BB and in the other order too",
+  markOptionGates("fail", "unknown") === "failed", markOptionGates("fail", "unknown"));
+
+check("BB one unknown is not a pass",
+  markOptionGates("unknown", "pass") === "not-measured", markOptionGates("unknown", "pass"));
+check("BB both unknown is not measured",
+  markOptionGates("unknown", "unknown") === "not-measured", markOptionGates("unknown", "unknown"));
+check("BB a not-applicable gate never reads as passed",
+  markOptionGates("not-applicable", "not-applicable") === "not-measured",
+  markOptionGates("not-applicable", "not-applicable"));
+
+console.log("BC bestMove");
+
+{
+  const opts: any[] = [
+    { tier: "swap_first", pool: "STX-USDCx", apy_pct: 600, daily_usd: 0.0119 },
+    { tier: "deploy_now", pool: "sBTC-USDCx", apy_pct: 120, daily_usd: 0.004 },
+  ];
+  const m = bestMove(opts);
+  check("BC a deploy_now option wins even when ranked lower", m.best?.pool === "sBTC-USDCx", String(m.best?.pool));
+  check("BC and it needs no swap", m.needsSwap === false, String(m.needsSwap));
+}
+
+{
+  // The live case: a STX only wallet has no deploy_now option at all. Reading that
+  // tier alone left the headline saying there was nothing to do, above seven rows.
+  const opts: any[] = [
+    { tier: "swap_first", pool: "STX-USDCx", apy_pct: 600, daily_usd: 0.0119 },
+    { tier: "acquire_to_unlock", pool: "USDh", apy_pct: 27, daily_usd: 0 },
+  ];
+  const m = bestMove(opts);
+  check("BC a swap_first option is still a recommendation", m.best?.pool === "STX-USDCx", String(m.best?.pool));
+  check("BC and it is flagged as needing a swap", m.needsSwap === true, String(m.needsSwap));
+  // The option's OWN figure. Recomputing from the whole wallet put $0.0831 beside
+  // the same pool the table priced at $0.0119.
+  check("BC the daily figure is the option's own", m.dailyUsd === 0.0119, String(m.dailyUsd));
+}
+
+{
+  const m = bestMove([{ tier: "acquire_to_unlock", pool: "USDh", apy_pct: 27, daily_usd: 0 } as any]);
+  check("BC nothing actionable recommends nothing", m.best === undefined, String(m.best));
+  check("BC and earns nothing", m.dailyUsd === 0, String(m.dailyUsd));
+}
+
+console.log("BD verdictLine and gateCellFor");
+
+const opt = (o: any) => o as any;
+
+{
+  // Round two, blocker one: the sentence was chosen from the TIER, so it told a
+  // wallet holding neither side that it held one, and promised "both sides in the
+  // pool" for products that have no pair.
+  const one = verdictLine(opt({ protocol: "HODLMM", pool: "STX-USDCx", token_needed: "STX/USDCx", apy_pct: 600, tier: "swap_first", sides: "one" }), 0.06);
+  check("BD holding one side says so", one.includes("You hold one side"), one);
+
+  const neither = verdictLine(opt({ protocol: "HODLMM", pool: "sBTC-USDCx", token_needed: "sBTC/USDCx", apy_pct: 600, tier: "swap_first", sides: "neither" }), 0.24);
+  check("BD holding neither side says THAT", neither.includes("You hold neither side"), neither);
+  check("BD and never claims they hold one", !neither.includes("You hold one side"), neither);
+
+  const single = verdictLine(opt({ protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: 5, tier: "swap_first", sides: "single" }), 0.0137);
+  check("BD a single asset product never mentions both sides", !single.includes("both sides"), single);
+  check("BD and names the token it needs", single.includes("USDh"), single);
+
+  const now = verdictLine(opt({ protocol: "Zest", pool: "sBTC Supply", token_needed: "sBTC", apy_pct: 4, tier: "deploy_now", sides: "single" }), 0.01);
+  check("BD a deploy_now option needs no swap sentence", !now.includes("comes first"), now);
+}
+
+{
+  // Round two, blocker two: Zest supply is deploy_now at 0% whenever its rate read
+  // fails, and any deploy_now used to win outright, silencing the headline above a
+  // 600% row.
+  const m = bestMove([
+    opt({ tier: "deploy_now", pool: "Zest sBTC Supply", apy_pct: 0, daily_usd: 0 }),
+    opt({ tier: "swap_first", pool: "STX-USDCx", apy_pct: 600, daily_usd: 1.64 }),
+  ]);
+  check("BD a 0% option never beats a real one", m.best?.pool === "STX-USDCx", String(m.best?.pool));
+  check("BD and the swap flag follows the option chosen", m.needsSwap === true, String(m.needsSwap));
+}
+
+check("BD a failed gate reads as failed", gateCellFor(opt({ gates: "failed" })) === "**FAILED**", gateCellFor(opt({ gates: "failed" })));
+check("BD a passed gate reads as passed", gateCellFor(opt({ gates: "passed" })) === "passed", gateCellFor(opt({ gates: "passed" })));
+check("BD an unmeasured gate says so", gateCellFor(opt({ gates: "not-measured" })) === "not measured", gateCellFor(opt({ gates: "not-measured" })));
+check("BD an absent gate is not a pass", gateCellFor(opt({})) === "not measured", gateCellFor(opt({})));
+
+console.log("BE the wiring, not just the decisions");
+
+{
+  // Round three: deleting `sides: sized.sized` from the HODLMM push left every
+  // wallet told "You hold neither side" with all 241 cases green. The decisions
+  // were pinned and the value travelling between them was not.
+  const sized = sizeHodlmmOption(100, 40, 140, "STX", "USDCx", 100, 40);
+  const built = opt({ protocol: "HODLMM", pool: "STX-USDCx", token_needed: "STX/USDCx",
+                      apy_pct: 600, daily_usd: 1, tier: sized.tier, sides: sized.sides });
+  check("BE the sizing's sides reach the sentence", verdictLine(built, 1).includes("missed"), verdictLine(built, 1));
+
+  const oneSided = sizeHodlmmOption(100, 0, 100, "STX", "USDCx", 100, 0);
+  const built2 = opt({ protocol: "HODLMM", pool: "STX-USDCx", token_needed: "STX/USDCx",
+                       apy_pct: 600, daily_usd: 1, tier: oneSided.tier, sides: oneSided.sides });
+  check("BE a one sided wallet is told it holds one side",
+    verdictLine(built2, 1).includes("You hold one side"), verdictLine(built2, 1));
+}
+
+{
+  // Round three, blocker two: readiness must come from the AMOUNT held, not its
+  // dollar value, or a dead price feed tells someone holding both sides that they
+  // hold one and advises a swap they do not need.
+  const pricesDown = sizeHodlmmOption(0, 10, 30, "sBTC", "USDCx", 0.5, 10);
+  check("BE a dead price feed does not erase a holding", pricesDown.sides === "both", pricesDown.sides);
+  const genuinelyAbsent = sizeHodlmmOption(0, 10, 30, "sBTC", "USDCx", 0, 10);
+  check("BE and a token truly absent still reads as one side", genuinelyAbsent.sides === "one", genuinelyAbsent.sides);
+}
+
+{
+  // Round three, blocker one: the headline and the safety table asked two different
+  // functions which option was recommended, and disagreed in print.
+  const opts: any[] = [
+    opt({ tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", apy_pct: 0, daily_usd: 0, sides: "single" }),
+    opt({ tier: "swap_first", protocol: "HODLMM", pool: "sBTC-USDCx-10bps", pool_id: "dlmm_4", apy_pct: 600, daily_usd: 1.6, sides: "one" }),
+  ];
+  check("BE the safety table gates the pool the headline names",
+    scanGuardianInput(opts).targetPoolId === "dlmm_4", String(scanGuardianInput(opts).targetPoolId));
+  check("BE which is the same option bestMove picked",
+    bestMove(opts).best?.pool_id === scanGuardianInput(opts).targetPoolId, "mismatch");
+}
+
+check("BE a table of only single asset rows needs no pair sentence",
+  swapTableNeedsPairNote([opt({ sides: "single" }), opt({ sides: "single" })]) === false, "true");
+check("BE one paired row is enough to need it",
+  swapTableNeedsPairNote([opt({ sides: "single" }), opt({ sides: "one" })]) === true, "false");
+
+console.log("BF applyGateResults");
+
+{
+  // Round four: this loop could be deleted with the suite AND the typecheck green,
+  // because it lived in the CLI action. With it gone every row read "not measured",
+  // including the pool that had just been measured and failed.
+  const opts: any[] = [
+    opt({ pool_id: "dlmm_4", gates: "not-measured" }),
+    opt({ pool_id: "dlmm_1", gates: "not-measured" }),
+    opt({ gates: "not-measured" }),
+  ];
+  applyGateResults(opts, { slippage: { pool_id: "dlmm_4", status: "fail" }, volume: { status: "pass" } } as any);
+  check("BF the measured pool carries its result", opts[0].gates === "failed", opts[0].gates);
+  check("BF an unmeasured pool is left alone", opts[1].gates === "not-measured", opts[1].gates);
+  check("BF and one with no pool id is untouched", opts[2].gates === "not-measured", opts[2].gates);
+}
+
+{
+  const opts: any[] = [opt({ pool_id: "dlmm_4", gates: "not-measured" })];
+  applyGateResults(opts, { slippage: { pool_id: null, status: "not-applicable" }, volume: { status: "not-applicable" } } as any);
+  check("BF nothing measured leaves everything unmarked", opts[0].gates === "not-measured", opts[0].gates);
+}
+
+{
+  const opts: any[] = [opt({ pool_id: "dlmm_4", gates: "not-measured" })];
+  applyGateResults(opts, { slippage: { pool_id: "dlmm_4", status: "pass" }, volume: { status: "pass" } } as any);
+  check("BF a genuine pass is recorded as one", opts[0].gates === "passed", opts[0].gates);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

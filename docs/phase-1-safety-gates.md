@@ -1,4 +1,4 @@
-# Phase 1: the safety gates, landed after eight review rounds
+# Phase 1: truth on the screen, landed after thirteen review rounds
 
 `skills/stacks-alpha-engine/stacks-alpha-engine.ts` plus its docs, and a new
 `skills/stacks-alpha-engine/tests/deploy-guards.test.ts`. Nothing is committed and
@@ -150,3 +150,75 @@ Production clones this repo at `SUITE_COMMIT`, pinned in
 `smartx-app/docker-compose.yml` to `2c56269`. New commits here are invisible until
 that pin moves and the image is rebuilt, which is a deploy and needs the user to
 say so, that time.
+
+---
+
+# Part two, 2026-08-28: the tiering, and four more rounds
+
+The three gate fixes above landed first. Then the report still carried a false
+dollar figure, so the phase reopened for the thing its own heading promised.
+
+## What a wallet holding only STX used to be told
+
+Four pools under "You can deploy now", each with an APY and a daily figure. Every
+one is a pair and the wallet holds one side, so the deposit those build is one
+sided, which the contract's own invariants place outside the active bin and
+therefore outside the earning range. `$0.0631 a day` was money the person would
+not receive.
+
+## What changed
+
+- **Holding one side of a pair is not readiness.** It is `swap_first` now, with a
+  note naming what to swap into. `deploy_now` means both sides held.
+- **The size is bounded by the smaller side**, doubled, not the larger. The old
+  figure described a position the wallet cannot fund.
+- **Each option carries its own gate result**, three states: passed, failed, not
+  measured. Two would have confused "nobody looked" with "measured and failed",
+  which is the defect part one fixed one layer down.
+- **The headline is written from the OPTION**, not from its tier, so it no longer
+  tells a wallet holding neither side that it holds one, or promises "both sides in
+  the pool" to Hermetica staking and Granite lending, which have no pair.
+- **A zero yield option cannot silence the headline** by outranking a live one.
+- **The safety table and the headline ask the same function** which option is
+  recommended, so they cannot contradict each other in print.
+- **Readiness is decided from the amount held, sized from its dollar value.** They
+  are the same thing until a price feed fails, and then they are not.
+
+## Rounds four and five, in one line each
+
+Round four: a warning called swap-first pools "ready to deploy into" on a page
+telling the reader to swap first. Round five: nothing blocked.
+
+## The two lessons, which cost the thirteen rounds
+
+**Write the sentence from the thing, not from its category.** Four separate rounds
+found the same fault wearing different clothes: a claim about a group that was true
+of only some of it. The gates covered "the recommendation". The column said "not
+measured". The headline said "you hold one side". The warning said "ready to
+deploy". Each fix was right and each left a sibling untouched.
+
+**If a guard sits where a test cannot reach, move the guard, not the test.** Eleven
+mutations survived round one because the decisions lived inside functions that do
+network reads. The answer was to lift each into a pure exported function, and where
+even that could not reach, to make removal a COMPILE ERROR: `sides` is required on
+an option and the amounts are required parameters precisely so the regression
+cannot re-enter quietly. Writing another unreachable test is how eight rounds
+happened.
+
+## Carried, recorded rather than fixed
+
+None of these moves money, misstates whose money is whose, or shows a person
+something false.
+
+1. **The call site is still not held by anything.** Deleting the marking call
+   leaves all 254 cases and the typecheck green, and the same is true of the gate
+   cell, the pair note and the verdict line, because the renderer is not exported.
+   One exported render wrapper with one case would cover all four at once. This is
+   the round four defect class surviving one line up.
+2. **Deploy and migrate payloads understate the gates**, because the marking pass
+   runs only in `scan`. Never overstates, and those paths refuse anyway.
+3. **`needsSwap` is dead in production**, consumed only by tests. The wording comes
+   from the option's own sides instead.
+4. The Gates column says "not measured" for unpaired products where the safety
+   table three sections down says "not applicable". Two words for one fact.
+5. Cosmetic: a double blank line when the pair note does not fire.

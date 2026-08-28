@@ -253,6 +253,25 @@ interface YieldOption {
    * protocol alone described the highest-APY pool while building instructions
    * for a different one: 377.87% reported against a pool scored 140.4%.
    */
+  /**
+   * What the slippage and volume gates concluded about THIS option's pool.
+   *
+   * Three states, not two, for the same reason those gates have three: a boolean
+   * makes "nobody measured this" indistinguishable from "measured and it failed",
+   * and only one of those is a reason to avoid the pool. Only the top actionable
+   * option is measured per run, so `not-measured` is the common case and it is
+   * not a criticism of the pool.
+   */
+  gates?: "passed" | "failed" | "not-measured";
+  /**
+   * Which sides of the pair the wallet holds, or `single` for unpaired products.
+   *
+   * REQUIRED. Optional, it could be dropped from the HODLMM push with the suite
+   * green, and then every wallet holding one side was told it held neither,
+   * because the sentence falls back to that. A test cannot reach the push site,
+   * which does network reads; the compiler can.
+   */
+  sides: OptionSides;
   pool_id?: string;
   daily_usd: number; monthly_usd: number; gas_to_enter_stx: number;
   swap_cost_note: string | null; note: string;
@@ -680,8 +699,8 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
 
   // -- Best move --------------------------------------------------------------
   const walletUsd = balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd + balances.usdh.usd + balances.susdh.usd + balances.aeusdc.usd;
-  const deployNow = options.filter(o => o.tier === "deploy_now");
-  const bestOpt = deployNow[0];
+  const move = bestMove(options);
+  const bestOpt = move.best;
   let recommendation = "No yield opportunities available for your current holdings.";
   let opportunityCost: number | null = 0;
   let idleCapital: number | null = round(walletUsd, 2);
@@ -703,8 +722,15 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   // `options` and "No yield opportunities available for your current holdings"
   // in `best_move`. Missing that copy is how a fix looks done and is not.
   } else if (bestOpt && bestOpt.apy_pct > 0 && walletUsd > 0) {
-    opportunityCost = round((walletUsd * bestOpt.apy_pct / 100) / 365, 4);
-    recommendation = `Best option: ${bestOpt.protocol} ${bestOpt.pool} (${bestOpt.token_needed}) at ${bestOpt.apy_pct}% APY (~$${opportunityCost}/day missed).`;
+    // The option's OWN daily figure, not one recomputed from the whole wallet.
+    //
+    // This multiplied the entire wallet by the pool's APY while the options table
+    // multiplied only what can actually be paired. On a live wallet the two named
+    // the same pool on the same screen at $0.0831 and $0.0119 a day, a factor of
+    // seven, and the bigger one was the headline. A reader takes "missed" as what
+    // deploying would give them.
+    opportunityCost = move.dailyUsd;
+    recommendation = verdictLine(bestOpt, opportunityCost);
   }
 
   // The headline is overwritten LAST when the balance read failed, because every
@@ -968,6 +994,215 @@ function parseUserBinList(hex: string): number[] {
 }
 
 // -- Yield Options (3-tier) ---------------------------------------------------
+/**
+ * Which tier a HODLMM option belongs in, and how much of it the wallet can fund.
+ *
+ * Pure and exported so the decisions can be tested. They used to sit inline inside
+ * `getYieldOptions`, which does network reads in the same function, so no case
+ * could reach them: reverting the whole two sided tiering change left all 203
+ * cases green.
+ *
+ * Entry is TWO SIDED. Holding one token of a pair is not readiness, because the
+ * contract permits both amounts only at the active bin, X non zero at or above it
+ * and Y at or below. A one sided deposit therefore sits outside the earning range
+ * and does not earn the pool fee APY printed beside it, which is what
+ * `hodlmm-bin-guardian` exists to flag. Measured 2026-08-28: a wallet holding
+ * 14.879089 STX and nothing else was offered four pools as deploy_now at 600.16%,
+ * 366.38%, 185.18% and 4.44% with a daily dollar figure on each.
+ */
+/**
+ * What the Gates column may say about a pool, from the two gate results.
+ *
+ * A FAIL on either wins, and it must. Requiring both to have returned before
+ * saying anything meant one gate measuring a real failure while the other could
+ * not be read collapsed to "not measured": the column told a reader nobody had
+ * looked at a pool that had just been measured and found too thin to trade in.
+ * Not a corner case. A pool's 24h volume can be a permanent fail against the
+ * floor while a slippage read sits behind a rate limited endpoint.
+ */
+/**
+ * Write each option's gate result onto it, for the pool this run measured.
+ *
+ * Exported because the loop this replaces could be deleted with the suite AND the
+ * typecheck green: it lived inside the CLI action, which nothing can reach. With
+ * it gone every row read "not measured", including the one pool that HAD been
+ * measured and failed, which is the fault the marking exists to prevent.
+ *
+ * Options not naming the measured pool are left alone, keeping the
+ * "not-measured" they were built with, which is true of them: one pool is
+ * measured per run.
+ */
+export function applyGateResults(
+  options: YieldOption[],
+  guardian: { slippage: { pool_id: string | null; status: GateStatus }; volume: { status: GateStatus } },
+): void {
+  const pool = guardian.slippage.pool_id;
+  if (!pool) return;
+  for (const o of options) {
+    if (o.pool_id === pool) o.gates = markOptionGates(guardian.slippage.status, guardian.volume.status);
+  }
+}
+
+export function markOptionGates(slippage: GateStatus, volume: GateStatus): "passed" | "failed" | "not-measured" {
+  if (slippage === "fail" || volume === "fail") return "failed";
+  if (slippage === "pass" && volume === "pass") return "passed";
+  return "not-measured";
+}
+
+/**
+ * The option the headline verdict should name, and what it actually earns.
+ *
+ * Pure and exported because both of its decisions were live defects that no test
+ * could reach: they sat inside `scoutWallet`, which does network reads.
+ *
+ * **Any actionable tier, not deploy-now alone.** Reading the deploy-now tier only
+ * was correct while holding one side of a pair counted as deploy-now, and broke
+ * the moment two sided entry made such a wallet swap-first. A STX only wallet then
+ * had no deploy-now option at all, and the headline fell through to "No yield
+ * opportunities available for your current holdings", printed eight lines under a
+ * table of seven of them, four marked profitable.
+ *
+ * **The option's OWN daily figure, not one recomputed from the whole wallet.** The
+ * verdict multiplied the entire wallet by the pool's APY while the options table
+ * multiplied only what can be paired. On a live wallet the two named the same pool
+ * on the same screen at $0.0831 and $0.0119 a day, and the larger was the headline.
+ * A reader takes "missed" as what deploying would give them.
+ */
+export function bestMove(options: YieldOption[]): {
+  best: YieldOption | undefined; needsSwap: boolean; dailyUsd: number;
+} {
+  // An option earning nothing is not an opportunity, and skipping it here rather
+  // than after the choice is the difference between a headline and silence.
+  //
+  // Zest sBTC supply is `deploy_now` at 0% whenever utilisation is genuinely zero
+  // OR its rate read failed, and any deploy_now used to win outright. So a wallet
+  // was shown "No yield opportunities available for your current holdings" above a
+  // 600% row, which is round one's first blocker returning through a second door.
+  const live = options.filter(o => o.apy_pct > 0);
+  const deployNow = live.find(o => o.tier === "deploy_now");
+  const best = deployNow ?? live.find(o => o.tier === "swap_first");
+  return { best, needsSwap: !deployNow && !!best, dailyUsd: best?.daily_usd ?? 0 };
+}
+
+/**
+ * The headline sentence for an option, true of THAT option.
+ *
+ * The wording used to be chosen from the tier, which asserted the same thing about
+ * every wallet in it. Two wallets land in `swap_first` holding one side or neither,
+ * and Hermetica staking and Granite lending land there with no two sides at all,
+ * so "once both sides are in the pool, because you hold one side" was printed over
+ * wallets holding neither and over products with no pair.
+ */
+/**
+ * How an option's gate result reads in the report.
+ *
+ * Exported because turning a failed gate into the word "passed" in the table a
+ * person reads was invisible to the whole suite: this lived inside `renderReport`,
+ * which is not exported.
+ */
+/**
+ * Does the swap-first table need the sentence about both sides of a pair?
+ *
+ * Only when a paired pool is actually in it. That table also carries Hermetica
+ * staking and Granite lending, which have no pair and no active bin, and the
+ * sentence was printed over those too. Exported because `renderReport` is not, so
+ * making the sentence unconditional again was invisible to the whole suite.
+ */
+export function swapTableNeedsPairNote(rows: YieldOption[]): boolean {
+  return rows.some(o => o.sides !== "single");
+}
+
+export function gateCellFor(o: YieldOption): string {
+  if (o.gates === "passed") return "passed";
+  if (o.gates === "failed") return "**FAILED**";
+  return "not measured";
+}
+
+export function verdictLine(o: YieldOption, dailyUsd: number): string {
+  const head = `Best option: ${o.protocol} ${o.pool} (${o.token_needed}) at ${o.apy_pct}% APY`;
+  if (o.tier !== "swap_first") return `${head} (~$${dailyUsd}/day missed).`;
+  if (o.sides === "single") {
+    return `${head}, about $${dailyUsd}/day once you hold ${o.token_needed}. You do not hold it yet, so a swap comes first.`;
+  }
+  if (o.sides === "one") {
+    return `${head}, about $${dailyUsd}/day once both sides are in the pool. You hold one side, so swapping part of it comes first.`;
+  }
+  return `${head}, about $${dailyUsd}/day once both sides are in the pool. You hold neither side, so swapping into both comes first.`;
+}
+
+/**
+ * How much of a paired pool the wallet already holds. Not a tier: two wallets in
+ * `swap_first` can hold one side or neither, and the sentence a person reads is
+ * only true of one of them.
+ *
+ * `single` is for products that have no two sides at all, Zest supply, Hermetica
+ * staking, Granite lending. A headline promising "both sides in the pool" was
+ * printed over those too.
+ */
+export type OptionSides = "both" | "one" | "neither" | "single";
+
+export function sizeHodlmmOption(
+  xUsd: number, yUsd: number, totalUsd: number, xSymbol: string, ySymbol: string,
+  /**
+   * How much of each side is actually held. Readiness is decided from these and
+   * the position is SIZED from the dollar values, because the two answer different
+   * questions and one of them stops working when a price feed does.
+   *
+   * Deciding readiness from `usd` was a regression: `usd` is `amount * price`
+   * rounded to two decimals, so a failed price read makes a real holding look
+   * absent, and a holding worth under half a cent does too. A wallet holding both
+   * sides was then told "You hold one side, so swapping part of it comes first",
+   * which is a false statement about their own wallet, and it advised swapping
+   * money that did not need swapping. The old code read amounts; this restores
+   * that and keeps the dollar values for sizing.
+   *
+   * REQUIRED, with no default falling back to the dollar values. A default made
+   * the regression silently re-enterable: deleting the two arguments at the call
+   * site restored the bug with every case still green. Required, the compiler
+   * catches it, and `tsc` is in the gate.
+   */
+  xAmount: number, yAmount: number,
+): { tier: YieldTier; capUsd: number; swapNote: string | null; sides: OptionSides } {
+  const hasX = xAmount > 0;
+  const hasY = yAmount > 0;
+
+  if (hasX && hasY) {
+    // The smaller side bounds what can be paired, so `Math.max` described a
+    // position the wallet cannot fund. The doubling assumes a roughly even split
+    // by value across bins around the active one, which is a ranking figure and
+    // not a promise.
+    return { tier: "deploy_now", capUsd: Math.min(xUsd, yUsd) * 2, swapNote: null, sides: "both" };
+  }
+  if (hasX || hasY) {
+    // Swapping half of one side into the other preserves the total, less fees, so
+    // the pair is worth about what is held.
+    const held = hasX ? xSymbol : ySymbol;
+    const needed = hasX ? ySymbol : xSymbol;
+    return {
+      tier: "swap_first",
+      capUsd: Math.max(xUsd, yUsd),
+      swapNote: `Swap part of your ${held} to ${needed} on Bitflow, then deposit both at the active bin`,
+      sides: "one",
+    };
+  }
+  if (totalUsd > 0) {
+    // Holding SOMETHING swappable is the question, not holding ten dollars of it.
+    //
+    // The full value, not half. Half was right under a one sided model, where only
+    // one swap happened. Under two sided entry someone holding $100 of an
+    // unrelated token swaps $50 into each side and ends with $100 in the pool, so
+    // halving understated it by about two times and disagreed with the one side
+    // branch above, which is the same operation.
+    return {
+      tier: "swap_first",
+      capUsd: totalUsd,
+      swapNote: `Swap into ${xSymbol} and ${ySymbol} on Bitflow, then deposit both at the active bin`,
+      sides: "neither",
+    };
+  }
+  return { tier: "acquire_to_unlock", capUsd: 0, swapNote: null, sides: "neither" };
+}
+
 async function getYieldOptions(
   balances: WalletBalances,
   prices: { sbtc: number; stx: number; usdcx: number; usdh: number; aeusdc: number },
@@ -995,9 +1230,9 @@ async function getYieldOptions(
 
     if (balances.sbtc.amount > 0) {
       const d = dailyUsd(balances.sbtc.usd, supplyApy);
-      options.push({ tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: supplyApy > 0 ? `Lending, ${round(utilPct, 1)}% utilization.` : `0% utilization, APY rises when borrowers arrive.`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: supplyApy > 0 ? `Lending, ${round(utilPct, 1)}% utilization.` : `0% utilization, APY rises when borrowers arrive.`, ytg_ratio: 0, ytg_profitable: false });
     } else {
-      options.push({ tier: "acquire_to_unlock", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Need sBTC. Get via: Bitflow swap or sBTC bridge.`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Need sBTC. Get via: Bitflow swap or sBTC bridge.`, ytg_ratio: 0, ytg_profitable: false });
     }
   } catch { /* skip */ }
 
@@ -1008,15 +1243,15 @@ async function getYieldOptions(
     if (balances.usdh.amount > 0) {
       const d = dailyUsd(balances.usdh.usd, apy);
       const apyNote = apyRaw > 0 ? "" : " (estimated, no live rate data)";
-      options.push({ tier: "deploy_now", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.02, swap_cost_note: null, note: `Stake USDh -> sUSDh. Rate: ${hermetica.exchange_rate} USDh/sUSDh. 7-day unstake cooldown.${apyNote}`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.02, swap_cost_note: null, note: `Stake USDh -> sUSDh. Rate: ${hermetica.exchange_rate} USDh/sUSDh. 7-day unstake cooldown.${apyNote}`, ytg_ratio: 0, ytg_profitable: false });
     } else if (balances.sbtc.amount > 0 || balances.usdcx.amount > 0) {
       // Swap path available
       const swapFrom = balances.sbtc.amount > 0 ? "sBTC" : "USDCx";
       const cap = balances.sbtc.amount > 0 ? balances.sbtc.usd : balances.usdcx.usd;
       const d = dailyUsd(cap, apy);
-      options.push({ tier: "swap_first", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.1, swap_cost_note: `Swap ${swapFrom} -> USDh on Bitflow (~0.1-0.3% fee + gas)`, note: `Then stake USDh -> sUSDh. 7-day unstake cooldown.`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "swap_first", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.1, swap_cost_note: `Swap ${swapFrom} -> USDh on Bitflow (~0.1-0.3% fee + gas)`, note: `Then stake USDh -> sUSDh. 7-day unstake cooldown.`, ytg_ratio: 0, ytg_profitable: false });
     } else {
-      options.push({ tier: "acquire_to_unlock", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.02, swap_cost_note: null, note: `Need USDh. Get via: Bitflow swap (sBTC/STX/USDCx -> USDh).`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.02, swap_cost_note: null, note: `Need USDh. Get via: Bitflow swap (sBTC/STX/USDCx -> USDh).`, ytg_ratio: 0, ytg_profitable: false });
     }
   }
 
@@ -1024,12 +1259,12 @@ async function getYieldOptions(
   if (granite.supply_apy_pct && granite.supply_apy_pct > 0) {
     if (balances.aeusdc.amount > 0) {
       const d = dailyUsd(balances.aeusdc.usd, granite.supply_apy_pct);
-      options.push({ tier: "deploy_now", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.05, swap_cost_note: null, note: `Lending, ${granite.utilization_pct}% util, ${granite.borrow_apr_pct}% borrow APR.`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.05, swap_cost_note: null, note: `Lending, ${granite.utilization_pct}% util, ${granite.borrow_apr_pct}% borrow APR.`, ytg_ratio: 0, ytg_profitable: false });
     } else if (balances.usdcx.amount > 0) {
       const d = dailyUsd(balances.usdcx.usd, granite.supply_apy_pct);
-      options.push({ tier: "swap_first", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.1, swap_cost_note: "Swap USDCx -> aeUSDC on Bitflow (~0.01% fee, stablecoin pair)", note: `Then deposit aeUSDC to Granite LP.`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "swap_first", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.1, swap_cost_note: "Swap USDCx -> aeUSDC on Bitflow (~0.01% fee, stablecoin pair)", note: `Then deposit aeUSDC to Granite LP.`, ytg_ratio: 0, ytg_profitable: false });
     } else {
-      options.push({ tier: "acquire_to_unlock", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.05, swap_cost_note: null, note: `Need aeUSDC. Get via: Bitflow swap or bridge from Ethereum USDC.`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Granite", pool: "aeUSDC Lending LP", token_needed: "aeUSDC", apy_pct: granite.supply_apy_pct, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.05, swap_cost_note: null, note: `Need aeUSDC. Get via: Bitflow swap or bridge from Ethereum USDC.`, ytg_ratio: 0, ytg_profitable: false });
     }
   }
 
@@ -1048,39 +1283,25 @@ async function getYieldOptions(
         const tokenYMeta = TOKENS[def.tokenY];
         if (!tokenXMeta || !tokenYMeta) continue;
 
-        const hasX = (balances as unknown as Record<string, TokenBalance>)[def.tokenX]?.amount > 0;
-        const hasY = (balances as unknown as Record<string, TokenBalance>)[def.tokenY]?.amount > 0;
-
-        let tier: YieldTier;
-        let capUsd: number;
-        let swapNote: string | null = null;
-
-        if (hasX || hasY) {
-          tier = "deploy_now";
-          const xUsd = (balances as unknown as Record<string, TokenBalance>)[def.tokenX]?.usd ?? 0;
-          const yUsd = (balances as unknown as Record<string, TokenBalance>)[def.tokenY]?.usd ?? 0;
-          capUsd = Math.max(xUsd, yUsd);
-        } else {
-          // Check if user has any token that could be swapped
-          const totalUsd = balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd + balances.usdh.usd + balances.aeusdc.usd;
-          // Holding SOMETHING swappable is the question, not holding ten dollars
-          // of it. This used to require `totalUsd > 10` and otherwise set the
-          // projected yield to zero, which then guaranteed the gate below refused.
-          // Nothing said so. A person under ten dollars simply watched their
-          // options come back empty, with no message naming the reason, and the
-          // number was a bare comparison of their net worth against a constant.
-          if (totalUsd > 0) {
-            tier = "swap_first";
-            capUsd = totalUsd * 0.5; // conservative: assume half could be swapped
-            swapNote = `Swap to ${tokenXMeta.symbol} or ${tokenYMeta.symbol} on Bitflow first`;
-          } else {
-            tier = "acquire_to_unlock";
-            capUsd = 0;
-          }
-        }
+        const bx = (balances as unknown as Record<string, TokenBalance>)[def.tokenX];
+        const by = (balances as unknown as Record<string, TokenBalance>)[def.tokenY];
+        const sized = sizeHodlmmOption(
+          bx?.usd ?? 0, by?.usd ?? 0,
+          balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd + balances.usdh.usd + balances.aeusdc.usd,
+          tokenXMeta.symbol, tokenYMeta.symbol,
+          bx?.amount ?? 0, by?.amount ?? 0,
+        );
+        const { tier, capUsd, swapNote } = sized;
 
         const d = dailyUsd(capUsd, bp.apr24h);
+        // Only ONE pool is gated per run, the one being recommended, so every other
+        // option carries no slippage or volume measurement at all. Saying so on the
+        // option is the difference between "this passed" and "nobody looked".
+        // Without it three pools sat beside the recommended one looking equally
+        // ready while nothing had been measured for them.
         options.push({
+          gates: "not-measured",
+          sides: sized.sides,
           tier, protocol: "HODLMM", pool: def.name, pool_id: bp.poolId,
           token_needed: `${tokenXMeta.symbol}/${tokenYMeta.symbol}`,
           apy_pct: round(bp.apr24h, 2), daily_usd: d, monthly_usd: round(d * 30, 2),
@@ -1681,7 +1902,25 @@ export function scanGuardianInput(options: YieldOption[]): {
   notApplicableScope: string | null;
   notApplicableVolumeScope: string | null;
 } {
-  const recommendedOpt = options.find(o => o.tier === "deploy_now") ?? null;
+  // The top ACTIONABLE option, which is the one being recommended, whichever tier
+  // it landed in.
+  //
+  // This looked only at `deploy_now`. That was fine while holding one side of a
+  // pair counted as deploy_now, and stopped being fine the moment two sided entry
+  // made such a wallet `swap_first`: a STX only wallet then had no deploy_now
+  // option at all, so nothing was measured and the safety table reported "no
+  // HODLMM pool is involved" while the report recommended one. The gates matter
+  // for the pool the person will end up in, and a swap first entry ends up in the
+  // same pool.
+  // The SAME answer the headline uses, from the same function.
+  //
+  // This ran its own tier preference and had no 0% filter, so with a 0% Zest
+  // deploy-now row present the headline recommended a 600% HODLMM pool while this
+  // picked Zest, whose `pool_id` is undefined, and measured nothing. The report
+  // then said "the recommended option is Zest sBTC Supply, which touches no HODLMM
+  // pool" seven sections under a headline recommending dlmm_4. Two functions
+  // answering one question differently is the fault this phase keeps finding.
+  const recommendedOpt = bestMove(options).best ?? null;
   const recommended = recommendedOpt?.pool_id ?? null;
 
   // The HODLMM options a reader can see and act on that these two gates did NOT
@@ -1690,7 +1929,7 @@ export function scanGuardianInput(options: YieldOption[]): {
   // report listed HODLMM pools as ready to deploy into.
   const uncovered = recommended
     ? []
-    : options.filter(o => o.tier === "deploy_now" && o.pool_id).map(o => `${o.pool_id} (${o.pool})`);
+    : options.filter(o => (o.tier === "deploy_now" || o.tier === "swap_first") && o.pool_id).map(o => `${o.pool_id} (${o.pool})`);
 
   // Built ONLY when there is no pool to measure. Computing it unconditionally
   // produced "the recommended option is HODLMM sBTC-USDCx-10bps, which touches no
@@ -1707,7 +1946,7 @@ export function scanGuardianInput(options: YieldOption[]): {
     }
     const head = `the recommended option is ${recommendedOpt.protocol} ${recommendedOpt.pool}, which touches no HODLMM pool, so pool ${what} does not apply to it`;
     return uncovered.length
-      ? `${head}. WARNING: this row does NOT cover the HODLMM options listed above as ready to deploy into (${uncovered.join(", ")}), and nothing in this run measured them`
+      ? `${head}. WARNING: this row does NOT cover the HODLMM options listed above (${uncovered.join(", ")}), and nothing in this run measured them`
       : head;
   };
 
@@ -3371,13 +3610,17 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   const swapFirst = scout.options.filter(o => o.tier === "swap_first");
   const acquire = scout.options.filter(o => o.tier === "acquire_to_unlock");
 
+  // The gates column, so a reader can tell a pool that passed from one nobody
+  // measured. Only the top actionable option is measured per run, and without
+  // saying so the rest read as equally checked.
+
   if (deployNow.length > 0) {
     L.push("### You can deploy now");
-    L.push("| # | Protocol | Pool | Token | APY | Daily | Monthly | YTG | Note |");
-    L.push("|---|----------|------|-------|----:|------:|--------:|----:|------|");
+    L.push("| # | Protocol | Pool | Token | APY | Daily | Monthly | YTG | Gates | Note |");
+    L.push("|---|----------|------|-------|----:|------:|--------:|----:|-------|------|");
     deployNow.forEach((o, i) => {
       const ytg = o.ytg_profitable ? `${o.ytg_ratio}x` : `**${o.ytg_ratio}x**`;
-      L.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.token_needed} | ${o.apy_pct}% | $${o.daily_usd} | $${o.monthly_usd} | ${ytg} | ${o.note} |`);
+      L.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.token_needed} | ${o.apy_pct}% | $${o.daily_usd} | $${o.monthly_usd} | ${ytg} | ${gateCellFor(o)} | ${o.note} |`);
     });
     L.push("");
     L.push("_YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x means the fee to enter is large next to a week of yield. It is shown so you can weigh it, and it does not stop you._");
@@ -3386,12 +3629,19 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
 
   if (swapFirst.length > 0) {
     L.push("### Swap first, then deploy");
-    L.push("| # | Protocol | Pool | Token | APY | YTG | Swap | Note |");
-    L.push("|---|----------|------|-------|----:|----:|------|------|");
+    L.push("| # | Protocol | Pool | Token | APY | YTG | Gates | Swap | Note |");
+    L.push("|---|----------|------|-------|----:|----:|-------|------|------|");
     swapFirst.forEach((o, i) => {
       const ytg = o.ytg_profitable ? `${o.ytg_ratio}x` : `**${o.ytg_ratio}x**`;
-      L.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.token_needed} | ${o.apy_pct}% | ${ytg} | ${o.swap_cost_note ?? "-"} | ${o.note} |`);
+      L.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.token_needed} | ${o.apy_pct}% | ${ytg} | ${gateCellFor(o)} | ${o.swap_cost_note ?? "-"} | ${o.note} |`);
     });
+    L.push("");
+    if (swapTableNeedsPairNote(swapFirst)) {
+      // Conditional, because this table also holds Hermetica staking and Granite
+      // lending, which have no pair and no active bin. The sentence was printed
+      // over those too.
+      L.push("_For the paired pools above, the APY is what a position at the active bin earns. Getting there needs both sides, which is what the swap is for: a one sided deposit sits outside the active bin and earns nothing until price reaches it._");
+    }
     L.push("");
   }
 
@@ -3570,6 +3820,13 @@ program
       // Granite or Zest recommendation yields null and the two pool gates report
       // themselves as not applicable rather than measuring something unrelated.
       const guardian = await checkGuardian(scout, scanGuardianInput(scout.options));
+
+      // Mark the one option this run actually measured. Every other option keeps
+      // the `gates` it was built with, `not-measured`, which means "nobody looked"
+      // and not "it failed". Without this, unmeasured pools sat beside the
+      // recommended one reading as equally ready.
+      applyGateResults(scout.options, guardian);
+
       // The top-level status is DERIVED from the scout's own, never asserted.
       // This line used to be the literal `"ok"`, printed directly above a
       // `scout.status` of `"degraded"` in the same object, so a run that had just
