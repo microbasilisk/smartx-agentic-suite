@@ -15,7 +15,7 @@ metadata:
 
 ## What it does
 
-Cross-protocol yield executor covering **all 4 major Stacks DeFi protocols**: Zest v2, Hermetica, Granite, and HODLMM (Bitflow DLMM). Scans 6 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC) across the wallet, reads positions and live yields from all 4 protocols, maps yield opportunities into 3 tiers (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios**, verifies sBTC reserve integrity via BIP-341 P2TR derivation, checks 5 market safety gates and reports Yield-to-Gas economics without blocking on them, then executes deploy/withdraw/rebalance/migrate/emergency operations. Every write runs a mandatory safety pipeline: Scout -> Reserve -> Guardian -> YTG -> Executor. No bypasses.
+Cross-protocol yield executor covering **all 4 major Stacks DeFi protocols**: Zest v2, Hermetica, Granite, and HODLMM (Bitflow DLMM). Scans 6 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC) across the wallet, reads positions and live yields from all 4 protocols, maps yield opportunities into 3 tiers (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios**, verifies sBTC reserve integrity via BIP-341 P2TR derivation, checks 5 market safety gates and reports Yield-to-Gas economics without blocking on them, then executes deploy/withdraw/rebalance/migrate/emergency operations. Every write runs a mandatory safety pipeline: Scout -> Reserve -> Guardian -> Executor. The single exception is `emergency`, which bypasses both gates deliberately so a position can be exited when the reserve check is failing.
 
 **Protocol coverage:**
 
@@ -86,18 +86,18 @@ layer enforce the same safety invariants.
 | Operation | Mode | Rationale |
 |-----------|------|-----------|
 | DLMM swap (`swap-simple-multi`) | **allow** + dual-pin | Envelope: `Pc.principal(sender).willSendLte(amount_in)` on input + `Pc.principal(pool).willSendGte(min_out)` on output. Matches the sibling skill's pattern validated in [`bff-skills#494`](https://github.com/BitflowFinance/bff-skills/pull/494) (commit [`02d10989`](https://github.com/cliqueengagements/bff-skills/commit/02d10989), on-chain proof tx [`0xf4f49328…`](https://explorer.hiro.so/txid/0xf4f4932800a80234845a8d199556ad9c0ff4aa99874a95c819c13779b164cbc8?chain=mainnet)) and `bff-skills/docs/knowledge-base.md` line 438 (`"allow + sender-pin on routable fee flows"`). Allow mode preserved because protocol/provider fees accrue inside `dlmm-core`'s `unclaimed-protocol-fees` map and bin balances without emitting FT transfer events on the swap tx; the pool-side `willSendGte` pin IS the receive-side fund-safety protection. Empirically Deny + 2 PCs under-specifies stable-stable pools (tx [`0x5986066a…`](https://explorer.hiro.so/txid/0x5986066a93b3c8e6466d4f3f2da33a4fbe3e703fe81ca2dc23b0fe0d5f945531?chain=mainnet) aborted on dlmm_7). |
-| Granite `redeem` | **deny** | `lte` cap on pool outflow (`shares * 2n` per @arc0btc's review) + `gte: "1"` floor on wallet receive. Unambiguous flow: one FT source (pool) to one FT destination (wallet), so Deny is safe and tightest. |
-| Hermetica `stake` | allow | Mints sUSDh back to caller: mint is not a sender-side transfer. Outgoing USDh `lte` PC asserted as belt-and-suspenders. |
-| Hermetica `unstake` | allow | Burns sUSDh and creates a claim: burn is not expressible as sender PC. Outgoing sUSDh `lte` PC asserted. |
-| Granite `deposit` | allow | Mints LP tokens back to caller: same mint issue. Outgoing aeUSDC `lte` PC asserted. |
+| Granite `redeem` | **deny** | **FOUR post-conditions**, two per flow. Pool (`state-v1`) sends aeUSDC `gte` shares (receive-side floor) and `lte` shares x 2 (overpayment cap, per @arc0btc's review); wallet sends `lp-token` `gte` shares and `lte` shares (an exact burn band). Two distinct FT flows, so each is bounded on both sides. Upstream's SKILL.md calls this a 3-PC envelope and omits the `lte` on the burn; our code has emitted four for some time, so upstream's wording understates what this skill actually asserts. The on-chain reference tx [`0xd0bb0059…`](https://explorer.hiro.so/txid/0xd0bb0059b72e5f5d75a4dd1bedb12e44e32790567bc282184ca5309641a8f44f?chain=mainnet) carries only two, both floors, and our four are compatible with it. The earlier shape (`lte` on `liquidity-provider-v1` plus `gte: "1"` on wallet receive) aborted on chain in BOTH modes, because FT post-conditions track outflows and the wallet receives aeUSDC rather than sending it. |
+| Hermetica `stake` | **deny** | **Diverges from upstream on purpose.** Upstream at the pinned commit uses `allow` here, and its own SKILL.md documents `allow`, so this row read `allow` because it was inherited intact from the merged skill. Both are wrong on chain: measured on 2026-08-28 over the 50 most recent calls to `staking-v1-1`, all **37** `stake` calls used `deny`, none used `allow`, and 36 of 37 succeeded. The one failure aborted with `(err u1)`, a contract-level rejection, not `abort_by_post_condition`, so deny mode was not the cause. The mint appears uncovered inside a successful deny transaction, so a mint is not a transfer and needs no allowance. Reference tx [`0x710afa89…`](https://explorer.hiro.so/txid/0x710afa899f46d6b3a3c1235b4522693cc47e799d723895574b6e8e09686dd098?chain=mainnet). SmartX's adapter also refuses `allow` where it cannot resolve the spent asset, so `allow` would make this path unsignable. |
+| Hermetica `unstake` | allow, and this is a KNOWN DEFECT | The stated reason, that a burn is not expressible as a sender post-condition, is FALSE: a burn IS attributed to a sender, so deny is achievable here, and all 25 `unstake` calls in the last 100 transactions used deny. SmartX's adapter refuses allow where it cannot resolve the spent asset, so `withdraw --protocol hermetica` currently produces an instruction nobody can sign. Recorded rather than quietly fixed, because changing a post-condition mode is Phase 8 work. |
+| Granite `deposit` | **deny** | **Diverges from upstream on purpose**, same reasoning and the same inheritance as Hermetica `stake` above: upstream uses `allow` and documents `allow`. Deny ignores the LP token mint, so only the outgoing aeUSDC needs bounding. |
 
 ### What provides safety instead
 
 1. **`--confirm` dry-run gate**: every write command returns a preview without `--confirm`. No transaction is emitted until the agent explicitly opts in.
-2. **Guardian (5 gates)**: pool-vs-market divergence <=0.5%, 24h volume >=$10K, gas <=50 STX, 4h rebalance cooldown, price source availability. Relay health is checked at the MCP runtime layer. Any gate failure blocks the write.
+2. **Guardian (5 gates)**: pool-vs-market divergence <=0.5%, 24h volume >=$10K, gas <=50 STX, a 4h cooldown after any rebalance that blocks every write and not only rebalancing, price source availability. Relay health is checked at the MCP runtime layer. Any gate failure blocks the write.
 3. **PoR (Proof of Reserve)**: sBTC reserve ratio check. YELLOW (99.5-99.9%) blocks all writes. RED (<99.5%) triggers emergency withdrawal recommendation.
 4. **YTG economics**: reports 7-day projected yield against the gas estimate on every deploy. Informs, never blocks: whether a small return is worth a fee is the holder's judgement.
-5. **Crypto self-test**: bech32m vectors + P2TR derivation must pass before any operation, including reads.
+5. **Crypto self-test**: bech32m vectors + P2TR derivation, run by the `doctor` command. They are NOT a precondition of `scan` or of any write. The reserve check derives a P2TR address on every run, so a failure that throws blocks writes through `DATA_UNAVAILABLE`; a silently wrong encoder is not caught. Run `doctor` first.
 
 ### Additional safety notes
 
@@ -308,3 +308,35 @@ Data is live but not guaranteed. Yield rates are based on trailing 24h volume an
 Winner of AIBTC x Bitflow Skills Pay the Bills competition.
 Original author: @cliqueengagements
 Competition PR: https://github.com/BitflowFinance/bff-skills/pull/485
+
+## Depositing both sides of a HODLMM pool
+
+A HODLMM pool holds two tokens. `--amount` names how much of `--token` to
+deposit, and `--counter-amount` names how much of the pool's other token to
+deposit alongside it:
+
+```
+deploy --protocol hodlmm --pool-id dlmm_1 --token sbtc --amount 100000 --counter-amount 5000000
+```
+
+Both amounts are in the smallest unit of their own token, digits only. No
+exponent, no hex, no decimal point: those are rejected rather than converted,
+because a typo that becomes a different amount of somebody's money is worse than
+an error message.
+
+**Neither amount is ever inferred from a wallet balance.** Without
+`--counter-amount` the deposit is one sided and only the named token moves. This
+is not a default that happens to be conservative, it is the rule: an amount moves
+because somebody named it.
+
+Other constraints, all enforced before anything is built:
+
+- `--token` must be one of the two tokens the chosen pool actually holds. A token
+  the protocol accepts in general is not enough.
+- A one sided deposit is spread over five bins, so an amount below 5 is refused
+  rather than building five bins of zero. Any remainder that five bins cannot
+  divide evenly stays in your wallet and is reported.
+- `--counter-amount` is ignored by zest, hermetica and granite, which take one
+  asset.
+- `migrate` does not accept `--counter-amount`. Its deposit is sized from an
+  amount that has not arrived yet, so a second side cannot be checked.

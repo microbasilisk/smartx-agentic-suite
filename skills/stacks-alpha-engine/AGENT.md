@@ -19,20 +19,20 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
    f. Run Guardian: check all 5 gates
    g. If any gate fails -> refuse with specific reason(s)
    h. If all pass -> output transaction instructions for execution
-4. For `emergency`: bypass Guardian gates (speed matters), output all withdrawal instructions across 4 protocols
+4. For `emergency`: bypass BOTH the Guardian gates and the PoR gate (speed matters, and a reserve failure is exactly when somebody needs out), output all withdrawal instructions across 4 protocols
 
 ## Guardrails
 
 ### Spending Limits
-- **Per-transaction:** Cannot deploy more than wallet balance of the target token
+- **Per-transaction:** Cannot deploy more than the wallet balance of the token you NAMED, and no second asset moves unless you name an amount for it too
 - **Gas cap:** Refuse operations if estimated gas > 50 STX
 - **Slippage cap:** Refuse if HODLMM active bin price deviates > 0.5% from market
 - **Volume floor:** Refuse HODLMM operations if 24h pool volume < $10,000
 
 ### Refusal Conditions (hard gates)
 - PoR signal is RED, YELLOW, or DATA_UNAVAILABLE -> refuse all writes
-- Any price source (Tenero, Bitflow) unavailable -> refuse all writes
-- Rebalance cooldown not elapsed (4 hours) -> refuse rebalance
+- The price gate reads Tenero only (sBTC and STX above zero) -> refuse all writes. Bitflow being unavailable makes the two POOL gates unknown and blocking, but only for an operation that touches a pool: a Zest deploy proceeds with Bitflow down.
+- Cooldown not elapsed (4 hours) -> refuse EVERY write, not only `rebalance`. One timestamp for the whole engine, not one per pool, so rebalancing dlmm_1 also blocks a withdraw from dlmm_4 for four hours. `emergency` is the exception and still runs.
 - Target protocol APY is 0% -> refuse deploy (unless --force)
 - (YTG is NOT a refusal condition. A 7d yield under 3x the gas estimate is reported
   on the result as `economics` and the deploy proceeds. It used to refuse, and that
@@ -40,11 +40,11 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
   is a dollar threshold on the person, since gas and APY are the only other terms.)
 - Insufficient wallet balance for requested token/amount -> refuse deploy
 - Invalid wallet address -> refuse all operations
-- Crypto self-tests fail (bech32m, P2TR) -> refuse all operations
+- Crypto self-tests (bech32m vectors, P2TR derivation) run in `doctor` ONLY. They are not a gate on `scan` or on any write. `checkReserve` derives a P2TR address on every run, so a self-test failure that THROWS surfaces as `DATA_UNAVAILABLE` and refuses writes; an encoder that is wrong without throwing is not caught. Run `doctor` before trusting a reserve figure.
 - Wrong token for protocol (e.g., sBTC to Granite) -> refuse with correct token info
 
 ### Cooldown
-- 4-hour minimum between HODLMM rebalance operations
+- 4-hour minimum after any rebalance, which blocks EVERY write command and not only the next rebalance, because the engine keeps one timestamp rather than one per pool
 - Persisted to `~/.stacks-alpha-engine-state.json`
 
 ### Non-Atomic Operations
@@ -61,7 +61,7 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 - Borrow USDh via `zest_borrow` (MCP native; routes to `v0-4-market.borrow`): **USDh only** by `validTokens_borrowRepay` gate. USDCx/wSTX/stSTX return `abort_by_response (err none)` on MCP probe, likely an upstream `borrow-helper-v2-1-7` routing gap; refused to save gas.
 - Repay USDh via `zest_repay` (MCP native; routes to `v0-4-market.repay`)
 - APY read live from vault utilization + interest rate
-- Currently low supply APY: `deploy --protocol zest` is YTG-gated and typically refuses without `--force`. Borrow path is the interesting leg, see "Leveraged-yield pattern" in SKILL.md.
+- Currently low supply APY: `deploy --protocol zest` REPORTS a poor yield-to-gas ratio and proceeds anyway. It does not refuse and `--force` is not needed. Borrow path is the interesting leg, see "Leveraged-yield pattern" in SKILL.md.
 
 ### Hermetica
 - Stake USDh via `call_contract` -> `staking-v1-1.stake(amount: uint, affiliate: none)`
@@ -101,4 +101,4 @@ When PoR signal is RED or user runs `emergency`:
 - Does not add sBTC collateral to Granite borrower-v1 (blocked by trait_reference)
 - Does not make investment recommendations (data-driven options, not financial advice)
 - Does not operate on testnet (mainnet only)
-- Does not bypass safety gates (emergency bypasses Guardian only, never PoR)
+- `emergency` bypasses BOTH the Guardian and the PoR gate, deliberately: it returns before either is reached, because a reserve failure is precisely when somebody needs to get out. Every other command is gated by both.

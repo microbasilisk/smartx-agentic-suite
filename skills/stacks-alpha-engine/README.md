@@ -19,9 +19,9 @@ stacks-alpha-engine
 
 ## What it does
 
-Cross-protocol yield executor covering all 4 major Stacks DeFi protocols: Zest v2, Hermetica, Granite, and HODLMM. Scans 6 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC), maps yield opportunities into 3 tiers with YTG (Yield-to-Gas) profitability ratios, verifies sBTC reserve via BIP-341 P2TR derivation, checks 6 market safety gates, then executes deploy/withdraw/rebalance/migrate/emergency operations.
+Cross-protocol yield executor covering all 4 major Stacks DeFi protocols: Zest v2, Hermetica, Granite, and HODLMM. Scans 6 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC), maps yield opportunities into 3 tiers with YTG (Yield-to-Gas) profitability ratios, verifies sBTC reserve via BIP-341 P2TR derivation, checks 5 market safety gates plus the sBTC reserve, then executes deploy/withdraw/rebalance/migrate/emergency operations.
 
-Every write runs: **Scout -> Reserve -> Guardian -> YTG -> Executor**. No bypasses.
+Every write runs: **Scout -> Reserve -> Guardian -> Executor**. The single exception is `emergency`, which bypasses both gates deliberately so a position can be exited when the reserve check is failing.
 
 ### Protocol coverage
 
@@ -34,7 +34,7 @@ Every write runs: **Scout -> Reserve -> Guardian -> YTG -> Executor**. No bypass
 
 ### YTG (Yield-to-Gas) profit gate
 
-Every yield option gets a YTG ratio: `7-day projected yield / gas cost`. Below 3x, the deploy is blocked: gas would eat more than a third of the first week's yield.
+Every yield option gets a YTG ratio: `7-day projected yield / gas cost`. Below 3x, gas would eat more than a third of the first week's yield. The ratio is REPORTED and never blocks: a small holder is told what entering costs and decides for themselves.
 
 ### 3-tier yield mapping
 
@@ -88,16 +88,16 @@ withdraw zest                        # recover sBTC
 
 ## Safety notes
 
-- **Safety pipeline enforced on every write**: Scout -> PoR -> Guardian -> YTG -> Executor
+- **Safety pipeline enforced on every write**: Scout -> PoR -> Guardian -> Executor
 - **PoR RED/DATA_UNAVAILABLE blocks ALL writes**: suggests emergency withdrawal
 - **PoR YELLOW blocks ALL writes**: read-only until reserve recovers
-- **Emergency bypasses Guardian only**, never bypasses PoR
+- **Emergency bypasses BOTH the Guardian and PoR**, deliberately: it returns before either is reached, because a reserve failure is exactly when somebody needs to get out
 - **Post-conditions on all call_contract writes**: prevents unexpected token transfers
 - **All write commands require `--confirm`**: dry-run preview without it
 - **YTG economics**: reports 7d yield against gas cost on every deploy. Informs, never blocks.
 - **Granite routes aeUSDC**: the bug that killed PR #196 is fixed
 - **Hermetica correct functions**: `unstake` + `silo.withdraw` (not wrong `initiate-unstake` from PR #56)
-- **BIP-350 + P2TR self-tests**: crypto failure blocks ALL operations
+- **BIP-350 + P2TR self-tests**: run by `doctor` only. They do NOT gate `scan` or any write. The reserve check derives a P2TR address every run, so a failure that throws blocks writes through `DATA_UNAVAILABLE`; a silently wrong encoder is not caught
 - **4h rebalance cooldown**, slippage cap 0.5%, volume floor $10K, gas cap 50 STX
 - **No private keys**: outputs instructions, MCP runtime executes
 
@@ -142,13 +142,13 @@ All 8 HODLMM pools scanned with YTG ratios per pool. Reads user positions via `g
 3. **Hermetica 7-day cooldown**: unstaking creates a claim in staking-silo-v1-1.
 4. **Non-atomic multi-step**: swap-then-deploy = 2 txs. Capital safe in wallet if tx 2 fails.
 5. **Signer rotation**: ratio < 50% flagged DATA_UNAVAILABLE (not false RED).
-6. **YTG blocks small positions**: use `--force` to override.
+6. **YTG never blocks**: it reports the ratio and the deploy proceeds. It used to refuse below 3x, which was a wealth test wearing a safety label, and it was removed.
 
 ## PR Description
 
 ## Skill Name
 
-> **The first 4-protocol yield executor with YTG profit gates, 3-tier yield mapping, and cryptographic reserve verification.** Scans 6 tokens across Zest, Hermetica, Granite, and HODLMM: maps every earning path with Yield-to-Gas profitability ratios, verifies the sBTC peg, then executes.
+> **The first 4-protocol yield executor with YTG reporting, 3-tier yield mapping, and cryptographic reserve verification.** Scans 6 tokens across Zest, Hermetica, Granite, and HODLMM: maps every earning path with Yield-to-Gas profitability ratios, verifies the sBTC peg, then executes.
 
 stacks-alpha-engine
 
@@ -163,11 +163,11 @@ stacks-alpha-engine
 
 **One question:** "I hold sBTC, STX, USDCx, USDh, or aeUSDC, where should each be earning yield, is the move worth the gas, is the peg safe, and can you move it there?"
 
-No other skill answers all four across all 4 protocols. Stacks Alpha Engine scans **6 tokens** across **4 protocols** (Zest v2, Hermetica, Granite, HODLMM), maps yield opportunities into **3 tiers** (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios** on every option, verifies sBTC reserve via BIP-341 P2TR derivation, checks 6 market safety gates and reports Yield-to-Gas economics without blocking on them, then outputs executable transaction instructions. Every write runs: Scout -> Reserve -> Guardian -> YTG -> Executor. No bypasses.
+No other skill answers all four across all 4 protocols. Stacks Alpha Engine scans **6 tokens** across **4 protocols** (Zest v2, Hermetica, Granite, HODLMM), maps yield opportunities into **3 tiers** (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios** on every option, verifies sBTC reserve via BIP-341 P2TR derivation, checks 5 market safety gates plus the sBTC reserve, and reports Yield-to-Gas economics without blocking on them, then outputs executable transaction instructions. Every write runs: Scout -> Reserve -> Guardian -> Executor. The single exception is `emergency`, which bypasses both gates deliberately so a position can be exited when the reserve check is failing.
 
 **YTG (Yield-to-Gas): the profit gate:**
 
-Every yield option gets a YTG ratio: `7-day projected yield / gas cost in USD`. If the ratio is below 3x, the deploy is blocked: the gas would eat more than a third of the first week's yield. This prevents agents from burning gas on moves that aren't worth it.
+Every yield option gets a YTG ratio: `7-day projected yield / gas cost in USD`. Below 3x, gas would eat more than a third of the first week's yield. The ratio is REPORTED on every option and never blocks. It used to refuse below 3x, but solve that test for the only term that varies with the person and it is a plain dollar threshold on the holder, not a safety check: a small deposit is not less safe than a large one, and the post-conditions bound both identically.
 
 **Protocol coverage:**
 
@@ -348,7 +348,7 @@ Wallet: SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY
 | 6 | HODLMM | aeUSDC-USDCx-1bps | aeUSDC/USDCx | 0.25% | $0.0001 | $0 | **0.06x** | Fee-based LP. TVL: $99,619. |
 | 7 | Zest | sBTC Supply (v2) | sBTC | 0% | $0 | $0 | **0x** | 0% utilization |
 
-_YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x means gas eats your yield: hold until capital or APY grows. Use --force to override._
+_YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x means the fee to enter is large next to a week of yield. It is shown so you can weigh it, and it does not stop you._
 
 ### Swap first, then deploy
 | # | Protocol | Pool | Token | APY | YTG | Swap | Note |
@@ -369,12 +369,13 @@ _YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x mea
 </details>
 
 <details>
-<summary>deploy --protocol zest: refused by slippage gate (PoR GREEN, Guardian catches 0.548% > 0.5% cap)</summary>
+<summary>deploy --protocol hodlmm --pool-id dlmm_4: refused by slippage gate (PoR GREEN, Guardian catches 0.548% > 0.5% cap on the pool being entered)</summary>
 
 ```json
 {
   "status": "refused",
   "command": "deploy",
+  "_note": "The pool gates measure the pool this operation actually touches. A zest, hermetica or granite deploy that needs no swap touches no HODLMM pool, so both pool gates report not-applicable and can never be the reason for a refusal.",
   "reserve": {
     "signal": "GREEN",
     "reserve_ratio": 1,
@@ -386,13 +387,14 @@ _YTG = Yield-to-Gas ratio (7d projected yield / gas cost to enter). Below 3x mea
   },
   "guardian": {
     "can_proceed": false,
-    "refusals": ["Slippage 0.548% > 0.5% cap"],
-    "slippage": { "ok": false, "pct": 0.548 },
-    "volume": { "ok": true, "usd": 285628.98 },
-    "gas": { "ok": true, "estimated_stx": 0.02 },
-    "cooldown": { "ok": true, "remaining_hours": 0 }
+    "refusals": ["Slippage 0.548% > 0.5% cap on dlmm_4", "24h volume $5729 on dlmm_4 < $10000 minimum"],
+    "slippage": { "ok": false, "status": "fail", "value": 0.548, "pool_id": "dlmm_4", "pool_name": "STX-USDCx-4bps", "source": "bitflow-app-price-vs-hodlmm-active-bin" },
+    "volume": { "ok": false, "status": "fail", "value": 5729.02, "pool_id": "dlmm_4", "pool_name": "STX-USDCx-4bps", "source": "bitflow-app-pools-volumeUsd1d" },
+    "gas": { "ok": true, "status": "pass", "estimated_stx": 0.0216, "source": "hiro-v2-fees-transfer, microSTX per byte times an assumed 3600 byte transaction" },
+    "cooldown": { "ok": true, "remaining_hours": 0 },
+    "prices": { "ok": true, "detail": "all prices live" }
   },
-  "refusal_reasons": ["Slippage 0.548% > 0.5% cap"]
+  "refusal_reasons": ["Slippage 0.548% > 0.5% cap on dlmm_4", "24h volume $5729 on dlmm_4 < $10000 minimum"]
 }
 ```
 PoR GREEN, but Guardian caught pool price divergence (0.548% > 0.5% cap). Deploy blocked until slippage normalizes.
@@ -436,15 +438,15 @@ Specialized agents providing services to other agents, with micropayments settli
 
 ## Security notes
 
-- **Safety pipeline: Scout -> Reserve -> Guardian -> YTG -> Executor**, enforced in code on every write
+- **Safety pipeline: Scout -> Reserve -> Guardian -> Executor**, enforced in code on every write
 - **YTG (Yield-to-Gas) economics**: 7d yield against gas cost on every deploy, reported so the holder can weigh it.
 - **PoR RED/DATA_UNAVAILABLE blocks ALL writes**: suggests `emergency` instead
 - **PoR YELLOW blocks ALL writes**: read-only until reserve recovers
-- **Emergency bypasses Guardian only**, NEVER bypasses PoR
-- **`postConditionMode: "allow"` on deposit/stake/unstake/swap**, required because these operations mint LP tokens or sUSDh (inbound mints can't be expressed as sender-side post-conditions under Stacks `deny` mode). Belt-and-suspenders: every `allow` site still asserts outgoing FT transfer (`lte` cap on sender). Granite `redeem` uses full `deny` mode with explicit post-conditions. Guardian gates + `--confirm` dry-run provide the remaining safety layers.
+- **Emergency bypasses BOTH the Guardian and PoR**, deliberately, for the reason above. Every other command is gated by both
+- **`postConditionMode` per operation, not one policy.** Granite `deposit` and Hermetica `stake` use **deny**: a mint is not a transfer, so it needs no allowance, measured across 37 recent mainnet stakes that all used deny. Granite `redeem` uses **deny** with four post-conditions. The DLMM swap uses **allow** with a dual pin, deliberately, because protocol fees accrue without emitting transfer events and the pool-side `willSendGte` IS the receive-side protection. Hermetica `unstake` is still **allow** and that is a known defect, not a design: a burn IS attributed to a sender, so deny is achievable, and SmartX refuses the allow instruction today. See the table in SKILL.md for each rationale.
 - **Correct token routing**: Granite gets aeUSDC (not sBTC, the bug that killed PR #196)
 - **Hermetica correct contract + function**: `staking-v1-1.stake/unstake` (not deactivated `staking-v1`, not wrong `initiate-unstake` from PR #56)
-- **BIP-350 + P2TR self-tests**: crypto failure = engine refuses ALL operations
+- **BIP-350 + P2TR self-tests**: `doctor` only, and not a gate on any other command. See the note above
 - **4h rebalance cooldown**: prevents gas-burning churn
 - **Guardian divergence cap 0.5%** (HODLMM pool-vs-market price), **volume floor $10K, gas cap 50 STX**
 - **Swap slippage budget**: 0.5% for stable→stable pairs (USDCx↔aeUSDC, USDCx↔USDh), 3% for volatile pairs (sBTC↔USDCx). Independent of guardian divergence gate (different pools).
@@ -458,10 +460,10 @@ Specialized agents providing services to other agents, with micropayments settli
 4. **Non-atomic multi-step**: swap-then-deploy = 2 txs. Capital safe in wallet if tx 2 fails.
 5. **Signer rotation**: ratio < 50% flagged DATA_UNAVAILABLE (not false RED).
 6. **Wallet with no DeFi tokens**: shows "acquire to unlock" tier with instructions for each token.
-7. **YTG blocks small positions**: low-capital wallets may see most options flagged unprofitable. Use `--force` to override.
+7. **YTG never blocks**: low-capital wallets see most options flagged as poor value and may still deploy them. `--force` overrides the 0% APY refusal only, and is not needed for a low ratio.
 8. **Zest 0% APY**: correct: ~0 borrowed against ~650 BTC supplied. Live read, not hardcoded.
 
-**2,274 lines.** 11 self-tests. 12+ live data sources. 9 commands. 4 protocols. 6 tokens. 3-tier yields. YTG profit gates. USDh borrow/repay leveraged-yield route. 6-leg mainnet proof cycle. Every safety claim is in the code, not just the docs.
+**3705 lines.** 11 self-tests. 12+ live data sources. 10 commands. 4 protocols. 6 tokens. 3-tier yields. YTG reporting. USDh borrow/repay leveraged-yield route. 6-leg mainnet proof cycle. Every safety claim is in the code, not just the docs.
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
