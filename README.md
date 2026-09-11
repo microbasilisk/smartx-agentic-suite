@@ -85,7 +85,7 @@ Skills read live on-chain state through the Hiro API and protocol-native endpoin
 
 This is working software that moves real value on a live network. It is offered as open source under the MIT license, without warranty. Read the code and understand the gates before running any write path against your own capital.
 
-Two different statuses apply to these skills and they are worth keeping apart. As standalone software, the write paths listed above have executed on mainnet. As a library inside [SmartX](https://smartx.finance), none is yet **live**, and the fourteen do not all sit in the same place:
+Two different statuses apply to these skills and they are worth keeping apart. As standalone software, the write paths listed above have executed on mainnet. As a library inside [SmartX](https://smartx.finance), none is yet **live**, and the fourteen do not all sit in the same place. These fourteen are also no longer the whole of SmartX's library: it now also carries skills from the aibtc core registry and from the Bitflow developer, admitted on authorship and held in review until each has been run. The table below is about these fourteen only:
 
 | Status in SmartX | Count | What it means |
 |---|---:|---|
@@ -94,6 +94,32 @@ Two different statuses apply to these skills and they are worth keeping apart. A
 | Out of scope | 1 | `bns-agent-manager`, identity rather than asset management |
 
 Of the 11 under review, the console will select from **9**. `hodlmm-position-exit` and `hodlmm-move-liquidity` run, but they still sign for themselves, so SmartX does not offer them until they emit a plan for the wallet holder to sign instead. SmartX shows the status on every answer it returns.
+
+### Which copy SmartX actually runs, updated 2026-09-11
+
+Five of these are also merged upstream, and for two of them **SmartX now resolves
+the upstream copy rather than the one in this repository**: `hermetica-yield-rotator`
+and `hodlmm-inventory-balancer`.
+
+The reason is worth stating plainly, because it was a real defect rather than a
+preference. This repository was built as a public showcase and became the runtime
+without anybody diffing it against upstream again. By the time it was measured,
+SmartX was running `hodlmm-inventory-balancer` **371 lines shorter** than the copy
+that was reviewed and merged, missing that entire review chain. The reviewed copy
+is the upstream one, so upstream wins now.
+
+`stacks-alpha-engine` is one exception and still resolves here, because this copy
+carries engine work upstream does not have.
+
+`hodlmm-bin-guardian` and `hodlmm-move-liquidity` were added to that exception on
+2026-09-11. SmartX started reading a second library that day (for the Bitflow swap
+skill), and both names exist there too, in copies 61 and 106 lines different from
+these. Those registry copies would have started in place of the ones SmartX
+actually measured when it vetted them, so these two are held here until the
+registry copies are measured in turn.
+
+This repository is therefore the showcase it was built to be, and the source of
+truth for one skill rather than for all fourteen.
 
 ## Related
 

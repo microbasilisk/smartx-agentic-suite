@@ -20,6 +20,14 @@ Five skills were merged into the official [AIBTC skill registry](https://github.
 
 Later hardening work on `stacks-alpha-engine` landed upstream through [aibtcdev/skills#367](https://github.com/aibtcdev/skills/pull/367) and [aibtcdev/skills#379](https://github.com/aibtcdev/skills/pull/379), covering post-condition fixes, fail-closed guardian logic, the corrected Granite path, USDh borrow handling and a stale-price guard.
 
+[aibtcdev/skills#415](https://github.com/aibtcdev/skills/pull/415) is **open, not
+merged**, opened 2026-08-29. It corrects the HODLMM entry tiering: a wallet
+holding one side of a pair was tiered `deploy_now` and given the pool's full APY
+with a daily figure, when `dlmm-core-v-1-1` places a one sided deposit outside the
+active bin and therefore outside the range where fees accrue. The size was also
+taken from the larger side rather than being bounded by the smaller one. 18 lines
+in, 3 out.
+
 ## On-chain proof
 
 **`hodlmm-position-exit`, live mainnet exit.**
