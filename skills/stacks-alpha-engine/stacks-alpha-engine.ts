@@ -411,17 +411,207 @@ async function fetchBitflowPools(): Promise<BitflowPoolData[]> {
 }
 
 // == Fetch helpers =============================================================
+// == Asking upstream without shutting ourselves out ===========================
+//
+// MEASURED 2026-09-12, and this is the whole reason the code below exists. A
+// deposit of 10 USDh into Hermetica was refused three times running, always the
+// same way: the sBTC reserve check came back DATA_UNAVAILABLE on an HTTP 429
+// from Hiro, and the slippage and gas gates failed beside it. The engine's own
+// rule turns an unreadable safety check into a refusal, so nothing unsafe
+// happened. But nothing could be deposited either, and the cause was ours.
+//
+// Hiro was NOT rate limiting the machine. Three direct calls from the same box
+// answered 200 while this was failing, and the limit header read
+// `x-ratelimit-limit-second: 20` with 18 of 20 remaining. The engine was
+// shutting itself out: `runGates` fans out across four protocols at once and
+// each of those fans out again, so one question becomes twenty-odd reads in the
+// same instant, against a limit of twenty a second.
+//
+// That makes it deterministic rather than unlucky, which is why waiting never
+// helped and why three attempts failed identically.
+//
+// This is not the first time. The header comment on this file records an audit
+// where a Hiro 429 rendered a wallet holding $3.93 as "Wallet Total $0". That
+// was fixed at the DISPLAY, so a failed read now says UNKNOWN instead of zero.
+// The cause was never fixed. Same root, second symptom.
+//
+// Two things are added, both here at the single door every read goes through,
+// so no call site changes:
+//
+//   1. A minimum gap between request STARTS. Spacing is the right shape because
+//      the limit counts requests per second, which a concurrency cap does not
+//      bound: five in flight against a fast endpoint is still fifty a second.
+//      The gap is global rather than per host. Hiro is the one with the limit we
+//      hit, but Tenero, Bitflow and mempool.space have their own and this engine
+//      bursts at all four; one number is also one thing for a reviewer to check.
+//      70ms allows about 14 a second, under 20 with room for the app's own reads
+//      against the same API from the same address.
+//
+//   2. A retry, on the statuses that mean "ask me again" and on nothing else.
+//
+// WHAT MUST NOT CHANGE, and the tests pin it: a read that genuinely fails still
+// THROWS. Callers depend on that. Several wrap this in `.catch(() => null)` and
+// the report renders UNKNOWN from it, which is the distinction that stops a
+// failed read being told to a person as a zero balance. A retry that returned
+// something plausible instead of throwing would put that defect back, in the
+// worst possible place.
+
+/** Minimum spacing between the START of one upstream request and the next. */
+const REQUEST_GAP_MS = 70;
+
+/**
+ * Statuses worth asking again about.
+ *
+ * 429 is the measured one. The 5xx three are transient by definition. Nothing
+ * else is here on purpose: a 400 or a 404 means the request was wrong, and
+ * asking again three times only makes the same mistake more slowly.
+ */
+const RETRY_STATUSES = new Set([429, 502, 503, 504]);
+
+/** Attempts in total, not retries after the first. Three means at most two waits. */
+const MAX_ATTEMPTS = 3;
+const RETRY_BASE_MS = 400;
+const RETRY_CEILING_MS = 4_000;
+
+/**
+ * When the next request may start, as an epoch milliseconds figure.
+ *
+ * Module level and mutable, which is safe here because a skill is a CLI that
+ * runs once and exits. `nextRequestAt` is claimed SYNCHRONOUSLY, before any
+ * await, so two callers racing into `waitForSlot` cannot be handed the same
+ * slot: the second reads the value the first already moved.
+ */
+let nextRequestAt = 0;
+
+/**
+ * How long one attempt may take. `FETCH_TIMEOUT_MS` in every real run.
+ *
+ * Mutable only so a test can reach the abort branch, which otherwise needs a
+ * 30 second wait. A review found that branch untested: the case that claimed to
+ * cover it threw a lookalike error without any controller aborting, so it
+ * exercised the error NAME and never the signal.
+ */
+let requestTimeoutMs: number = FETCH_TIMEOUT_MS;
+
+/** Test seam. Nothing in the skill calls these; a test resets state between cases. */
+export function resetRequestPacing(timeoutMs: number = FETCH_TIMEOUT_MS): void {
+  nextRequestAt = 0;
+  requestTimeoutMs = timeoutMs;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForSlot(): Promise<void> {
+  const now = Date.now();
+  const at = Math.max(now, nextRequestAt);
+  nextRequestAt = at + REQUEST_GAP_MS;
+  const wait = at - now;
+  if (wait > 0) await sleep(wait);
+}
+
+/**
+ * How long to wait before asking again.
+ *
+ * The server's own `Retry-After` wins when it sends one, because it knows when
+ * its window resets and we are guessing. It is capped anyway: a server asking
+ * for two minutes is not something to honour inside one person's request, and
+ * the caller is better served by a refusal it can explain.
+ */
+/**
+ * The wait when nobody told us one: exponential, jittered, capped.
+ *
+ * Its own function, returning a plain number, so the CATCH path can call it
+ * without a null it can never receive. Review round two found that guard sitting
+ * there dead, kept alive only because the compiler makes you handle
+ * `number | null`. A non-null assertion would have been the other way out, and
+ * the wrong one: it is a promise the compiler cannot check, and it becomes a real
+ * bug the first time somebody passes a header on that path.
+ */
+function backoffMs(attempt: number, jitter = Math.random()): number {
+  const backoff = RETRY_BASE_MS * 2 ** (attempt - 1);
+  // Jitter so four gates that failed together do not all come back together.
+  return Math.min(backoff, RETRY_CEILING_MS) + Math.floor(jitter * 100);
+}
+
+export function retryWaitMs(attempt: number, retryAfter: string | null, jitter = Math.random()): number | null {
+  // The emptiness check is not defensive noise: `Number("")` is 0, which is
+  // finite and not negative, so a header present but blank asked for a wait of
+  // zero and turned the backoff off entirely. A test caught it.
+  if (retryAfter !== null && retryAfter.trim() !== "") {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      // NULL, not a capped wait. A server saying "come back in 60 seconds" is
+      // telling us this run cannot succeed. Silently capping at 4s then asking
+      // twice more spends 8 seconds of a person's request to arrive at the same
+      // refusal, later and with a vaguer reason. Refusing now is faster and the
+      // report can say what the server actually asked for. Review's suggestion.
+      return seconds * 1000 > RETRY_CEILING_MS ? null : seconds * 1000;
+    }
+  }
+  return backoffMs(attempt, jitter);
+}
+
 async function fetchJson<T>(url: string, opts: RequestInit = {}): Promise<T> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, {
-      ...opts, signal: controller.signal,
-      headers: { Accept: "application/json", "User-Agent": "bff-skills/stacks-alpha-engine", ...(opts.headers as Record<string, string> ?? {}) },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} from ${url}`);
-    return res.json() as Promise<T>;
-  } finally { clearTimeout(timer); }
+  let lastError: Error = new Error(`no request was made for ${url}`);
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    await waitForSlot();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), requestTimeoutMs);
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        ...opts, signal: controller.signal,
+        headers: { Accept: "application/json", "User-Agent": "bff-skills/stacks-alpha-engine", ...(opts.headers as Record<string, string> ?? {}) },
+      });
+    } catch (e) {
+      // Cleared BEFORE any sleep below, not in a `finally`. A review pointed out
+      // the finally ran after the backoff, leaving the timer armed through it.
+      // It could not misfire on a live request, because the fetch had already
+      // settled and `aborted` is read before the wait, but a reader should not
+      // have to work that out.
+      clearTimeout(timer);
+      lastError = e instanceof Error ? e : new Error(String(e));
+      // A timeout is not the server asking us to wait. Retrying it would spend
+      // three timeouts where the caller budgeted for one, and this engine runs
+      // inside a request a person is waiting on.
+      //
+      // The name is checked as well as the signal, because the signal only
+      // catches OUR controller. An abort arriving any other way is still an
+      // abort, and a test that threw one without touching the controller
+      // retried it three times, which is the behaviour this line forbids.
+      const aborted = controller.signal.aborted || lastError.name === "AbortError";
+      if (aborted || attempt === MAX_ATTEMPTS) throw lastError;
+      await sleep(backoffMs(attempt));
+      continue;
+    }
+    clearTimeout(timer);
+
+    // Parsing happens outside every retry decision on purpose: a body this
+    // cannot read will not read differently the second time, and hiding a parse
+    // bug behind three attempts makes it harder to find, not less likely.
+    if (res.ok) return await res.json() as T;
+
+    // The header is read BEFORE the attempt check, so a server that named a wait
+    // is quoted whether it said so on the first attempt or the last. Round two
+    // caught the old order losing the figure on the final pass, which made the
+    // same refusal read two different ways depending on when it arrived.
+    const retryAfter = res.headers.get("retry-after");
+    const asked = retryAfter !== null && retryAfter.trim() !== ""
+      ? `, and it asked for ${retryAfter}s before retrying`
+      : "";
+    lastError = new Error(`HTTP ${res.status} from ${url}${asked}`);
+    if (!RETRY_STATUSES.has(res.status) || attempt === MAX_ATTEMPTS) throw lastError;
+    // Null means the server named a wait longer than this run can spend. Refuse
+    // now rather than sleep to the ceiling and ask twice more for one answer.
+    const wait = retryWaitMs(attempt, retryAfter);
+    if (wait === null) throw lastError;
+    await sleep(wait);
+  }
+
+  throw lastError;
 }
 
 function round(n: number, d: number): number {
