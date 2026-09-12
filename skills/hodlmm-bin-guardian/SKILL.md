@@ -81,76 +81,95 @@ bun run hodlmm-bin-guardian/hodlmm-bin-guardian.ts run
 }
 ```
 
-### run --wallet (wallet has no dlmm_1 position, slippage gate active)
+### run --wallet (wallet holds no dlmm_1 position)
 
 ```json
 {
   "status": "success",
-  "action": "HOLD, position out of range but rebalance blocked: price slippage 1.86% > 0.5% cap.",
+  "action": "NO POSITION: The pool lists 221 bins for this wallet, all with zero liquidity. Nothing is in or out of range, and there is nothing to rebalance.",
   "data": {
-    "in_range": false,
-    "active_bin": 504,
+    "in_range": null,
+    "has_position": false,
+    "active_bin": 656,
     "user_bin_range": null,
-    "can_rebalance": false,
-    "refusal_reasons": [ "price slippage 1.86% > 0.5% cap" ],
-    "slippage_ok": false,
-    "slippage_pct": 1.8595,
-    "bin_price_raw": 66459654464,
-    "pool_price_usd": 66459.65,
-    "market_price_usd": 65246.37,
-    "slippage_source": "bitflow-app-price-vs-hodlmm-active-bin",
-    "gas_ok": true,
-    "gas_estimated_stx": 0.0144,
-    "cooldown_ok": true,
-    "cooldown_remaining_h": 0,
-    "last_rebalance_at": null,
-    "volume_ok": true,
-    "volume_24h_usd": 126045,
-    "liquidity_usd": 77143,
-    "apr_24h_pct": 17.72,
-    "pool_id": "dlmm_1",
-    "pool_name": "sBTC-USDCx-LP",
-    "fee_bps": 30,
-    "position_note": "No position found for SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY in pool dlmm_1."
-  },
-  "error": null
-}
-```
-
-### run --wallet (active position in range, all gates pass)
-
-```json
-{
-  "status": "success",
-  "action": "HOLD, position in range at active bin 504. APR (24h): 17.72%.",
-  "data": {
-    "in_range": true,
-    "active_bin": 504,
-    "user_bin_range": { "min": 500, "max": 508, "count": 3, "bins": [500, 504, 508] },
     "can_rebalance": true,
     "refusal_reasons": null,
     "slippage_ok": true,
-    "slippage_pct": 0.04,
-    "bin_price_raw": 66459654464,
-    "pool_price_usd": 66459.65,
-    "market_price_usd": 66433.0,
+    "slippage_pct": 0.1084,
+    "bin_price_raw": 77363811477,
+    "pool_price_usd": 77363.81,
+    "market_price_usd": 77280,
     "slippage_source": "bitflow-app-price-vs-hodlmm-active-bin",
     "gas_ok": true,
-    "gas_estimated_stx": 0.0144,
+    "gas_estimated_stx": 0.0036,
     "cooldown_ok": true,
     "cooldown_remaining_h": 0,
-    "last_rebalance_at": null,
+    "last_rebalance_at": "2026-03-26T16:42:45.000Z",
     "volume_ok": true,
-    "volume_24h_usd": 126045,
-    "liquidity_usd": 77143,
-    "apr_24h_pct": 17.72,
+    "volume_24h_usd": 1696135,
+    "liquidity_usd": 367280,
+    "apr_24h_pct": 771.01,
     "pool_id": "dlmm_1",
     "pool_name": "sBTC-USDCx-LP",
-    "fee_bps": 30
+    "fee_bps": 50,
+    "position_note": "The pool lists 221 bins for this wallet, all with zero liquidity."
   },
   "error": null
 }
 ```
+
+### run --wallet (a real position, in range at the active bin)
+
+```json
+{
+  "status": "success",
+  "action": "HOLD: position in range at active bin 656. APR (24h): 771.01%.",
+  "data": {
+    "in_range": true,
+    "has_position": true,
+    "active_bin": 656,
+    "user_bin_range": {
+      "min": 526,
+      "max": 766,
+      "count": 232,
+      "bins": [
+        526,
+        528,
+        529,
+        765,
+        766
+      ]
+    },
+    "can_rebalance": true,
+    "refusal_reasons": null,
+    "slippage_ok": true,
+    "slippage_pct": 0.1084,
+    "bin_price_raw": 77363811477,
+    "pool_price_usd": 77363.81,
+    "market_price_usd": 77280,
+    "slippage_source": "bitflow-app-price-vs-hodlmm-active-bin",
+    "gas_ok": true,
+    "gas_estimated_stx": 0.0072,
+    "cooldown_ok": true,
+    "cooldown_remaining_h": 0,
+    "last_rebalance_at": "2026-03-26T16:42:45.000Z",
+    "volume_ok": true,
+    "volume_24h_usd": 1696135,
+    "liquidity_usd": 367280,
+    "apr_24h_pct": 771.01,
+    "pool_id": "dlmm_1",
+    "pool_name": "sBTC-USDCx-LP",
+    "fee_bps": 50
+  },
+  "error": null
+}
+```
+
+Captured on 12 September 2026 from wallet `SP1BXRXA...`, which held 232 bins at
+that moment. The `bins` array is shortened here to five ids; the real answer
+lists every one. A live position changes: the same wallet held 23 bins a few
+hours later and the answer became the REBALANCE line below, so treat this as
+what one real run said, not as what that command prints today.
 
 ## Output contract
 
@@ -159,8 +178,9 @@ All outputs are strict JSON to stdout.
 | Field | Type | Description |
 |---|---|---|
 | `status` | `"success" \| "error"` | Overall result |
-| `action` | `string` | `HOLD`, `REBALANCE`, or `CHECK` with reason |
-| `data.in_range` | `boolean \| null` | `null` if no wallet provided |
+| `action` | `string` | `HOLD`, `REBALANCE`, `CHECK`, or `NO POSITION` with reason |
+| `data.in_range` | `boolean \| null` | `null` if no wallet provided, or the wallet holds no position |
+| `data.has_position` | `boolean \| null` | Whether the wallet holds liquidity here. `null` when nobody could tell: no wallet given, or the bins came back in a shape whose liquidity figures could not be read |
 | `data.active_bin` | `number` | Pool's current active bin ID |
 | `data.user_bin_range` | `{min,max,count,bins} \| null` | User's liquidity bin range |
 | `data.can_rebalance` | `boolean` | Whether all safety gates pass |
@@ -201,7 +221,7 @@ All outputs are strict JSON to stdout.
 
 **Before:** `inRange = isFinite(pool.active_bin) && pool.active_bin > 0`, always `true`.
 
-**After:** Real HTTP call to `GET /api/app/v1/users/{address}/positions/{poolId}/bins`. Filters bins where `user_liquidity > 0`, checks if `active_bin_id` is in that set.
+**After:** Real HTTP call to `GET /api/app/v1/users/{address}/positions/{poolId}/bins`. Filters bins whose liquidity is above zero (the field is `userLiquidity`, and the older `user_liquidity` spelling is still read), then checks whether `active_bin_id` is one of them. Bin ids are converted to numbers first: one run printed a string id where later probes returned numbers, and the payload names more than one data source, so both are read, and a string id never equals a numeric active bin.
 
 ### Slippage: was hardcoded, now live and fully Bitflow-native
 

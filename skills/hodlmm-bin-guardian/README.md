@@ -15,7 +15,7 @@ hodlmm-bin-guardian
 
 ## What it does
 
-Read-only HODLMM LP range monitor for Bitflow DLMM pools. Fetches live pool bin state and the user's actual position bins via wallet address, compares against the active earning bin, and outputs a structured JSON recommendation (HOLD / REBALANCE / CHECK). Slippage, volume, TVL, APR, and token prices are sourced directly from Bitflow's HODLMM app API - no external oracles.
+Read-only HODLMM LP range monitor for Bitflow DLMM pools. Fetches live pool bin state and the user's actual position bins via wallet address, compares against the active earning bin, and outputs a structured JSON recommendation (HOLD / REBALANCE / CHECK / NO POSITION). Slippage, volume, TVL, APR, and token prices are sourced directly from Bitflow's HODLMM app API - no external oracles.
 
 ## On-chain proof
 
@@ -80,32 +80,33 @@ bun run skills/hodlmm-bin-guardian/hodlmm-bin-guardian.ts run --wallet SP219TWC8
 ```json
 {
   "status": "success",
-  "action": "HOLD, position out of range but rebalance blocked: price slippage 1.86% > 0.5% cap.",
+  "action": "NO POSITION: The pool lists 221 bins for this wallet, all with zero liquidity. Nothing is in or out of range, and there is nothing to rebalance.",
   "data": {
-    "in_range": false,
-    "active_bin": 504,
+    "in_range": null,
+    "has_position": false,
+    "active_bin": 656,
     "user_bin_range": null,
-    "can_rebalance": false,
-    "refusal_reasons": ["price slippage 1.86% > 0.5% cap"],
-    "slippage_ok": false,
-    "slippage_pct": 1.8595,
-    "bin_price_raw": 66459654464,
-    "pool_price_usd": 66459.65,
-    "market_price_usd": 65246.37,
+    "can_rebalance": true,
+    "refusal_reasons": null,
+    "slippage_ok": true,
+    "slippage_pct": 0.1084,
+    "bin_price_raw": 77363811477,
+    "pool_price_usd": 77363.81,
+    "market_price_usd": 77280,
     "slippage_source": "bitflow-app-price-vs-hodlmm-active-bin",
     "gas_ok": true,
-    "gas_estimated_stx": 0.0144,
+    "gas_estimated_stx": 0.0036,
     "cooldown_ok": true,
     "cooldown_remaining_h": 0,
-    "last_rebalance_at": null,
+    "last_rebalance_at": "2026-03-26T16:42:45.000Z",
     "volume_ok": true,
-    "volume_24h_usd": 126045,
-    "liquidity_usd": 77143,
-    "apr_24h_pct": 17.72,
+    "volume_24h_usd": 1696135,
+    "liquidity_usd": 367280,
+    "apr_24h_pct": 771.01,
     "pool_id": "dlmm_1",
     "pool_name": "sBTC-USDCx-LP",
-    "fee_bps": 30,
-    "position_note": "No position found for SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY in pool dlmm_1."
+    "fee_bps": 50,
+    "position_note": "The pool lists 221 bins for this wallet, all with zero liquidity."
   },
   "error": null
 }
@@ -131,7 +132,7 @@ No `validate-frontmatter.ts` script present in upstream repo. Frontmatter manual
 
 ## Known constraints or edge cases
 
-- `in_range` returns `null` (not `false`) when no `--wallet` provided: distinguishes unchecked from out-of-range.
+- `in_range` returns `null` (not `false`) when no `--wallet` provided, and also when the wallet holds no position here: neither case is out of range. `has_position` separates the two, and is `null` when no wallet was given.
 - Slippage check requires a USD-pegged `token_y`. Non-USD pairs skip the check and report `slippage_ok: true`.
 - Defaults to `dlmm_1` (sBTC-USDCx). Other pool IDs accepted via `--pool-id`.
 
@@ -150,7 +151,7 @@ hodlmm-bin-guardian
 
 ## What it does
 
-Read-only HODLMM LP range monitor for Bitflow DLMM pools. Fetches live pool bin state and the user's actual position bins via wallet address, compares against the active earning bin, and outputs a structured JSON recommendation (HOLD / REBALANCE / CHECK). Slippage, volume, TVL, APR, and token prices are sourced directly from Bitflow's HODLMM app API - no external oracles.
+Read-only HODLMM LP range monitor for Bitflow DLMM pools. Fetches live pool bin state and the user's actual position bins via wallet address, compares against the active earning bin, and outputs a structured JSON recommendation (HOLD / REBALANCE / CHECK / NO POSITION). Slippage, volume, TVL, APR, and token prices are sourced directly from Bitflow's HODLMM app API - no external oracles.
 
 ## On-chain proof
 
@@ -215,32 +216,33 @@ bun run skills/hodlmm-bin-guardian/hodlmm-bin-guardian.ts run --wallet SP219TWC8
 ```json
 {
   "status": "success",
-  "action": "HOLD, position out of range but rebalance blocked: price slippage 1.86% > 0.5% cap.",
+  "action": "NO POSITION: The pool lists 221 bins for this wallet, all with zero liquidity. Nothing is in or out of range, and there is nothing to rebalance.",
   "data": {
-    "in_range": false,
-    "active_bin": 504,
+    "in_range": null,
+    "has_position": false,
+    "active_bin": 656,
     "user_bin_range": null,
-    "can_rebalance": false,
-    "refusal_reasons": ["price slippage 1.86% > 0.5% cap"],
-    "slippage_ok": false,
-    "slippage_pct": 1.8595,
-    "bin_price_raw": 66459654464,
-    "pool_price_usd": 66459.65,
-    "market_price_usd": 65246.37,
+    "can_rebalance": true,
+    "refusal_reasons": null,
+    "slippage_ok": true,
+    "slippage_pct": 0.1084,
+    "bin_price_raw": 77363811477,
+    "pool_price_usd": 77363.81,
+    "market_price_usd": 77280,
     "slippage_source": "bitflow-app-price-vs-hodlmm-active-bin",
     "gas_ok": true,
-    "gas_estimated_stx": 0.0144,
+    "gas_estimated_stx": 0.0036,
     "cooldown_ok": true,
     "cooldown_remaining_h": 0,
-    "last_rebalance_at": null,
+    "last_rebalance_at": "2026-03-26T16:42:45.000Z",
     "volume_ok": true,
-    "volume_24h_usd": 126045,
-    "liquidity_usd": 77143,
-    "apr_24h_pct": 17.72,
+    "volume_24h_usd": 1696135,
+    "liquidity_usd": 367280,
+    "apr_24h_pct": 771.01,
     "pool_id": "dlmm_1",
     "pool_name": "sBTC-USDCx-LP",
-    "fee_bps": 30,
-    "position_note": "No position found for SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY in pool dlmm_1."
+    "fee_bps": 50,
+    "position_note": "The pool lists 221 bins for this wallet, all with zero liquidity."
   },
   "error": null
 }
@@ -266,7 +268,7 @@ No `validate-frontmatter.ts` script present in upstream repo. Frontmatter manual
 
 ## Known constraints or edge cases
 
-- `in_range` returns `null` (not `false`) when no `--wallet` provided: distinguishes unchecked from out-of-range.
+- `in_range` returns `null` (not `false`) when no `--wallet` provided, and also when the wallet holds no position here: neither case is out of range. `has_position` separates the two, and is `null` when no wallet was given.
 - Slippage check requires a USD-pegged `token_y`. Non-USD pairs skip the check and report `slippage_ok: true`.
 - Defaults to `dlmm_1` (sBTC-USDCx). Other pool IDs accepted via `--pool-id`.
 

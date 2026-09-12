@@ -25,7 +25,7 @@ const MAX_GAS_STX         = 50;         // max spend per rebalance in STX
 const COOLDOWN_HOURS      = 4;
 const PRICE_SCALE         = 1e8;        // Bitflow bin price scale factor
 const FETCH_TIMEOUT_MS    = 30_000;
-const STATE_FILE          = join(homedir(), ".hodlmm-guardian-state.json");
+const STATE_FILE          = join(process.env.HOME ?? homedir(), ".hodlmm-guardian-state.json");
 
 // ── API bases ──────────────────────────────────────────────────────────────────
 const BITFLOW_HODLMM_API  = "https://bff.bitflowapis.finance";
@@ -44,12 +44,24 @@ interface HodlmmPool {
 }
 
 interface HodlmmBin {
-  bin_id:          number;
+  // Numbers here and strings there, from the same endpoint. Typed honestly so
+  // the comparison has to convert rather than trusting the shape.
+  bin_id:          number | string;
   price?:          string;
   reserve_x?:      string;
   reserve_y?:      string;
   liquidity?:      string;
+  // BOTH spellings. Bitflow moved this field to camelCase in April 2026 and the
+  // live endpoint returns `userLiquidity`, so reading only the old name parsed
+  // every bin as zero: a wallet with 232 bins of liquidity looked empty. That
+  // used to surface as a wrong REBALANCE; once "nothing there" became its own
+  // answer it would have told a real holder they hold nothing, which is the
+  // worse direction. Checked 12 September: hodlmm-position-exit reads both, but
+  // hodlmm-emergency-exit and sbtc-capital-allocator still read only the old
+  // name, so against today's endpoint they see every bin as zero. Their own fix,
+  // not this one's.
   user_liquidity?: string | number;
+  userLiquidity?:  string | number;
 }
 
 interface AppPoolToken {
@@ -155,6 +167,24 @@ async function fetchJson<T>(url: string): Promise<T> {
   }
 }
 
+/**
+ * A bin id, or null when the value is not one.
+ *
+ * Strict on purpose. `Number()` alone accepts things that are not ids and turns
+ * them into real bins: `null` and `""` become bin 0, which exists in this pool,
+ * and `"0x28d"` becomes 653, which is the active bin. A wrong id is worse than
+ * no id, because it silently moves the edges of somebody's position.
+ *
+ * Strings are accepted because one run printed `"526"` where later probes
+ * returned 526, and the payload names more than one data source, so the two
+ * spellings can both be real.
+ */
+function binIdOf(raw: unknown): number | null {
+  if (typeof raw === "number") return Number.isInteger(raw) && raw >= 0 ? raw : null;
+  if (typeof raw === "string" && /^\d+$/.test(raw)) return Number(raw);
+  return null;
+}
+
 async function fetchPools(): Promise<HodlmmPool[]> {
   const data = await fetchJson<PoolsResponse>(`${BITFLOW_HODLMM_API}/api/quotes/v1/pools`);
   return data.pools ?? [];
@@ -165,10 +195,16 @@ async function fetchPoolBins(poolId: string): Promise<{
   priceByBinId:  Map<number, number>;
 }> {
   const data = await fetchJson<BinsResponse>(`${BITFLOW_HODLMM_API}/api/quotes/v1/bins/${poolId}`);
+  // Through the same strict reader as the user's bins. Keyed by a string id the
+  // Map would miss every numeric lookup, the active bin's price would read 0,
+  // and every rebalance would be refused for "slippage 100%".
   const priceByBinId = new Map<number, number>(
-    (data.bins ?? []).map((b) => [b.bin_id, parseFloat(b.price ?? "0")])
+    (data.bins ?? [])
+      .map((b) => [binIdOf(b.bin_id), parseFloat(b.price ?? "0")] as const)
+      .filter((pair): pair is readonly [number, number] => pair[0] !== null)
+      .map(([id, price]) => [id, price])
   );
-  return { active_bin_id: data.active_bin_id ?? 0, priceByBinId };
+  return { active_bin_id: binIdOf(data.active_bin_id) ?? 0, priceByBinId };
 }
 
 async function fetchUserPositionBins(address: string, poolId: string): Promise<HodlmmBin[] | null> {
@@ -183,11 +219,12 @@ async function fetchUserPositionBins(address: string, poolId: string): Promise<H
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`HTTP ${res.status} fetching user position`);
     const data = await res.json() as UserPositionResponse;
-    return (
-      Array.isArray(data?.bins)            ? data.bins :
-      Array.isArray(data?.position_bins)   ? data.position_bins :
-      Array.isArray(data?.positions?.bins) ? (data.positions?.bins ?? []) :
-      []
+    if (Array.isArray(data?.bins))            return data.bins;
+    if (Array.isArray(data?.position_bins))   return data.position_bins;
+    if (Array.isArray(data?.positions?.bins)) return data.positions?.bins ?? [];
+    throw new Error(
+      "the positions endpoint answered in a shape this skill does not recognise, so whether " +
+      "this wallet holds anything here is unknown",
     );
   } finally {
     clearTimeout(timer);
@@ -264,7 +301,60 @@ async function checkGas(): Promise<GasResult> {
 }
 
 // ── Core logic ─────────────────────────────────────────────────────────────────
-async function runGuardian(wallet?: string, poolId?: string): Promise<{
+/**
+ * The one line a person reads first, decided in one place.
+ *
+ * Lifted out of the check so a test can reach it without the network. A wallet
+ * holding NO position in the pool used to be told "REBALANCE: position out of
+ * range", because a missing position left `inRange` false while every gate
+ * passed, and the branch that fires on false-plus-gates-pass is the rebalance
+ * one. The detail line underneath said "no position found" at the same time.
+ * Seen on a live SmartX wallet holding no HODLMM liquidity, 11 September.
+ *
+ * The order of the branches IS the rule: whether anything is there at all comes
+ * before whether it is in range, which comes before whether a move is allowed.
+ */
+export function actionLine(a: {
+  noPosition:   boolean;
+  inRange:      boolean | null;
+  canRebalance: boolean;
+  positionNote?: string;
+  activeBinId:  number;
+  apr24h:       number;
+  refusals:     readonly string[];
+  userBinRange: UserBinRange | null;
+}): string {
+  if (a.noPosition) {
+    return `NO POSITION: ${a.positionNote} Nothing is in or out of range, and there is nothing to rebalance.`;
+  }
+  if (a.inRange === null) return `CHECK: ${a.positionNote}`;
+  if (a.inRange) {
+    return `HOLD: position in range at active bin ${a.activeBinId}. APR (24h): ${a.apr24h.toFixed(2)}%.`;
+  }
+  if (!a.canRebalance) {
+    return `HOLD: position out of range but rebalance blocked: ${a.refusals.join("; ")}.`;
+  }
+  if (a.userBinRange && a.activeBinId >= a.userBinRange.min && a.activeBinId <= a.userBinRange.max) {
+    // "Out of range" while quoting a range that contains the active bin reads
+    // as a contradiction, and it is the common case: a position spanning
+    // hundreds of bins with a gap exactly at the active one. Say the true
+    // thing, which is that the bin earning fees right now holds none of their
+    // liquidity.
+    return `REBALANCE: the active bin ${a.activeBinId} holds none of your liquidity, though your position spans bins ${a.userBinRange.min} to ${a.userBinRange.max} (${a.userBinRange.count} bins, with gaps). Fees accrue only in the active bin. Requires human approval.`;
+  }
+  return `REBALANCE: position out of range (active bin ${a.activeBinId}${a.userBinRange ? `, position bins ${a.userBinRange.min}-${a.userBinRange.max}` : ""}). Requires human approval.`;
+}
+
+/**
+ * Exported so a test can drive the WHOLE check with the network stubbed.
+ *
+ * The headline test reaches `actionLine` only, and a review proved that is not
+ * enough: reading the wrong field name for a bin's liquidity made every bin
+ * parse as zero, so a wallet holding 232 bins was reported as holding nothing,
+ * and all seven headline cases still passed. What that test could not see is
+ * the wiring between the endpoint's shape and the decision.
+ */
+export async function runGuardian(wallet?: string, poolId?: string): Promise<{
   status: "success" | "error";
   action: string;
   data:   Record<string, unknown>;
@@ -315,25 +405,71 @@ async function runGuardian(wallet?: string, poolId?: string): Promise<{
   let inRange: boolean | null = null;
   let userBinRange: UserBinRange | null = null;
   let positionNote: string | undefined;
+  // "We looked and there is nothing" is not "we could not look", and neither is
+  // "out of range". Without this a wallet holding NO position in the pool was
+  // told REBALANCE: a missing position set inRange to false, and false with the
+  // checks passing is the rebalance branch. Seen on a live SmartX wallet holding
+  // no HODLMM liquidity, 11 September.
+  let noPosition = false;
+  // Three states, not two: they hold something, they hold nothing, or nobody
+  // looked. Derived from `noPosition` it could only say two of them, and a read
+  // that FAILED would have been reported as holding nothing.
+  let hasPosition: boolean | null = null;
 
   if (wallet) {
     const userBins = await fetchUserPositionBins(wallet, pool.pool_id);
     if (userBins === null) {
-      inRange      = false;
+      noPosition   = true;
+      hasPosition  = false;
       positionNote = `No position found for ${wallet} in pool ${pool.pool_id}.`;
     } else {
-      const activeBins = userBins.filter((b) => {
-        const liq = typeof b.user_liquidity === "number"
-          ? b.user_liquidity
-          : parseFloat(String(b.user_liquidity ?? "0"));
-        return liq > 0;
-      });
-      const binIds = activeBins.map((b) => b.bin_id).sort((a, z) => a - z);
-      inRange = binIds.includes(active_bin_id);
-      if (binIds.length > 0) {
+      const liquidityOf = (b: HodlmmBin): { known: boolean; amount: number } => {
+        const raw = b.userLiquidity ?? b.user_liquidity;
+        if (raw === undefined || raw === null) return { known: false, amount: 0 };
+        const amount = typeof raw === "number" ? raw : Number(raw);
+        return Number.isFinite(amount) ? { known: true, amount } : { known: false, amount: 0 };
+      };
+      const readable = userBins.map(liquidityOf);
+      const anyKnown = readable.some((r) => r.known);
+      const activeBins = userBins.filter((_, i) => readable[i]!.known && readable[i]!.amount > 0);
+      // Number(), because this endpoint has answered with bin ids as numbers
+      // (526) and as strings ("526"). `includes` compares with ===, so a string
+      // id can never equal the numeric active bin, and a holder whose bins
+      // surround the active one is reported OUT of range: a rebalance alarm on
+      // a position that is earning fine. Anything unparseable is dropped rather
+      // than becoming NaN, which would silently shrink the range.
+      const read     = activeBins.map((b) => binIdOf(b.bin_id));
+      const binIds   = read.filter((n): n is number => n !== null).sort((a, z) => a - z);
+      const unreadable = read.length - binIds.length;
+
+      if (userBins.length > 0 && !anyKnown) {
+        // Not one bin carried a liquidity figure this skill could read. Live
+        // data carries `userLiquidity` on every bin even when it is zero, so
+        // this is what a renamed or reshaped field looks like, and it must not
+        // be reported as an empty wallet.
+        hasPosition  = null;
+        inRange      = null;
+        positionNote = `The pool listed ${userBins.length} ${userBins.length === 1 ? "bin" : "bins"} for this wallet, but none carried a liquidity figure this skill could read, so whether anything is held here is unknown.`;
+      } else if (activeBins.length > 0 && unreadable > 0) {
+        // Bins with liquidity whose ids we could not read. That is a read that
+        // FAILED, and it must not be reported as an empty wallet: the same
+        // rename that moved `user_liquidity` to `userLiquidity` could move
+        // `bin_id`, and then every holder would be told they hold nothing. Say
+        // we could not tell, which is what is true.
+        hasPosition  = true;
+        inRange      = null;
+        positionNote = `This wallet holds liquidity in ${activeBins.length} bins here, but ${unreadable} of their ids could not be read, so whether the active bin is one of them is unknown.`;
+      } else if (binIds.length > 0) {
+        hasPosition  = true;
+        inRange      = binIds.includes(Number(active_bin_id));
         userBinRange = { min: binIds[0], max: binIds[binIds.length - 1], count: binIds.length, bins: binIds };
       } else {
-        positionNote = "User has a position record but no bins with liquidity.";
+        noPosition   = true;
+        hasPosition  = false;
+        inRange      = null;
+        // What the endpoint actually said, rather than an inference about
+        // whether they ever held one.
+        positionNote = `The pool lists ${userBins.length} ${userBins.length === 1 ? "bin" : "bins"} for this wallet, all with zero liquidity.`;
       }
     }
   } else {
@@ -361,22 +497,22 @@ async function runGuardian(wallet?: string, poolId?: string): Promise<{
 
   const canRebalance = refusals.length === 0;
 
-  let action: string;
-  if (inRange === null) {
-    action = `CHECK: ${positionNote}`;
-  } else if (inRange) {
-    action = `HOLD: position in range at active bin ${active_bin_id}. APR (24h): ${apr24h.toFixed(2)}%.`;
-  } else if (!canRebalance) {
-    action = `HOLD: position out of range but rebalance blocked: ${refusals.join("; ")}.`;
-  } else {
-    action = `REBALANCE: position out of range (active bin ${active_bin_id}${userBinRange ? `, position bins ${userBinRange.min}-${userBinRange.max}` : ""}). Requires human approval.`;
-  }
+  const action = actionLine({
+    noPosition, inRange, canRebalance, positionNote,
+    activeBinId: active_bin_id, apr24h, refusals, userBinRange,
+  });
 
   return {
     status: "success",
     action,
     data: {
+      // A missing position is not an out of range one, in the data either: a
+      // reader that trusts this field rather than the sentence would draw the
+      // same wrong conclusion the headline used to state. `in_range` answers
+      // only when there IS a position, and `has_position` is null when no
+      // wallet was given, because then nobody looked.
       in_range:             inRange,
+      has_position:         hasPosition,
       active_bin:           active_bin_id,
       user_bin_range:       userBinRange,
       can_rebalance:        canRebalance,
@@ -510,7 +646,15 @@ program
     }
   });
 
-program.parseAsync(process.argv).catch((err: unknown) => {
-  console.error(JSON.stringify({ status: "error", error: err instanceof Error ? err.message : String(err) }));
-  process.exit(1);
-});
+// Only when this file IS the program, never when a test imports it. Without the
+// guard, importing the skill ran the command line with the test runner's own
+// arguments: the first test written against it printed this skill's usage and
+// exited 1, so every case failed without a single assertion running, and a
+// mutation "caught" by that failure was caught by nothing at all. The alpha
+// engine guards its entry the same way.
+if (import.meta.main) {
+  program.parseAsync(process.argv).catch((err: unknown) => {
+    console.error(JSON.stringify({ status: "error", error: err instanceof Error ? err.message : String(err) }));
+    process.exit(1);
+  });
+}
