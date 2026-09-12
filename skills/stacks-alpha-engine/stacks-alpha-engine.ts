@@ -40,7 +40,32 @@ import * as ecc       from "tiny-secp256k1";
 
 // == Constants ================================================================
 const FETCH_TIMEOUT_MS    = 30_000;
-const HIRO_API            = "https://api.mainnet.hiro.so";
+/**
+ * Where the Stacks reads go.
+ *
+ * Overridable because of a limit measured on 2026-09-12, and because of the rule
+ * that shaped the fix. One deposit makes 46 requests to this host, counted with
+ * a tally on every outbound call. Hiro allows 50 A MINUTE without a key and 500
+ * with one, so a single deposit consumes 92% of the anonymous budget and the app
+ * adds its own reads on top. It fails by a hair, every time.
+ *
+ * The obvious repair, hand this skill an API key, is refused by the app on
+ * purpose. Its runner hands every skill a scrubbed environment because "a skill
+ * is somebody else's code running on our machine, and everything it can read it
+ * can also print", and it names a credential it deliberately withholds. That
+ * rule does not distinguish this repo's skills from a stranger's, and spending it
+ * to save an afternoon is how a rule stops meaning anything.
+ *
+ * So the skill is told an ADDRESS instead, which is not a credential and carries
+ * nothing worth printing. Whoever runs it can put an authenticated hop in front
+ * of Hiro and keep the key on their own side. Unset, this is exactly the public
+ * host it has always used, so a caller that sets nothing is unaffected.
+ *
+ * The second reason is testing: with this hardcoded, nothing could point the
+ * engine at a stub chain. The app has had `HIRO_API` for its own reads for that
+ * reason, and this is the same name so an operator learns one thing, not two.
+ */
+const HIRO_API            = process.env.HIRO_API || "https://api.mainnet.hiro.so";
 const TENERO_API          = "https://api.tenero.io";
 const BITFLOW_API         = "https://bff.bitflowapis.finance";
 const MEMPOOL_API         = "https://mempool.space/api";
