@@ -132,7 +132,7 @@ No `validate-frontmatter.ts` script present in upstream repo. Frontmatter manual
 
 ## Known constraints or edge cases
 
-- `in_range` returns `null` (not `false`) when no `--wallet` provided, and also when the wallet holds no position here: neither case is out of range. `has_position` separates the two, and is `null` when no wallet was given.
+- `in_range` returns `null` (not `false`) when no `--wallet` provided, and also when the wallet holds no position here: neither case is out of range. `has_position` separates the two, and is `null` whenever nobody could tell: no wallet given, or the bins came back without a liquidity figure this skill can read.
 - Slippage check requires a USD-pegged `token_y`. Non-USD pairs skip the check and report `slippage_ok: true`.
 - Defaults to `dlmm_1` (sBTC-USDCx). Other pool IDs accepted via `--pool-id`.
 
@@ -268,7 +268,7 @@ No `validate-frontmatter.ts` script present in upstream repo. Frontmatter manual
 
 ## Known constraints or edge cases
 
-- `in_range` returns `null` (not `false`) when no `--wallet` provided, and also when the wallet holds no position here: neither case is out of range. `has_position` separates the two, and is `null` when no wallet was given.
+- `in_range` returns `null` (not `false`) when no `--wallet` provided, and also when the wallet holds no position here: neither case is out of range. `has_position` separates the two, and is `null` whenever nobody could tell: no wallet given, or the bins came back without a liquidity figure this skill can read.
 - Slippage check requires a USD-pegged `token_y`. Non-USD pairs skip the check and report `slippage_ok: true`.
 - Defaults to `dlmm_1` (sBTC-USDCx). Other pool IDs accepted via `--pool-id`.
 

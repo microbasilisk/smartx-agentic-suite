@@ -9,7 +9,9 @@ description: "Autonomous LP range monitor for Bitflow HODLMM pools. Checks if a 
 ## Decision order
 - Maximum estimated gas per rebalance: **50 STX** (2 contract calls: withdraw + add)
 - Slippage cap: **0.5%**, measured as deviation between HODLMM active-bin price and Bitflow app reported token price
-- Cooldown between rebalances: **4 hours** (state tracked in `~/.hodlmm-guardian-state.json`)
+- Cooldown between rebalances: **4 hours**, READ from `~/.hodlmm-guardian-state.json`. Nothing in this
+  skill writes that file, so the gate bites only where another tool maintains it. Run through SmartX each
+  run gets a fresh empty HOME, so the file never exists and the cooldown is always clear.
 
 ## Guardrails
 Before any gate is consulted: if the wallet holds no liquidity in this pool

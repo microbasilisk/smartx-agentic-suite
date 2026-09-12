@@ -168,8 +168,60 @@ bun run hodlmm-bin-guardian/hodlmm-bin-guardian.ts run
 Captured on 12 September 2026 from wallet `SP1BXRXA...`, which held 232 bins at
 that moment. The `bins` array is shortened here to five ids; the real answer
 lists every one. A live position changes: the same wallet held 23 bins a few
-hours later and the answer became the REBALANCE line below, so treat this as
+hours later and the answer became the REBALANCE example below, so treat this as
 what one real run said, not as what that command prints today.
+
+### run --wallet (a position that surrounds the active bin without holding it)
+
+```json
+{
+  "status": "success",
+  "action": "REBALANCE: the active bin 656 holds none of your liquidity, though your position spans bins 528 to 766 (23 bins, with gaps). Fees accrue only in the active bin. Requires human approval.",
+  "data": {
+    "in_range": false,
+    "has_position": true,
+    "active_bin": 656,
+    "user_bin_range": {
+      "min": 528,
+      "max": 766,
+      "count": 23,
+      "bins": [
+        528,
+        537,
+        546,
+        762,
+        766
+      ]
+    },
+    "can_rebalance": true,
+    "refusal_reasons": null,
+    "slippage_ok": true,
+    "slippage_pct": 0.0282,
+    "bin_price_raw": 77363811477,
+    "pool_price_usd": 77363.81,
+    "market_price_usd": 77342,
+    "slippage_source": "bitflow-app-price-vs-hodlmm-active-bin",
+    "gas_ok": true,
+    "gas_estimated_stx": 0.0432,
+    "cooldown_ok": true,
+    "cooldown_remaining_h": 0,
+    "last_rebalance_at": "2026-03-26T16:42:45.000Z",
+    "volume_ok": true,
+    "volume_24h_usd": 1706731,
+    "liquidity_usd": 110262,
+    "apr_24h_pct": 546.55,
+    "pool_id": "dlmm_1",
+    "pool_name": "sBTC-USDCx-LP",
+    "fee_bps": 50
+  },
+  "error": null
+}
+```
+
+Captured 12 September 2026, the same wallet as above a few hours later. The
+active bin sits inside the span, so "out of range" would read as a
+contradiction; what is true is that the bin earning fees right now holds none
+of their liquidity. The `bins` array is shortened here to five ids.
 
 ## Output contract
 

@@ -204,7 +204,13 @@ async function fetchPoolBins(poolId: string): Promise<{
       .filter((pair): pair is readonly [number, number] => pair[0] !== null)
       .map(([id, price]) => [id, price])
   );
-  return { active_bin_id: binIdOf(data.active_bin_id) ?? 0, priceByBinId };
+  const activeBinId = binIdOf(data.active_bin_id);
+  if (activeBinId === null) {
+    throw new Error(
+      "the bins endpoint did not give a readable active bin id, and every verdict here depends on it",
+    );
+  }
+  return { active_bin_id: activeBinId, priceByBinId };
 }
 
 async function fetchUserPositionBins(address: string, poolId: string): Promise<HodlmmBin[] | null> {
@@ -216,7 +222,14 @@ async function fetchUserPositionBins(address: string, poolId: string): Promise<H
       signal:  controller.signal,
       headers: { Accept: "application/json", "User-Agent": "bff-skills/hodlmm-bin-guardian" },
     });
-    if (res.status === 404) return null;
+    if (res.status === 404) {
+      const body = await res.text();
+      if (/no pool bins/i.test(body)) return null;
+      throw new Error(
+        "the positions endpoint answered 404 without saying this wallet has no bins here, so whether " +
+        `it holds anything is unknown (body: ${body.slice(0, 120)})`,
+      );
+    }
     if (!res.ok) throw new Error(`HTTP ${res.status} fetching user position`);
     const data = await res.json() as UserPositionResponse;
     if (Array.isArray(data?.bins))            return data.bins;
@@ -426,6 +439,7 @@ export async function runGuardian(wallet?: string, poolId?: string): Promise<{
       const liquidityOf = (b: HodlmmBin): { known: boolean; amount: number } => {
         const raw = b.userLiquidity ?? b.user_liquidity;
         if (raw === undefined || raw === null) return { known: false, amount: 0 };
+        if (typeof raw === "string" && raw.trim() === "") return { known: false, amount: 0 };
         const amount = typeof raw === "number" ? raw : Number(raw);
         return Number.isFinite(amount) ? { known: true, amount } : { known: false, amount: 0 };
       };
@@ -469,7 +483,9 @@ export async function runGuardian(wallet?: string, poolId?: string): Promise<{
         inRange      = null;
         // What the endpoint actually said, rather than an inference about
         // whether they ever held one.
-        positionNote = `The pool lists ${userBins.length} ${userBins.length === 1 ? "bin" : "bins"} for this wallet, all with zero liquidity.`;
+        positionNote = userBins.length === 0
+          ? "The pool listed no bins at all for this wallet."
+          : `The pool lists ${userBins.length} ${userBins.length === 1 ? "bin" : "bins"} for this wallet, all with zero liquidity.`;
       }
     }
   } else {

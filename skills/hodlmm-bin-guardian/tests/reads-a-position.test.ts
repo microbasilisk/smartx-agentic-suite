@@ -31,7 +31,7 @@ const check = (name: string, cond: boolean, detail: string) => {
 };
 
 /** Answer these URLs, and make any other URL a loud failure rather than a hang. */
-function stubFetch(userBins: { status?: number; body?: unknown }) {
+function stubFetch(userBins: { status?: number; body?: unknown }, opts: { activeBinId?: unknown } = {}) {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: unknown) => {
     const url = String(input);
@@ -47,7 +47,7 @@ function stubFetch(userBins: { status?: number; body?: unknown }) {
     if (url.includes("/api/quotes/v1/bins/")) {
       // 67900000000 raw with 8 and 6 decimals is 67900 USD, matching the price
       // below, so the slippage gate passes and cannot colour these results.
-      return json({ active_bin_id: 653, bins: [{ bin_id: 653, price: "67900000000" }] });
+      return json({ active_bin_id: "activeBinId" in opts ? opts.activeBinId : 653, bins: [{ bin_id: 653, price: "67900000000" }] });
     }
     if (url.includes("/api/app/v1/pools")) {
       return json({ data: [{ poolId: "dlmm_1", tvlUsd: 367777, volumeUsd1d: 1722441, apr24h: 166.19,
@@ -61,8 +61,8 @@ function stubFetch(userBins: { status?: number; body?: unknown }) {
 
 const WALLET = "SP1BXRXA0Z67MB6G31FP1R52ZX5GQTZ5008KZG77A";
 
-async function guardian(userBins: { status?: number; body?: unknown }) {
-  const restore = stubFetch(userBins);
+async function guardian(userBins: { status?: number; body?: unknown }, opts: { activeBinId?: unknown } = {}) {
+  const restore = stubFetch(userBins, opts);
   try { return await runGuardian(WALLET, "dlmm_1"); }
   finally { restore(); }
 }
@@ -70,7 +70,9 @@ async function guardian(userBins: { status?: number; body?: unknown }) {
 // The live shape, as measured on 11 September 2026: camelCase liquidity with
 // numeric ids. One earlier run printed an id as the string "526" and later
 // probes returned numbers, and the payload names more than one data source, so
-// both spellings are read; the string case below is that unreproduced form.
+// both spellings are read; the string case below is that unreproduced form. The
+// 404 body is the live one too: `detail`, not `message`, which an earlier
+// version of this file guessed wrong.
 const holderCamel = { bins: [
   { bin_id: "652", price: "67800000000", userLiquidity: 228056485 },
   { bin_id: "653", price: "67900000000", userLiquidity: 251243853 },
@@ -99,7 +101,7 @@ check("bins with no liquidity are no position, not an out of range one",
   r4.action.startsWith("NO POSITION:") && r4.data.has_position === false && r4.data.in_range === null, r4.action);
 
 // The endpoint's own "this wallet has no bins here" answer.
-const r5 = await guardian({ status: 404, body: { message: "no pool bins" } });
+const r5 = await guardian({ status: 404, body: { detail: `Pool dlmm_1 not found or user ${WALLET} has no pool bins` } });
 check("a 404 from the position endpoint is no position",
   r5.action.startsWith("NO POSITION:") && r5.data.has_position === false, r5.action);
 
@@ -166,6 +168,29 @@ check("a liquidity value that is not a number is unreadable, not zero",
 const r12 = await guardian({ body: { bins: [{ bin_id: 653, userLiquidity: 0 }] } });
 check("one empty bin reads as one bin",
   r12.action.includes("1 bin for this wallet") && !r12.action.includes("1 bins"), r12.action);
+
+// A 404 that does NOT say "no pool bins" is the route being gone, which is the
+// same class of change as the April field rename. Reported as "you hold
+// nothing" it would be a confident lie to a holder.
+let gone = "";
+try { await guardian({ status: 404, body: { detail: "Not Found" } }); }
+catch (e) { gone = (e as Error).message; }
+check("a 404 that does not say the wallet has no bins is refused, not read as empty",
+  gone.includes("without saying this wallet has no bins"), gone || "(it did not throw)");
+
+// Everything downstream keys off the active bin, and bin 0 is a real bin in
+// this pool, so an unreadable id must not quietly become one.
+let noActive = "";
+try {
+  await guardian({ body: { bins: [{ bin_id: 653, userLiquidity: 100 }] } }, { activeBinId: undefined });
+} catch (e) { noActive = (e as Error).message; }
+check("an unreadable active bin id is refused, not turned into bin 0",
+  noActive.includes("readable active bin id"), noActive || "(it did not throw)");
+
+// An empty liquidity string is unreadable, not zero: Number("") is 0.
+const r13 = await guardian({ body: { bins: [{ bin_id: 653, userLiquidity: "" }] } });
+check("an empty liquidity value is unreadable, not a wallet holding nothing",
+  r13.action.startsWith("CHECK:"), r13.action);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
