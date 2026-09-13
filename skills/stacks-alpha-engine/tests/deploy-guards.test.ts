@@ -19,11 +19,23 @@
 import { sizeHodlmmOption, markOptionGates, bestMove, verdictLine, gateCellFor, swapTableNeedsPairNote, applyGateResults, buildDeployInstructions, parseAtomicAmount, inferTargetPoolId, poolGateScope, selectTargetOption, classifySlippage, explainsDestinationPool, checkGuardian, scanGuardianInput, buildWithdrawInstructions, liveGuardianReads } from "../stacks-alpha-engine.ts";
 
 // sbtc has 8 decimals, usdcx has 6. `amount` in balances is HUMAN units.
-const scout = (sbtcAtomic: number, usdcxAtomic: number) => ({
+const WALLET = "SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF";
+/** A wallet holding the USDh/USDCx pair, for the dlmm_8 cases. */
+const scoutUsdh = (usdhAtomic: number, usdcxAtomic: number) => ({
+  wallet: WALLET,
+  balances: {
+    usdh:  { amount: usdhAtomic / 1e8, usd: 0 },
+    usdcx: { amount: usdcxAtomic / 1e6, usd: 0 },
+  },
+  prices: { sbtc: 78000, stx: 0.5, usdcx: 1, usdh: 1, aeusdc: 1 },
+}) as never;
+
+const scout = (sbtcAtomic: number, usdcxAtomic: number, stxAtomic = 0) => ({
   wallet: "SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF",
   balances: {
     sbtc:  { amount: sbtcAtomic / 1e8, usd: 0 },
     usdcx: { amount: usdcxAtomic / 1e6, usd: 0 },
+    stx:   { amount: stxAtomic / 1e6, usd: 0 },
   },
   prices: { sbtc: 78000, stx: 0.5, usdcx: 1, usdh: 1, aeusdc: 1 },
 }) as never;
@@ -33,8 +45,19 @@ const check = (name: string, cond: boolean, detail: string) => {
   if (cond) { pass++; console.log(`  PASS  ${name}`); }
   else { fail++; console.log(`  FAIL  ${name}\n        ${detail}`); }
 };
-const hasAddLiq = (b: { instructions: Array<{ tool: string }> }) =>
-  b.instructions.some(i => i.tool === "bitflow:add-liquidity-simple");
+/**
+ * Did a deposit get BUILT?
+ *
+ * Looks for a real contract call to the add function, not a tool name. Until
+ * 2026-09-12 this deposit emitted `bitflow:add-liquidity-simple`, which was a
+ * complete instruction only for an agent holding its own key: something in the
+ * same process read it, signed and broadcast. A caller that has to hand a
+ * person unsigned bytes could do nothing with it, which is why the shape
+ * changed and why these cases now read the call.
+ */
+const hasAddLiq = (b: { instructions: Array<{ tool: string; params?: Record<string, unknown> }> }) =>
+  b.instructions.some(i => i.tool === "call_contract"
+    && (i.params as Record<string, unknown> | undefined)?.functionName === "add-relative-liquidity-same-multi");
 
 /**
  * The bins of a built deposit, or an empty array.
@@ -47,11 +70,33 @@ const hasAddLiq = (b: { instructions: Array<{ tool: string }> }) =>
  * as one.
  */
 const binsOf = (b: { instructions: Array<{ tool: string; params?: Record<string, unknown> }> }) => {
-  const liq = b.instructions.find(i => i.tool === "bitflow:add-liquidity-simple");
-  const raw = liq?.params?.bins;
-  if (typeof raw !== "string") return [] as Array<{ activeBinOffset: number; xAmount: string; yAmount: string }>;
-  try { return JSON.parse(raw) as Array<{ activeBinOffset: number; xAmount: string; yAmount: string }>; }
-  catch { return []; }
+  type Bin = { activeBinOffset: number; xAmount: string; yAmount: string };
+  const empty: Bin[] = [];
+  const liq = b.instructions.find(i => i.tool === "call_contract"
+    && (i.params as Record<string, unknown> | undefined)?.functionName === "add-relative-liquidity-same-multi");
+  const args = (liq?.params as Record<string, unknown> | undefined)?.functionArgs;
+  if (!Array.isArray(args) || args.length === 0) return empty;
+  const list = (args[0] as Record<string, unknown>)?.value;
+  if (!Array.isArray(list)) return empty;
+  // Read back into the SAME shape the cases below already assert on, so every
+  // property they prove survives the change of instruction unchanged. The
+  // amounts are what they always were; only where they are written moved.
+  return list.map((t) => {
+    const v = ((t as Record<string, unknown>)?.value ?? {}) as Record<string, { value?: unknown }>;
+    return {
+      activeBinOffset: Number(v["active-bin-id-offset"]?.value ?? 0),
+      xAmount: String(v["x-amount"]?.value ?? "0"),
+      yAmount: String(v["y-amount"]?.value ?? "0"),
+    };
+  }) as Bin[];
+};
+
+/** The post-conditions on a built deposit, or an empty array. */
+const pinsOf = (b: { instructions: Array<{ tool: string; params?: Record<string, unknown> }> }) => {
+  const liq = b.instructions.find(i => i.tool === "call_contract"
+    && (i.params as Record<string, unknown> | undefined)?.functionName === "add-relative-liquidity-same-multi");
+  const pcs = (liq?.params as Record<string, unknown> | undefined)?.postConditions;
+  return Array.isArray(pcs) ? pcs as Array<Record<string, unknown>> : [];
 };
 
 /** Every description on a build, so a note can be looked for by its words. */
@@ -1185,6 +1230,157 @@ console.log("BF applyGateResults");
   const opts: any[] = [opt({ pool_id: "dlmm_4", gates: "not-measured" })];
   applyGateResults(opts, { slippage: { pool_id: "dlmm_4", status: "pass" }, volume: { status: "pass" } } as any);
   check("BF a genuine pass is recorded as one", opts[0].gates === "passed", opts[0].gates);
+}
+
+
+// == The limits on what may leave a signer's wallet ==========================
+//
+// This is the part with a history. Of 22 successful HODLMM writes from this
+// project's wallet, EIGHTEEN ran allow mode with ZERO post-conditions, and SEVEN
+// transactions died with `abort_by_post_condition` when conditions WERE
+// attached. Nothing bounded the eighteen; the seven were bounded wrongly. The
+// knowledge base's instruction is to treat every new condition as needing its
+// own negative control, so each case below breaks the thing it claims.
+console.log("\n== I: the sender pins on a two sided deposit ==");
+{
+  const b = buildDeployInstructions("hodlmm" as never, 1000, "sbtc", scout(100000, 5000), "dlmm_1", 2000, true);
+  const pins = pinsOf(b);
+  check("I a two sided deposit carries one pin per side", pins.length === 2, JSON.stringify(pins));
+
+  // Every pin caps the SIGNER, not the pool. A pin on somebody else's balance
+  // bounds nothing the person cares about.
+  check("I every pin is on the signer's own wallet",
+    pins.length === 2 && pins.every(p => p.principal === WALLET), JSON.stringify(pins.map(p => p.principal)));
+
+  // `lte`, not `gte`. A floor on what leaves is not a limit, it is permission:
+  // "at least this much may go" is satisfied by everything.
+  check("I every pin is a CAP, not a floor",
+    pins.length === 2 && pins.every(p => p.conditionCode === "lte"), JSON.stringify(pins.map(p => p.conditionCode)));
+
+  // The caps are the two amounts the caller named, and nothing larger. This is
+  // the same property as "deposits the amount the caller named", asserted on
+  // the thing the chain actually enforces rather than on the arguments.
+  const amounts = pins.map(p => String(p.amount)).sort();
+  check("I the caps are exactly the two amounts named", JSON.stringify(amounts) === JSON.stringify(["1000", "2000"]), JSON.stringify(amounts));
+
+  // The asset NAME is the argument to define-fungible-token, not the ticker and
+  // not the contract name. A pin naming an asset that does not exist covers
+  // nothing and the chain aborts: mainnet tx 0x77863289 died exactly that way.
+  const sbtcPin = pins.find(p => String(p.amount) === "1000");
+  check("I the sBTC pin names the real asset", sbtcPin?.assetName === "sbtc-token", JSON.stringify(sbtcPin));
+}
+
+console.log("\n== J: a side that does not move gets no pin ==");
+{
+  // One sided: only X moves. A condition on an asset that never transfers is
+  // itself a reason for the chain to reject the transaction.
+  const b = buildDeployInstructions("hodlmm" as never, 1000, "sbtc", scout(100000, 5000), "dlmm_1", null, true);
+  const pins = pinsOf(b);
+  check("J a one sided deposit carries exactly one pin", pins.length === 1, JSON.stringify(pins));
+  check("J and it caps the side that actually moves",
+    pins[0]?.conditionCode === "lte" && String(pins[0]?.amount) === "1000", JSON.stringify(pins));
+}
+
+console.log("\n== K: STX is not a fungible token ==");
+{
+  // dlmm_3 is STX/USDCx. STX moves under its own kind of condition, and a
+  // fungible-token pin naming "stx" would cover nothing at all.
+  const b = buildDeployInstructions("hodlmm" as never, 1000000, "stx", scout(100000, 5000, 9000000), "dlmm_3", 2000, true);
+  const pins = pinsOf(b);
+  const stxPin = pins.find(p => p.type === "stx");
+  check("K the STX side is pinned as STX, not as a token", !!stxPin, JSON.stringify(pins));
+  check("K and it is still a cap on the signer",
+    stxPin?.conditionCode === "lte" && stxPin?.principal === WALLET, JSON.stringify(stxPin));
+}
+
+
+// == What would ABORT on chain, which the pin cases could not see ============
+//
+// A review ran four mutations that are each fatal on chain and left all 263
+// cases green: min-dlp of zero (u1027), the add emitted in allow mode, the x
+// and y traits swapped (ERR_INVALID_X_TOKEN), and the active-bin tolerance
+// changed from none to a some-tuple (the u5008 drift race). The pins were
+// proved and the CALL was not. An aborted transaction costs the person a fee
+// and moves nothing, so each of those is pinned here.
+console.log("\n== L: the call itself, not just its pins ==");
+{
+  const callOf = (b: { instructions: Array<{ tool: string; params?: Record<string, unknown> }> }) =>
+    (b.instructions.find(i => i.tool === "call_contract"
+      && (i.params as Record<string, unknown> | undefined)?.functionName === "add-relative-liquidity-same-multi")
+      ?.params ?? {}) as Record<string, unknown>;
+
+  const b = buildDeployInstructions("hodlmm" as never, 1000, "sbtc", scout(100000, 5000), "dlmm_1", 2000, true);
+  const call = callOf(b);
+  const args = call.functionArgs as Array<Record<string, unknown>>;
+
+  // min-dlp of 0 aborts with u1027: the core requires shares minted above zero.
+  const tuples = (args[0]?.value ?? []) as Array<{ value: Record<string, { value?: unknown }> }>;
+  check("L every bin asks for more than zero shares",
+    tuples.length > 0 && tuples.every(t => BigInt(String(t.value["min-dlp"]?.value ?? "0")) > 0n),
+    JSON.stringify(tuples.map(t => t.value["min-dlp"]?.value)));
+
+  // Deny, per the roadmap. `add-liquidity` emits one transfer per side and pool
+  // token mints, and deny ignores mints, so deny bounds this call exactly. Allow
+  // would also oblige the app to carry a written justification for two outflows.
+  check("L the add is deny mode", call.postConditionMode === "deny", String(call.postConditionMode));
+
+  // The traits are positional and the core asserts each against the pool's own
+  // binding, so swapping them aborts with ERR_INVALID_X_TOKEN.
+  check("L the x trait comes before the y trait, matching the pool",
+    String((args[2] as { value?: unknown })?.value ?? "").includes("sbtc")
+    && String((args[3] as { value?: unknown })?.value ?? "").includes("usdcx"),
+    `${String((args[2] as { value?: unknown })?.value)} then ${String((args[3] as { value?: unknown })?.value)}`);
+
+  // A some-tuple here aborts with u5008 when the active bin drifts between
+  // building and inclusion, and a person signing minutes later IS that gap.
+  check("L the active bin tolerance is none",
+    (args[4] as { type?: string })?.type === "none", JSON.stringify(args[4]));
+
+  // A pin naming the right asset name on the wrong CONTRACT covers nothing and
+  // aborts. Only the name was checked before.
+  const pins = pinsOf(b);
+  const sbtcPin = pins.find(p => String(p.assetName) === "sbtc-token");
+  check("L the sBTC pin names the real token CONTRACT, not the pool",
+    typeof sbtcPin?.asset === "string" && (sbtcPin.asset as string).includes(".sbtc-token"),
+    JSON.stringify(sbtcPin?.asset));
+  const usdcxPin = pins.find(p => String(p.assetName) === "usdcx-token");
+  check("L the USDCx pin is named too, and was not before",
+    typeof usdcxPin?.asset === "string" && (usdcxPin.asset as string).includes(".usdcx"),
+    JSON.stringify(usdcxPin?.asset));
+}
+
+console.log("\n== L2: the line the person reads before signing ==");
+{
+  // A survivor. Nothing checked the description, so it could say anything. It
+  // DID say "at most 100000000 USDh" for one USDh, wrong by a factor of a
+  // hundred million, on the sentence somebody reads to decide whether to sign.
+  const b = buildDeployInstructions("hodlmm" as never, 100000000, "usdh", scoutUsdh(200000000, 5000000), "dlmm_8", 1000000, true);
+  const line = notes(b).find(n => n.includes("Add liquidity")) ?? "";
+  check("L2 the caps are shown in tokens, not in atomic units",
+    line.includes("1 USDh") && line.includes("1 USDCx"), line);
+  check("L2 and the raw atomic figure is NOT shown", !line.includes("100000000"), line);
+
+  // A FRACTIONAL amount, because whole numbers hide the half of the conversion
+  // that has to divide. Dropping the fraction entirely left the cases above
+  // green, so 1.5 sBTC could have read as "1 sBTC".
+  const f = buildDeployInstructions("hodlmm" as never, 150000000, "sbtc", scout(200000000, 5000000), "dlmm_1", 2500000, true);
+  const fLine = notes(f).find(n => n.includes("Add liquidity")) ?? "";
+  check("L2 a fractional cap keeps its fraction", fLine.includes("1.5 sBTC"), fLine);
+  // And trailing zeros are trimmed, so a whole figure does not read as 1.00000000.
+  check("L2 the counter cap reads as 2.5 and not 2.50000", fLine.includes("2.5 USDCx"), fLine);
+}
+
+console.log("\n== M: STX is a wrapper contract, not the word stx ==");
+{
+  // A review found this builds garbage today: TOKENS.stx.contract is the literal
+  // "stx", and a caller turning that into a principal throws. Even if it did
+  // not, the pool binds token-stx-v-1-2 and the core asserts the trait matches.
+  const b = buildDeployInstructions("hodlmm" as never, 1000000, "stx", scout(100000, 5000, 9000000), "dlmm_3", 2000, true);
+  const call = (b.instructions.find(i => i.tool === "call_contract")?.params ?? {}) as Record<string, unknown>;
+  const args = (call.functionArgs ?? []) as Array<{ value?: unknown }>;
+  const xTrait = String(args[2]?.value ?? "");
+  check("M the STX side passes a real contract principal", xTrait.includes("."), xTrait);
+  check("M and it is the wrapper the pool actually binds", xTrait.includes("token-stx-v-1-2"), xTrait);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

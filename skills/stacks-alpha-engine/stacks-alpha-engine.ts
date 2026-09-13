@@ -152,6 +152,25 @@ const GRANITE_LP          = "SP26NGV9AFZBX7XBDBS2C7EC7FCPSAV9PKREQNMVS.liquidity
 
 // Bitflow DLMM swap router
 const DLMM_SWAP_ROUTER    = "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD";
+/**
+ * The trait a DLMM pool binds for STX, which is NOT the string "stx".
+ *
+ * STX is not a fungible token contract, so `TOKENS.stx.contract` is the literal
+ * "stx", which is fine for a balance lookup and useless as a trait argument: a
+ * caller turning it into a principal throws, and a caller that somehow did not
+ * would abort anyway, because `dlmm-core` asserts
+ * `(is-eq (contract-of x-token-trait) x-token)` and the pool binds this wrapper.
+ * Read from `get-pool` on dlmm_3 and dlmm_6.
+ *
+ * The wrapper's own `transfer` performs a real `stx-transfer?`, so a post
+ * condition on this side is still an `stx` condition and not a token one.
+ */
+const STX_TOKEN_TRAIT     = "SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR.token-stx-v-1-2";
+
+/** The trait argument a pool expects for a token, which STX spells differently. */
+function traitFor(token: string): string {
+  return token === "stx" ? STX_TOKEN_TRAIT : (TOKENS[token]?.contract ?? token);
+}
 const DLMM_SWAP_ROUTER_NAME = "dlmm-swap-router-v-1-1";
 
 // HODLMM
@@ -269,6 +288,25 @@ type YieldTier = "deploy_now" | "swap_first" | "acquire_to_unlock";
 interface YieldOption {
   tier: YieldTier;
   protocol: string; pool: string; token_needed: string; apy_pct: number;
+  /**
+   * The pool's two tokens, separately, for the protocols that hold two.
+   *
+   * `token_needed` already carries them, but joined as `sBTC/USDCx`, which is a
+   * SENTENCE about the pair rather than a pair. A caller staging a two sided
+   * deposit has to know which token each of the person's two amounts belongs
+   * to, and splitting a display string to find out is the same mistake this
+   * file already carries a scar for: matching on the pool NAME once described
+   * the highest APY pool while building instructions for a different one, 377.87%
+   * reported against a pool scored 140.4%. `pool_id` was added for that reason,
+   * and these are added for the same one.
+   *
+   * Lower case symbols, matching what `--token` and `--counter-amount` expect,
+   * so a caller never has to case-fold a display string to build a command.
+   *
+   * Absent for the single asset protocols, and the absence is meaningful: it is
+   * how a caller knows there is no second side to ask about.
+   */
+  token_x?: string; token_y?: string;
   /**
    * The router's own pool id, `dlmm_N`, for the protocols that have more than
    * one pool. Absent for the single-pool protocols.
@@ -1519,6 +1557,10 @@ async function getYieldOptions(
           sides: sized.sides,
           tier, protocol: "HODLMM", pool: def.name, pool_id: bp.poolId,
           token_needed: `${tokenXMeta.symbol}/${tokenYMeta.symbol}`,
+          // The same two symbols the line above joins, kept apart and lower
+          // cased, so a caller staging both sides reads them rather than
+          // splitting a display string.
+          token_x: def.tokenX, token_y: def.tokenY,
           apy_pct: round(bp.apr24h, 2), daily_usd: d, monthly_usd: round(d * 30, 2),
           gas_to_enter_stx: 0.05, swap_cost_note: swapNote,
           note: `Fee-based LP. TVL: $${Math.round(bp.tvlUsd).toLocaleString()}.`,
@@ -1964,6 +2006,26 @@ function defaultSlippagePct(route: DlmmSwapRoute): number {
  */
 function atomicFromBalance(amount: number | undefined, decimals: number): number {
   return Math.round((amount ?? 0) * Math.pow(10, decimals));
+}
+
+/**
+ * An atomic integer as the token amount a person recognises.
+ *
+ * The other direction from `atomicFromBalance`, and done in BigInt rather than
+ * by dividing a float, because this one is read by somebody deciding whether to
+ * sign. A deposit line printed "at most 100000000 USDh" for one USDh, which is
+ * a false statement about their money by a factor of a hundred million, and
+ * float division would trade that error for a quieter one at eight decimals.
+ *
+ * Trailing zeros are trimmed so a whole number reads as "1" and not "1.00000000".
+ */
+function humanAmount(atomic: bigint, decimals: number): string {
+  const scale = 10n ** BigInt(decimals);
+  const whole = atomic / scale;
+  const rest = atomic % scale;
+  if (rest === 0n) return whole.toString();
+  const frac = rest.toString().padStart(decimals, "0").replace(/0+$/, "");
+  return `${whole}.${frac}`;
 }
 
 type BinsResponse = { bins?: Array<{ bin_id: number; price?: string }>; active_bin_id?: number };
@@ -2857,10 +2919,112 @@ export function buildDeployInstructions(
           description: `This is a ONE SIDED deposit, so it sits outside the active bin (${pool.name}). Trading fees accrue at the active bin, so this position earns nothing until the price moves into its range. The pool's headline APY does not describe it. Deposit both sides with --counter-amount to enter at the active bin.`,
         });
       }
+      // A REAL contract call, not a tool name. `bitflow:add-liquidity-simple`
+      // was a complete instruction for an agent holding its own key: something
+      // in the same process read it, signed and broadcast. It is not an
+      // instruction for anybody who has to hand a person unsigned bytes, and a
+      // caller that never held a key could do nothing with it at all.
+      //
+      // Function: `add-relative-liquidity-same-multi`, which has EIGHT mainnet
+      // successes from this project's wallet against `add-relative-liquidity-multi`'s
+      // one, and is what `hodlmm-inventory-balancer` and the Bitflow service both
+      // use. Its argument shape differs from the other's and is taken from that
+      // working caller: the per-bin list first, then the pool and both token
+      // traits as SEPARATE arguments rather than fields inside the tuple.
+      //
+      // `active-bin-tolerance` is none. A some-tuple aborts with
+      // ERR_ACTIVE_BIN_TOLERANCE (u5008) when the active bin drifts between
+      // building and inclusion, and on a high volume pool it can drift
+      // arbitrarily far, so widening the tolerance does not fix it. Nothing here
+      // is mid-cycle, and a person signing minutes later is the same race.
+      const xTotal = bins.reduce((n, b) => n + BigInt(b.xAmount), 0n);
+      const yTotal = bins.reduce((n, b) => n + BigInt(b.yAmount), 0n);
+      // xMeta and yMeta are already in scope from the balance checks above, and
+      // are the same two entries, so they are reused rather than shadowed.
+
+      // DENY, which is what the roadmap asks for on this item, and the reason an
+      // earlier draft gave for allow was borrowed from the wrong path.
+      //
+      // That draft said the router "emits per-bin fee transfers that vary with
+      // pool config". True of the SWAP, and the dlmm_7 abort behind it was a
+      // swap. `dlmm-core`'s `add-liquidity` emits exactly one transfer of
+      // `x-amount`, one of `y-amount`, and pool token mints, with the fee kept
+      // inside the bin balance and no transfer of its own. Mainnet tx
+      // 0xa38348db shows five transfers matching five tuple amounts and nothing
+      // else. Deny ignores mints, so deny bounds this call exactly.
+      //
+      // Which matters beyond tidiness: allow mode obliges the caller to write a
+      // justification, and "two different assets may leave" is precisely what a
+      // reader cannot be asked to accept on trust.
+      //
+      // ONE PIN PER SIDE THAT ACTUALLY MOVES, capping what may leave the signer.
+      // That is the whole guarantee: whatever else the router does, it cannot
+      // take more of either token than the amounts named here. A side of zero
+      // gets no pin, because a condition on an asset that does not move is a
+      // condition the chain will fail the transaction over.
+      //
+      // The receive side needs no pin: `min-dlp` in the tuple is the chain's own
+      // floor on the shares minted, so it is already enforced by the contract.
+      const addConditions: Array<Record<string, unknown>> = [];
+      for (const [total, meta] of [[xTotal, xMeta], [yTotal, yMeta]] as const) {
+        if (total <= 0n || !meta) continue;
+        if (meta.contract === "stx") {
+          // STX moves under its own kind of condition, not a fungible token one.
+          addConditions.push({ type: "stx", principal: wallet, conditionCode: "lte", amount: String(total) });
+        } else {
+          // The asset NAME is the argument to `define-fungible-token` in the
+          // token contract, not the contract name and not the ticker. A pin
+          // naming an asset that does not exist covers nothing and the chain
+          // aborts: mainnet tx 0x77863289... is a Granite deposit that died
+          // exactly that way on the old "bridged-usdc" spelling.
+          addConditions.push({
+            type: "ft",
+            principal: wallet,
+            asset: meta.contract,
+            assetName: meta.ftSuffix.replace("::", ""),
+            conditionCode: "lte",
+            amount: String(total),
+          });
+        }
+      }
+
       instructions.push({
-        tool: "bitflow:add-liquidity-simple",
-        params: { poolId, bins: JSON.stringify(bins) },
-        description: `Add liquidity to HODLMM ${pool.name} (${bins.length} bins)`,
+        tool: "call_contract",
+        params: {
+          contractAddress: DLMM_SWAP_ROUTER,
+          contractName: "dlmm-liquidity-router-v-1-1",
+          functionName: "add-relative-liquidity-same-multi",
+          functionArgs: [
+            {
+              type: "list",
+              value: bins.map((b) => ({
+                type: "tuple",
+                value: {
+                  "active-bin-id-offset": { type: "int", value: b.activeBinOffset },
+                  // 5% ceiling per side, the same one hodlmm-move-liquidity uses.
+                  "max-x-liquidity-fee": { type: "uint", value: String((BigInt(b.xAmount) * 5n) / 100n) },
+                  "max-y-liquidity-fee": { type: "uint", value: String((BigInt(b.yAmount) * 5n) / 100n) },
+                  // Any positive share count means the deposit routed correctly.
+                  "min-dlp": { type: "uint", value: "1" },
+                  "x-amount": { type: "uint", value: b.xAmount },
+                  "y-amount": { type: "uint", value: b.yAmount },
+                },
+              })),
+            },
+            { type: "principal", value: pool.contract },
+            { type: "principal", value: traitFor(pool.tokenX) },
+            { type: "principal", value: traitFor(pool.tokenY) },
+            { type: "none" },
+          ],
+          postConditionMode: "deny",
+          postConditions: addConditions,
+        },
+        // HUMAN units. This said "at most 100000000 USDh" for one USDh, a false
+        // statement about somebody's money by a factor of a hundred million, on
+        // the line they read before signing.
+        description: `Add liquidity to HODLMM ${pool.name} (${bins.length} bin${bins.length === 1 ? "" : "s"}), `
+          + `at most ${humanAmount(xTotal, xMeta?.decimals ?? 6)} ${xMeta?.symbol ?? pool.tokenX} `
+          + `and ${humanAmount(yTotal, yMeta?.decimals ?? 6)} ${yMeta?.symbol ?? pool.tokenY} leaving your wallet`,
       });
       break;
     }
