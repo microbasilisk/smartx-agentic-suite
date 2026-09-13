@@ -881,11 +881,28 @@ export async function readZestSupplyRate(
  * the answer "unknown"; only an untracked account or zero shares everywhere is
  * "none".
  */
-export async function readZestPosition(wallet: string, read: ReadOnlyCall = callReadOnly): Promise<ZestPosition> {
+export async function readZestPosition(
+  wallet: string,
+  read: ReadOnlyCall = callReadOnly,
+  /**
+   * The wallet's fungible token balances from a read the scan already made, or
+   * null when that read failed. Omitted, each vault's share balance is read one
+   * by one instead.
+   */
+  walletTokens?: Record<string, { balance: string }> | null,
+): Promise<ZestPosition> {
   try {
+    if (walletTokens === null) throw new Error("wallet balances could not be read, so Zest shares held in the wallet are unknown");
+    // Shares held in the wallet itself are real: the sBTC vault had 582 holders on
+    // 2026-09-13, most of them outside the market vault. Taken from the balance
+    // read when one is passed, which saves six reads of Hiro's 50 a minute. Parsed
+    // before any read starts, so a malformed balance cannot leave one unhandled.
+    const fromBalances = walletTokens ? ZEST_ASSETS.map((a) => BigInt(walletTokens[`${a.vault}::zft`]?.balance ?? "0")) : null;
     const [pos, walletShares] = await Promise.all([
       read(ZEST_MARKET_VAULT, "get-position", [cvPrincipal(wallet), cvUint(MAX_U128)]),
-      Promise.all(ZEST_ASSETS.map((a) => readUint(read, a.vault, "get-balance", [cvPrincipal(wallet)]))),
+      fromBalances
+        ? Promise.resolve(fromBalances)
+        : Promise.all(ZEST_ASSETS.map((a) => readUint(read, a.vault, "get-balance", [cvPrincipal(wallet)]))),
     ]);
     const shares = new Map<number, bigint>();
     const debt: string[] = [];
@@ -1093,7 +1110,12 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
 
   // -- Positions in parallel --------------------------------------------------
   const [zest, hermetica, granite, hodlmm] = await Promise.all([
-    scoutZest(wallet), scoutHermetica(wallet), scoutGranite(wallet), scoutHodlmm(wallet),
+    // A balance reply without its token map is passed as null, not as an empty
+    // map, so Zest reads as unknown rather than as a wallet with no shares.
+    scoutZest(wallet, callReadOnly, (hiroBalance as Record<string, unknown> | null)?.fungible_tokens
+      ? (ft as unknown as Record<string, { balance: string }>)
+      : null),
+    scoutHermetica(wallet), scoutGranite(wallet), scoutHodlmm(wallet),
   ]);
   allSources.push(...zest.sources, ...hermetica.sources, ...granite.sources, ...hodlmm.sources);
 
@@ -1209,8 +1231,10 @@ export function scanStatus(r: {
     : "ok";
 }
 
-export async function scoutZest(wallet: string, read: ReadOnlyCall = callReadOnly): Promise<{ position: ZestPosition; sources: string[] }> {
-  const [position, rate] = await Promise.all([readZestPosition(wallet, read), readZestSupplyRate(ZEST_VAULT_SBTC, read)]);
+export async function scoutZest(
+  wallet: string, read: ReadOnlyCall = callReadOnly, walletTokens?: Record<string, { balance: string }> | null,
+): Promise<{ position: ZestPosition; sources: string[] }> {
+  const [position, rate] = await Promise.all([readZestPosition(wallet, read, walletTokens), readZestSupplyRate(ZEST_VAULT_SBTC, read)]);
   const sources: string[] = [];
   if (position.state !== "unknown") sources.push("zest-v2-position");
   if (rate) sources.push("zest-apy-live");

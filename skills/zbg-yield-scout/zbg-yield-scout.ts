@@ -17,6 +17,29 @@ import { Command } from "commander";
 const FETCH_TIMEOUT_MS = 30_000;
 /** The statuses that mean "ask again": throttled, or briefly unavailable. */
 const RETRY_STATUSES = new Set([429, 502, 503, 504]);
+
+/**
+ * Minimum spacing between the START of one Hiro read and the next, the figure
+ * stacks-alpha-engine uses: about 14 a second, under Hiro's burst limit.
+ *
+ * Measured 2026-09-13 on one wallet: reading Zest per coin brought a scan to
+ * about 45 Hiro reads, fired together with Granite and HODLMM. Unspaced, 29 of
+ * them came back 429 and the retries took the scan from 3.5s to 19s, and it
+ * still ended with Zest unknown and Granite's rate unread. Spacing them costs
+ * about three seconds and asks once.
+ *
+ * Module level, and claimed before any await so two callers cannot take the
+ * same slot. Safe because a skill is a CLI that runs once and exits.
+ */
+const REQUEST_GAP_MS = 70;
+let nextRequestAt = 0;
+
+async function waitForSlot(): Promise<void> {
+  const now = Date.now();
+  const at = Math.max(now, nextRequestAt);
+  nextRequestAt = at + REQUEST_GAP_MS;
+  if (at > now) await new Promise((r) => setTimeout(r, at - now));
+}
 const HIRO_API = "https://api.mainnet.hiro.so";
 const TENERO_API = "https://api.tenero.io";
 const BITFLOW_API = "https://bff.bitflowapis.finance";
@@ -400,11 +423,12 @@ export async function callReadOnly(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    // Hiro throttles bursts, and a scan makes around twenty of these reads now that
-    // Zest is read per coin. A throttled or briefly unavailable read is asked again
+    // Hiro throttles at 20 reads a second and 50 a minute, and a scan makes 25 to
+    // 30 of these reads. A throttled or briefly unavailable read is asked again
     // a few times; any other failure, and one still failing after that, throws, so
     // the caller reports it as unknown, never as a zero.
     for (let attempt = 1; ; attempt++) {
+      await waitForSlot();
       const res = await fetchImpl(url, {
         method: "POST",
         signal: controller.signal,
@@ -466,7 +490,11 @@ function cvContractPrincipal(contractId: string): string {
 }
 
 // ── Section 1: What You Have ───────────────────────────────────────────────────
-async function getWalletBalances(wallet: string): Promise<{ balances: WalletBalances; prices: { sbtc: number; stx: number; usdcx: number }; sources: string[] }> {
+async function getWalletBalances(wallet: string): Promise<{
+  balances: WalletBalances; prices: { sbtc: number; stx: number; usdcx: number }; sources: string[];
+  /** Every fungible token the wallet holds, or null when the balance read failed. */
+  fungibleTokens: Record<string, { balance: string }> | null;
+}> {
   const sources: string[] = [];
 
   // Fetch balances and prices in parallel
@@ -513,6 +541,9 @@ async function getWalletBalances(wallet: string): Promise<{ balances: WalletBala
     },
     prices: { sbtc: round(sbtcPrice, 2), stx: round(stxPrice, 4), usdcx: usdcxPrice },
     sources,
+    // A reply without the token map is not "holds nothing": null, so Zest reads
+    // as unknown rather than as a wallet with no shares.
+    fungibleTokens: hiroBalance?.fungible_tokens ?? null,
   };
 }
 
@@ -571,11 +602,28 @@ export async function readZestSupplyRate(
  * the answer "unknown"; only an untracked account or zero shares everywhere is
  * "none".
  */
-export async function readZestPosition(wallet: string, read: ReadOnlyCall = callReadOnly): Promise<ZestPosition> {
+export async function readZestPosition(
+  wallet: string,
+  read: ReadOnlyCall = callReadOnly,
+  /**
+   * The wallet's fungible token balances from a read the scan already made, or
+   * null when that read failed. Omitted, each vault's share balance is read one
+   * by one instead.
+   */
+  walletTokens?: Record<string, { balance: string }> | null,
+): Promise<ZestPosition> {
   try {
+    if (walletTokens === null) throw new Error("wallet balances could not be read, so Zest shares held in the wallet are unknown");
+    // Shares held in the wallet itself are real: the sBTC vault had 582 holders on
+    // 2026-09-13, most of them outside the market vault. Taken from the balance
+    // read when one is passed, which saves six reads of Hiro's 50 a minute. Parsed
+    // before any read starts, so a malformed balance cannot leave one unhandled.
+    const fromBalances = walletTokens ? ZEST_ASSETS.map((a) => BigInt(walletTokens[`${a.vault}::zft`]?.balance ?? "0")) : null;
     const [pos, walletShares] = await Promise.all([
       read(ZEST_MARKET_VAULT, "get-position", [cvPrincipal(wallet), cvUint(MAX_U128)]),
-      Promise.all(ZEST_ASSETS.map((a) => readUint(read, a.vault, "get-balance", [cvPrincipal(wallet)]))),
+      fromBalances
+        ? Promise.resolve(fromBalances)
+        : Promise.all(ZEST_ASSETS.map((a) => readUint(read, a.vault, "get-balance", [cvPrincipal(wallet)]))),
     ]);
     const shares = new Map<number, bigint>();
     const debt: string[] = [];
@@ -678,8 +726,10 @@ export function priceZestHoldings(
   };
 }
 
-async function getZestPosition(wallet: string): Promise<{ position: ZestPosition; sources: string[] }> {
-  const position = await readZestPosition(wallet);
+async function getZestPosition(
+  wallet: string, walletTokens: Record<string, { balance: string }> | null,
+): Promise<{ position: ZestPosition; sources: string[] }> {
+  const position = await readZestPosition(wallet, callReadOnly, walletTokens);
   return { position, sources: position.state === "unknown" ? [] : ["zest-v2-position"] };
 }
 
@@ -796,23 +846,23 @@ async function getHodlmmPositions(wallet: string): Promise<{ positions: HodlmmPo
 
   for (const pool of HODLMM_POOLS) {
     try {
-      // Get user's bins in this pool
-      const userBinsResult = await callReadOnly(pool.contract, "get-user-bins", [cvPrincipal(wallet)], wallet);
-
-      if (!userBinsResult.okay) continue;
-
-      // Get overall balance and pool total supply in parallel
-      const [overallResult, totalSupplyResult, activeBinResult] = await Promise.all([
-        callReadOnly(pool.contract, "get-overall-balance", [cvPrincipal(wallet)], wallet),
-        callReadOnly(pool.contract, "get-overall-supply", [], wallet),
-        callReadOnly(pool.contract, "get-active-bin-id", []),
-      ]);
-
+      // The wallet's shares first. Most wallets hold nothing in most pools, and
+      // the other three reads used to be made and thrown away for every such
+      // pool: 24 of a scan's reads, against Hiro's 50 a minute. Each pool ends the
+      // same way as before: a failed or zero balance skips it, and so does a
+      // failed bin list.
+      const overallResult = await callReadOnly(pool.contract, "get-overall-balance", [cvPrincipal(wallet)], wallet);
       const dlpShares = overallResult.okay && overallResult.result
         ? parseUint128Hex(overallResult.result)
         : 0n;
-
       if (dlpShares === 0n) continue;
+
+      const [userBinsResult, totalSupplyResult, activeBinResult] = await Promise.all([
+        callReadOnly(pool.contract, "get-user-bins", [cvPrincipal(wallet)], wallet),
+        callReadOnly(pool.contract, "get-overall-supply", [], wallet),
+        callReadOnly(pool.contract, "get-active-bin-id", []),
+      ]);
+      if (!userBinsResult.okay) continue;
 
       const totalSupply = totalSupplyResult.okay && totalSupplyResult.result
         ? parseUint128Hex(totalSupplyResult.result)
@@ -1181,12 +1231,12 @@ async function runScout(wallet: string): Promise<ScoutResult> {
   const allSources: string[] = [];
 
   // Section 1: What You Have
-  const { balances, prices, sources: balSources } = await getWalletBalances(wallet);
+  const { balances, prices, sources: balSources, fungibleTokens } = await getWalletBalances(wallet);
   allSources.push(...balSources);
 
   // Section 2: ZBG Positions (run in parallel)
   const [zestResult, graniteResult, hodlmmResult] = await Promise.all([
-    getZestPosition(wallet),
+    getZestPosition(wallet, fungibleTokens),
     getGranitePosition(wallet),
     getHodlmmPositions(wallet),
   ]);
