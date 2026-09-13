@@ -34,6 +34,7 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 - The price gate reads Tenero only (sBTC and STX above zero) -> refuse all writes. Bitflow being unavailable makes the two POOL gates unknown and blocking, but only for an operation that touches a pool: a Zest deploy proceeds with Bitflow down.
 - Cooldown not elapsed (4 hours) -> refuse EVERY write, not only `rebalance`. One timestamp for the whole engine, not one per pool, so rebalancing dlmm_1 also blocks a withdraw from dlmm_4 for four hours. `emergency` is the exception and still runs.
 - Target protocol APY is 0% -> refuse deploy (unless --force)
+- Zest's supply rate could not be read -> refuse a Zest deploy (unless --force). The unreadable rate is left out of `options` rather than listed as 0%, so this is its own rule.
 - (YTG is NOT a refusal condition. A 7d yield under 3x the gas estimate is reported
   on the result as `economics` and the deploy proceeds. It used to refuse, and that
   was a wealth test rather than a safety gate: solve its formula for capital and it
@@ -60,8 +61,9 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 - Withdraw sBTC via `zest_withdraw` (MCP native; routes to `v0-4-market.collateral-remove-redeem`)
 - Borrow USDh via `zest_borrow` (MCP native; routes to `v0-4-market.borrow`): **USDh only** by `validTokens_borrowRepay` gate. USDCx/wSTX/stSTX return `abort_by_response (err none)` on MCP probe, likely an upstream `borrow-helper-v2-1-7` routing gap; refused to save gas.
 - Repay USDh via `zest_repay` (MCP native; routes to `v0-4-market.repay`)
-- APY read live from vault utilization + interest rate
-- Currently low supply APY: `deploy --protocol zest` REPORTS a poor yield-to-gas ratio and proceeds anyway. It does not refuse and `--force` is not needed. Borrow path is the interesting leg, see "Leveraged-yield pattern" in SKILL.md.
+- APY read live from the sBTC vault's interest rate, utilization and fee reserve (each vault keeps its own reserve share, so none is assumed)
+- Low supply APY: when the sBTC rate reads above 0%, `deploy --protocol zest` REPORTS a poor yield-to-gas ratio and proceeds anyway, with no `--force`. At 0%, or when the rate could not be read, it refuses unless `--force`.
+- `withdraw --protocol zest` builds the sBTC withdraw only when the scan read sBTC supplied with no Zest loan against it; otherwise it is `refused`, with the reason. `migrate --from zest` refuses the same way rather than build a deposit with nothing arriving. Borrow path is the interesting leg, see "Leveraged-yield pattern" in SKILL.md.
 
 ### Hermetica
 - Stake USDh via `call_contract` -> `staking-v1-1.stake(amount: uint, affiliate: none)`

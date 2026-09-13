@@ -15,6 +15,8 @@ import { Command } from "commander";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const FETCH_TIMEOUT_MS = 30_000;
+/** The statuses that mean "ask again": throttled, or briefly unavailable. */
+const RETRY_STATUSES = new Set([429, 502, 503, 504]);
 const HIRO_API = "https://api.mainnet.hiro.so";
 const TENERO_API = "https://api.tenero.io";
 const BITFLOW_API = "https://bff.bitflowapis.finance";
@@ -41,6 +43,27 @@ const HODLMM_POOLS: HodlmmPoolDef[] = [
 const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
 const USDCX_CONTRACT = "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx";
 
+// Zest V2, read on mainnet 2026-09-13. `v0-assets` lists each coin at an even id
+// and its vault's share token at the next odd id. A deposit through `v0-4-market`
+// moves those shares into `v0-market-vault` as collateral, so the wallet's own
+// share balance reads zero for somebody who has supplied. Both places are read.
+// This used to read `SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.zest-pool-sbtc`, a
+// contract that does not exist, so everybody was told they had no Zest position.
+const ZEST_DEPLOYER = "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7";
+const ZEST_MARKET_VAULT = `${ZEST_DEPLOYER}.v0-market-vault`;
+/** `key` names the wallet balance this report holds for the coin, where it holds one. */
+export const ZEST_ASSETS: ReadonlyArray<{ symbol: string; shareAid: number; vault: string; decimals: number; key?: keyof WalletBalances }> = [
+  { symbol: "STX",      shareAid: 1,  vault: `${ZEST_DEPLOYER}.v0-vault-stx`,      decimals: 6, key: "stx" },
+  { symbol: "sBTC",     shareAid: 3,  vault: `${ZEST_DEPLOYER}.v0-vault-sbtc`,     decimals: 8, key: "sbtc" },
+  { symbol: "stSTX",    shareAid: 5,  vault: `${ZEST_DEPLOYER}.v0-vault-ststx`,    decimals: 6 },
+  { symbol: "USDCx",    shareAid: 7,  vault: `${ZEST_DEPLOYER}.v0-vault-usdc`,     decimals: 6, key: "usdcx" },
+  { symbol: "USDh",     shareAid: 9,  vault: `${ZEST_DEPLOYER}.v0-vault-usdh`,     decimals: 8 },
+  { symbol: "stSTXbtc", shareAid: 11, vault: `${ZEST_DEPLOYER}.v0-vault-ststxbtc`, decimals: 6 },
+];
+/** What `v0-market-vault.get-position` returns for an address Zest has never seen: "none", not a failure. */
+const ZEST_ERR_NO_ACCOUNT = 600006n;
+const MAX_U128 = (1n << 128n) - 1n;
+
 // ── Types ──────────────────────────────────────────────────────────────────────
 interface HodlmmPoolDef {
   id: number;
@@ -61,16 +84,33 @@ interface WalletBalances {
   usdcx: TokenBalance;
 }
 
+interface ZestHolding {
+  asset: string;
+  shares: string;
+  amount: number;
+  /** Dollar value from a price this run actually read, or null. Never a guessed price. */
+  value_usd?: number | null;
+}
+
 interface ZestPosition {
   has_position: boolean;
+  /**
+   * "unknown" when a read failed. Kept apart from "none" because "you have
+   * nothing there" and "we could not look" are different answers about somebody's
+   * money, and this row used to give the first one for both.
+   */
+  state: "held" | "none" | "unknown";
   detail: string;
-  supply_amount?: number;
-  asset?: string;
+  holdings?: ZestHolding[];
+  /** The coins this wallet owes Zest. Supplied coins backing a loan cannot all be withdrawn. */
+  debt?: string[];
 }
 
 interface GranitePosition {
   has_position: boolean;
   detail: string;
+  /** False when any read behind the rate failed, so its 0 is not a measurement and it stays out of the ranking. */
+  supply_rate_read?: boolean;
   supply_apy_pct?: number;
   borrow_apr_pct?: number;
   utilization_pct?: number;
@@ -103,6 +143,15 @@ interface YieldOption {
   note: string;
 }
 
+interface RankingMeasured {
+  /** Protocols whose rates were read this run and are in the ranking. */
+  protocols: string[];
+  /** How many protocols this report covers. */
+  out_of: number;
+  /** Rates that could not be read, and so are left out rather than shown as 0%. */
+  not_read: string[];
+}
+
 interface BestMove {
   recommendation: string;
   idle_capital_usd: number;
@@ -126,6 +175,8 @@ interface ScoutResult {
     hodlmm: HodlmmPositions;
   };
   smart_options: YieldOption[];
+  /** Which protocols the ranking above actually measured, so a short list says it is short. */
+  ranking_measured: RankingMeasured;
   best_move: BestMove;
   break_prices: BreakPrices;
   data_sources: string[];
@@ -337,25 +388,37 @@ function cvGetField(obj: ClarityValue, field: string): ClarityValue | undefined 
 }
 
 // ── Hiro contract read helper ──────────────────────────────────────────────────
-async function callReadOnly(
+export async function callReadOnly(
   contractId: string,
   functionName: string,
   args: string[] = [],
-  sender = "SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY"
+  sender = "SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY",
+  fetchImpl: typeof fetch = fetch,
 ): Promise<ClarityReadResult> {
   const [addr, name] = contractId.split(".");
   const url = `${HIRO_API}/v2/contracts/call-read/${addr}/${name}/${functionName}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json", "User-Agent": "bff-skills/zbg-yield-scout" },
-      body: JSON.stringify({ sender, arguments: args }),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json() as Promise<ClarityReadResult>;
+    // Hiro throttles bursts, and a scan makes around twenty of these reads now that
+    // Zest is read per coin. A throttled or briefly unavailable read is asked again
+    // a few times; any other failure, and one still failing after that, throws, so
+    // the caller reports it as unknown, never as a zero.
+    for (let attempt = 1; ; attempt++) {
+      const res = await fetchImpl(url, {
+        method: "POST",
+        signal: controller.signal,
+        headers: { "Content-Type": "application/json", "User-Agent": "bff-skills/zbg-yield-scout" },
+        body: JSON.stringify({ sender, arguments: args }),
+      });
+      if (RETRY_STATUSES.has(res.status) && attempt < 4) {
+        const after = Number(res.headers.get("retry-after"));
+        await new Promise((r) => setTimeout(r, after > 0 ? Math.min(after * 1000, 4000) : 400 * 2 ** (attempt - 1)));
+        continue;
+      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return (await res.json()) as ClarityReadResult;
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -454,61 +517,192 @@ async function getWalletBalances(wallet: string): Promise<{ balances: WalletBala
 }
 
 // ── Section 2: ZBG Positions ───────────────────────────────────────────────────
-async function getZestPosition(wallet: string): Promise<{ position: ZestPosition; sources: string[] }> {
-  const sources: string[] = [];
-  try {
-    // Zest v2 pool contract for sBTC
-    // Check if user has any supply by reading the Zest pool balance
-    const zestSbtcPool = "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.zest-pool-sbtc";
-    const result = await callReadOnly(
-      zestSbtcPool,
-      "get-balance",
-      [cvPrincipal(wallet)],
-      wallet
-    );
-    sources.push("zest-on-chain");
+export type ReadOnlyCall = (contractId: string, fn: string, args?: string[]) => Promise<ClarityReadResult>;
 
-    if (result.okay && result.result) {
-      const balance = parseUint128Hex(result.result);
-      if (balance > 0n) {
-        return { position: { has_position: true, detail: `Active sBTC supply on Zest: ${Number(balance) / 1e8} sBTC`, asset: "sBTC", supply_amount: Number(balance) / 1e8 }, sources };
-      }
-    }
-    return { position: { has_position: false, detail: "No sBTC supply position on Zest" }, sources };
+/** One uint read, or a thrown error naming what could not be read. Never a stand-in zero. */
+async function readUint(read: ReadOnlyCall, contractId: string, fn: string, args: string[] = []): Promise<bigint> {
+  const r = await read(contractId, fn, args);
+  const v = r.okay && r.result ? parseClarityHex(r.result) : undefined;
+  if (typeof v !== "bigint") throw new Error(`${contractId.split(".")[1]}.${fn} could not be read`);
+  return v;
+}
+
+/** Two decimals, except that a real rate under 0.01% keeps two significant figures rather than reading as 0%. */
+export function roundRate(pct: number): number {
+  return pct === 0 || pct >= 0.01 ? round(pct, 2) : Number(pct.toPrecision(2));
+}
+
+/**
+ * Zest V2 supply APY in percent, from the vault's own three reads, all basis
+ * points and already annual: the borrow rate, times utilization, times the share
+ * lenders keep after the vault's fee reserve. Null when a read is out of range.
+ * The reserve differs per vault (10% for sBTC and STX, 50% for USDC on
+ * 2026-09-13), so it is read, never assumed.
+ */
+export function zestSupplyApyPct(rateBps: bigint, utilBps: bigint, feeReserveBps: bigint): number | null {
+  if (utilBps > 10000n || feeReserveBps > 10000n) return null;
+  return (Number(rateBps) / 100) * (Number(utilBps) / 10000) * (Number(10000n - feeReserveBps) / 10000);
+}
+
+/** A vault's live supply rate, or null when any of its reads failed. */
+export async function readZestSupplyRate(
+  vault: string, read: ReadOnlyCall = callReadOnly,
+): Promise<{ supply_apy_pct: number; utilization_pct: number } | null> {
+  try {
+    const [rate, util, fee] = await Promise.all([
+      readUint(read, vault, "get-interest-rate"),
+      readUint(read, vault, "get-utilization"),
+      readUint(read, vault, "get-fee-reserve"),
+    ]);
+    const apy = zestSupplyApyPct(rate, util, fee);
+    return apy === null ? null : { supply_apy_pct: roundRate(apy), utilization_pct: round(Number(util) / 100, 2) };
   } catch {
-    // Fallback: try the generic check
-    try {
-      const balUrl = `${HIRO_API}/extended/v1/address/${wallet}/balances`;
-      const bal = await fetchJson<HiroBalanceResponse>(balUrl);
-      const zestKey = Object.keys(bal?.fungible_tokens ?? {}).find(k => k.toLowerCase().includes("zest"));
-      if (zestKey && BigInt(bal?.fungible_tokens?.[zestKey]?.balance ?? "0") > 0n) {
-        sources.push("zest-hiro-fallback");
-        return { position: { has_position: true, detail: "Zest position detected via token balance" }, sources };
-      }
-      sources.push("zest-hiro-fallback");
-      return { position: { has_position: false, detail: "No Zest position found" }, sources };
-    } catch {
-      return { position: { has_position: false, detail: "Zest read failed, skipped" }, sources };
-    }
+    return null;
   }
 }
 
-async function getGranitePosition(wallet: string): Promise<{ position: GranitePosition; sources: string[] }> {
+/**
+ * What the wallet has supplied on Zest V2, per coin, in whole tokens.
+ *
+ * Shares are read from BOTH places they can sit: collateral in
+ * `v0-market-vault` (where a `supply-collateral-add` deposit puts them) and the
+ * wallet's own vault share balance. Each coin's shares are then converted by its
+ * vault, so interest earned since the deposit is included. Any failed read makes
+ * the answer "unknown"; only an untracked account or zero shares everywhere is
+ * "none".
+ */
+export async function readZestPosition(wallet: string, read: ReadOnlyCall = callReadOnly): Promise<ZestPosition> {
+  try {
+    const [pos, walletShares] = await Promise.all([
+      read(ZEST_MARKET_VAULT, "get-position", [cvPrincipal(wallet), cvUint(MAX_U128)]),
+      Promise.all(ZEST_ASSETS.map((a) => readUint(read, a.vault, "get-balance", [cvPrincipal(wallet)]))),
+    ]);
+    const shares = new Map<number, bigint>();
+    const debt: string[] = [];
+    const parsed = pos.okay && pos.result ? parseClarityHex(pos.result) : undefined;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "_err" in parsed) {
+      if (parsed._err !== ZEST_ERR_NO_ACCOUNT) throw new Error(`v0-market-vault.get-position returned err ${String(parsed._err)}`);
+    } else {
+      const collateral = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, ClarityValue>).collateral
+        : undefined;
+      if (!Array.isArray(collateral)) throw new Error("v0-market-vault.get-position could not be read");
+      for (const c of collateral) {
+        const row = (c && typeof c === "object" && !Array.isArray(c) ? c : {}) as Record<string, ClarityValue>;
+        const aid = row.aid, amount = row.amount;
+        if (typeof aid !== "bigint" || typeof amount !== "bigint") throw new Error("v0-market-vault.get-position returned a collateral row that could not be parsed");
+        if (!ZEST_ASSETS.some((a) => BigInt(a.shareAid) === aid)) throw new Error(`Zest holds collateral under asset id ${aid}, which this skill does not know`);
+        shares.set(Number(aid), (shares.get(Number(aid)) ?? 0n) + amount);
+      }
+      // Debt is listed by the borrowed COIN's id, the even one below its vault's.
+      const debtRows = (parsed as Record<string, ClarityValue>).debt;
+      if (!Array.isArray(debtRows)) throw new Error("v0-market-vault.get-position returned no debt list");
+      for (const d of debtRows) {
+        const row = (d && typeof d === "object" && !Array.isArray(d) ? d : {}) as Record<string, ClarityValue>;
+        const aid = row.aid, scaled = row.scaled;
+        if (typeof aid !== "bigint" || typeof scaled !== "bigint") throw new Error("v0-market-vault.get-position returned a debt row that could not be parsed");
+        if (scaled > 0n) debt.push(ZEST_ASSETS.find((a) => BigInt(a.shareAid - 1) === aid)?.symbol ?? `asset id ${aid}`);
+      }
+    }
+    ZEST_ASSETS.forEach((a, i) => {
+      const inWallet = walletShares[i]!;
+      if (inWallet > 0n) shares.set(a.shareAid, (shares.get(a.shareAid) ?? 0n) + inWallet);
+    });
+    const held = ZEST_ASSETS.filter((a) => (shares.get(a.shareAid) ?? 0n) > 0n);
+    const underlying = await Promise.all(held.map((a) => readUint(read, a.vault, "convert-to-assets", [cvUint(shares.get(a.shareAid)!)])));
+    const holdings = held.map((a, i) => ({
+      asset: a.symbol,
+      shares: shares.get(a.shareAid)!.toString(),
+      amount: Number(underlying[i]!) / 10 ** a.decimals,
+    }));
+    const loan = debt.join(", ");
+    if (holdings.length === 0 && debt.length === 0) return { has_position: false, state: "none", detail: "No supply on Zest v2", holdings: [], debt };
+    // A loan with nothing supplied (what a liquidation can leave) is still a
+    // position: the wallet owes Zest, and "no position" would hide that.
+    if (holdings.length === 0) return { has_position: true, state: "held", holdings, debt, detail: `Nothing supplied on Zest v2, but this wallet owes Zest ${loan}` };
+    return {
+      has_position: true, state: "held", holdings, debt,
+      detail: `Supplied on Zest v2: ${holdings.map((h) => `${h.amount} ${h.asset}`).join(", ")}${debt.length > 0 ? `; a Zest loan in ${loan} stands against it` : ""}`,
+    };
+  } catch (e: unknown) {
+    return {
+      has_position: false, state: "unknown",
+      detail: `Zest v2 could not be checked (${e instanceof Error ? e.message : String(e)}), so a position there is UNKNOWN, not absent`,
+    };
+  }
+}
+
+/**
+ * Zest's ranking rows, from rates already read. A rate that could not be read
+ * gives no row and is named in `not_read` instead: a 0% row is a claim that
+ * lending there pays nothing, and it sorts last by construction.
+ */
+export function zestOptions(
+  balances: WalletBalances,
+  rates: ReadonlyArray<{ asset: (typeof ZEST_ASSETS)[number]; rate: { supply_apy_pct: number; utilization_pct: number } | null }>,
+): { options: YieldOption[]; not_read: string[]; measured: boolean } {
+  const options: YieldOption[] = [];
+  const notRead: string[] = [];
+  for (const { asset, rate } of rates) {
+    if (!rate || !asset.key) {
+      notRead.push(`Zest ${asset.symbol} supply rate`);
+      continue;
+    }
+    const dailyUsd = (balances[asset.key].usd * rate.supply_apy_pct / 100) / 365;
+    options.push({
+      protocol: "Zest",
+      pool: `${asset.symbol} Supply`,
+      apy_pct: rate.supply_apy_pct,
+      daily_usd: round(dailyUsd, 4),
+      monthly_usd: round(dailyUsd * 30, 2),
+      gas_to_enter_stx: 0.03,
+      note: `Lending, ${rate.utilization_pct}% utilization. Lenders earn only while people borrow.`,
+    });
+  }
+  return { options, not_read: notRead, measured: options.length > 0 };
+}
+
+/** Each Zest holding's dollar value where this run has a live price for the coin, else null. */
+export function priceZestHoldings(
+  position: ZestPosition,
+  prices: { sbtc: number | null; stx: number | null; usdcx: number | null },
+): ZestPosition {
+  if (!position.holdings) return position;
+  const price: Record<string, number | null> = { sBTC: prices.sbtc, STX: prices.stx, USDCx: prices.usdcx };
+  return {
+    ...position,
+    holdings: position.holdings.map((h) => {
+      const p = price[h.asset] ?? null;
+      return { ...h, value_usd: p === null ? null : round(h.amount * p, 2) };
+    }),
+  };
+}
+
+async function getZestPosition(wallet: string): Promise<{ position: ZestPosition; sources: string[] }> {
+  const position = await readZestPosition(wallet);
+  return { position, sources: position.state === "unknown" ? [] : ["zest-v2-position"] };
+}
+
+export async function getGranitePosition(wallet: string, read: ReadOnlyCall = callReadOnly): Promise<{ position: GranitePosition; sources: string[] }> {
   const sources: string[] = [];
   const IR_SCALE = 1e12; // Granite IR params are scaled by 1e12
   try {
     // Read Granite supply params, debt params, and interest rate model in parallel
     const [lpResult, debtResult, irResult, userPos] = await Promise.all([
-      callReadOnly(GRANITE_STATE, "get-lp-params", []),
-      callReadOnly(GRANITE_STATE, "get-debt-params", []),
-      callReadOnly(GRANITE_IR, "get-ir-params", []),
-      callReadOnly(GRANITE_STATE, "get-user-position", [cvPrincipal(wallet)]),
+      read(GRANITE_STATE, "get-lp-params", []),
+      read(GRANITE_STATE, "get-debt-params", []),
+      read(GRANITE_IR, "get-ir-params", []),
+      read(GRANITE_STATE, "get-user-position", [cvPrincipal(wallet)]),
     ]);
     sources.push("granite-on-chain");
 
     let supplyApy = 0;
     let borrowApr = 0;
     let utilization = 0;
+    // Whether the fields behind the rate actually parsed. A field that does not
+    // parse falls back to 0 below, and that 0 must not be ranked as a measurement.
+    let lpParsed = false;
+    let irParsed = false;
 
     // Parse lp-params: { total-assets, total-shares }
     // Parse debt-params: { open-interest, total-debt-shares }
@@ -518,6 +712,7 @@ async function getGranitePosition(wallet: string): Promise<{ position: GranitePo
 
       const totalAssets = typeof lp["total-assets"] === "bigint" ? lp["total-assets"] : 0n;
       const openInterest = typeof debt["open-interest"] === "bigint" ? debt["open-interest"] : 0n;
+      lpParsed = typeof lp["total-assets"] === "bigint" && typeof debt["open-interest"] === "bigint";
 
       if (totalAssets > 0n) {
         utilization = Number((openInterest * 10000n) / totalAssets) / 100;
@@ -531,6 +726,7 @@ async function getGranitePosition(wallet: string): Promise<{ position: GranitePo
       const slope1 = Number(typeof ir["ir-slope-1"] === "bigint" ? ir["ir-slope-1"] : 0n) / IR_SCALE;
       const slope2 = Number(typeof ir["ir-slope-2"] === "bigint" ? ir["ir-slope-2"] : 0n) / IR_SCALE;
       const kink = Number(typeof ir["utilization-kink"] === "bigint" ? ir["utilization-kink"] : 0n) / IR_SCALE;
+      irParsed = ["base-ir", "ir-slope-1", "ir-slope-2", "utilization-kink"].every((k) => typeof ir[k] === "bigint");
 
       // Kinked IR model: rate = base + slope1*(util/kink) if util <= kink
       //                        = base + slope1 + slope2*((util-kink)/(1-kink)) if util > kink
@@ -560,6 +756,7 @@ async function getGranitePosition(wallet: string): Promise<{ position: GranitePo
       position: {
         has_position: hasPosition,
         detail: hasPosition ? "Active supply position on Granite" : "No supply position on Granite",
+        supply_rate_read: lpParsed && irParsed,
         supply_apy_pct: round(supplyApy, 2),
         borrow_apr_pct: round(borrowApr, 2),
         utilization_pct: round(utilization, 2),
@@ -701,13 +898,16 @@ async function getSmartOptions(
   balances: WalletBalances,
   prices: { sbtc: number; stx: number },
   granite: GranitePosition,
-): Promise<{ options: YieldOption[]; sources: string[] }> {
+): Promise<{ options: YieldOption[]; sources: string[]; ranking: RankingMeasured }> {
   const sources: string[] = [];
   const options: YieldOption[] = [];
-  const totalIdleUsd = balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd;
+  const measured: string[] = [];
+  const notRead: string[] = [];
 
-  // Granite supply APY
-  if (granite.supply_apy_pct && granite.supply_apy_pct > 0) {
+  // Granite supply APY. A rate whose reads failed is left out, never ranked as 0%.
+  if (granite.supply_rate_read) measured.push("Granite");
+  else notRead.push("Granite supply rate");
+  if (granite.supply_rate_read && granite.supply_apy_pct && granite.supply_apy_pct > 0) {
     const dailyUsd = (balances.sbtc.usd * granite.supply_apy_pct / 100) / 365;
     options.push({
       protocol: "Granite",
@@ -754,44 +954,60 @@ async function getSmartOptions(
   } catch {
     // Bitflow API unavailable
   }
+  if (sources.includes("bitflow-hodlmm-apr")) measured.push("HODLMM");
+  else notRead.push("HODLMM pool rates");
 
-  // Zest APY (from yield dashboard or hardcoded known rate)
-  try {
-    // Use Bitflow API for Zest if available, otherwise note as data point
-    options.push({
-      protocol: "Zest",
-      pool: "sBTC Supply",
-      apy_pct: 0,
-      daily_usd: 0,
-      monthly_usd: 0,
-      gas_to_enter_stx: 0.03,
-      note: "sBTC supply APY currently 0%, check zest.fi for latest rates.",
-    });
-    sources.push("zest-apy");
-  } catch {
-    // Skip
+  // Zest supply, for the coins this report holds balances of. Each vault's rate is
+  // read live, and one that could not be read is left out rather than listed as
+  // 0%. This used to be a typed 0% with a note sending people to zest.fi, which
+  // put Zest last in every ranking whatever it paid.
+  const zestRates = await Promise.all(
+    ZEST_ASSETS.filter((a) => a.key).map(async (asset) => ({ asset, rate: await readZestSupplyRate(asset.vault) })),
+  );
+  const zest = zestOptions(balances, zestRates);
+  options.push(...zest.options);
+  notRead.push(...zest.not_read);
+  if (zest.measured) {
+    sources.push("zest-apy-live");
+    measured.push("Zest");
   }
 
   // Sort by APY descending
   options.sort((a, b) => b.apy_pct - a.apy_pct);
 
-  return { options, sources };
+  return { options, sources, ranking: { protocols: measured, out_of: 3, not_read: notRead } };
 }
 
 // ── Section 4: Best Move ───────────────────────────────────────────────────────
-function getBestMove(
+export function getBestMove(
   balances: WalletBalances,
   zest: ZestPosition,
   granite: GranitePosition,
   hodlmm: HodlmmPositions,
   options: YieldOption[],
+  ranking: RankingMeasured,
 ): BestMove {
   const walletUsd = balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd;
   const bestOption = options[0];
 
+  // What this sentence could not see, said inside it: the recommendation is the
+  // one line a person acts on, so it must not read as complete when a position
+  // or a rate was missing from the run behind it.
+  const zestUnknown = zest.state === "unknown" ? " Zest could not be checked, so any Zest position is not counted here." : "";
+  const partial = ranking.not_read.length > 0
+    ? ` Some rates could not be read (${ranking.not_read.join(", ")}), so a better option may be missing.`
+    : "";
+
   // Count deployed capital
   const deployedProtocols: string[] = [];
-  if (zest.has_position) deployedProtocols.push("Zest");
+  // A Zest loan is named where Zest is: "earning" is not a fair word for supply
+  // with a loan accruing against it, and a loan with nothing supplied earns nothing.
+  const zestLoan = (zest.debt ?? []).join(", ");
+  if (zest.has_position) {
+    deployedProtocols.push(!zestLoan ? "Zest"
+      : (zest.holdings ?? []).length > 0 ? `Zest (a loan in ${zestLoan} stands against it)`
+      : `Zest (nothing supplied, a loan in ${zestLoan} is owed)`);
+  }
   if (granite.has_position) deployedProtocols.push("Granite");
 
   const inRangePools = hodlmm.pools.filter(p => p.in_range);
@@ -800,7 +1016,7 @@ function getBestMove(
 
   if (!bestOption || bestOption.apy_pct === 0) {
     return {
-      recommendation: "No yield opportunities currently available. Hold your assets in wallet.",
+      recommendation: `No yield opportunities currently available. Hold your assets in wallet.${zestUnknown}${partial}`,
       idle_capital_usd: round(walletUsd, 2),
       opportunity_cost_daily_usd: 0,
     };
@@ -810,7 +1026,7 @@ function getBestMove(
   if (outOfRangePools.length > 0) {
     const poolNames = outOfRangePools.map(p => p.name).join(", ");
     return {
-      recommendation: `WARNING: ${outOfRangePools.length} HODLMM position(s) OUT OF RANGE (${poolNames}). These are not earning fees. Consider rebalancing or withdrawing.`,
+      recommendation: `WARNING: ${outOfRangePools.length} HODLMM position(s) OUT OF RANGE (${poolNames}). These are not earning fees. Consider rebalancing or withdrawing.${zestUnknown}${partial}`,
       idle_capital_usd: round(walletUsd, 2),
       opportunity_cost_daily_usd: round(bestOption.daily_usd, 4),
     };
@@ -821,7 +1037,7 @@ function getBestMove(
     const deployed = deployedProtocols.join(", ");
     if (walletUsd < 10) {
       return {
-        recommendation: `Your capital is deployed and earning on ${deployed}. Wallet balance ($${round(walletUsd, 2)}) is minimal: nothing to move.`,
+        recommendation: `Your capital is ${zestLoan ? "deployed on" : "deployed and earning on"} ${deployed}. Wallet balance ($${round(walletUsd, 2)}) is minimal: nothing to move.${zestUnknown}`,
         idle_capital_usd: round(walletUsd, 2),
         opportunity_cost_daily_usd: 0,
       };
@@ -829,16 +1045,19 @@ function getBestMove(
     // Has deployed positions but also meaningful wallet balance
     const dailyCost = (walletUsd * bestOption.apy_pct / 100) / 365;
     return {
-      recommendation: `Active position on ${deployed}. You also have $${round(walletUsd, 2)} idle in wallet. Best option for idle funds: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY (~$${round(dailyCost, 4)}/day missed).`,
+      recommendation: `Active position on ${deployed}. You also have $${round(walletUsd, 2)} idle in wallet. Best option for idle funds: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY (~$${round(dailyCost, 4)}/day missed).${zestUnknown}${partial}`,
       idle_capital_usd: round(walletUsd, 2),
       opportunity_cost_daily_usd: round(dailyCost, 4),
     };
   }
 
-  // Priority 3: Nothing deployed anywhere
+  // Priority 3: Nothing deployed anywhere that could be seen
   const dailyCost = (walletUsd * bestOption.apy_pct / 100) / 365;
+  const opening = zestUnknown
+    ? `No active positions found on Granite or HODLMM, and Zest could not be checked. $${round(walletUsd, 2)} is in the wallet.`
+    : `No active positions. All $${round(walletUsd, 2)} is idle in wallet.`;
   return {
-    recommendation: `No active positions. All $${round(walletUsd, 2)} is idle in wallet. Best option: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY. You're leaving ~$${round(dailyCost, 4)}/day on the table.`,
+    recommendation: `${opening} Best option: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY. You're leaving ~$${round(dailyCost, 4)}/day on the table.${partial}`,
     idle_capital_usd: round(walletUsd, 2),
     opportunity_cost_daily_usd: round(dailyCost, 4),
   };
@@ -928,6 +1147,15 @@ async function getBreakPrices(
   };
 }
 
+/**
+ * "degraded" whenever something a person would act on was not read: fewer than
+ * four sources, a Zest position that is unknown, or a rate left out of the
+ * ranking. The report must not call itself "ok" while part of it is missing.
+ */
+export function scoutStatus(sourceCount: number, zest: ZestPosition, ranking: RankingMeasured): "ok" | "degraded" {
+  return sourceCount >= 4 && zest.state !== "unknown" && ranking.not_read.length === 0 ? "ok" : "degraded";
+}
+
 // ── Main scout function ────────────────────────────────────────────────────────
 async function runScout(wallet: string): Promise<ScoutResult> {
   if (!/^SP[A-Z0-9]{30,}$/i.test(wallet)) {
@@ -936,11 +1164,12 @@ async function runScout(wallet: string): Promise<ScoutResult> {
       wallet,
       what_you_have: { sbtc: { amount: 0, usd: 0 }, stx: { amount: 0, usd: 0 }, usdcx: { amount: 0, usd: 0 } },
       zbg_positions: {
-        zest: { has_position: false, detail: "Skipped, invalid wallet" },
+        zest: { has_position: false, state: "unknown", detail: "Skipped, invalid wallet" },
         granite: { has_position: false, detail: "Skipped, invalid wallet" },
         hodlmm: { has_position: false, pools: [] },
       },
       smart_options: [],
+      ranking_measured: { protocols: [], out_of: 3, not_read: [] },
       best_move: { recommendation: "Invalid wallet address", idle_capital_usd: 0, opportunity_cost_daily_usd: 0 },
       break_prices: { hodlmm_range_exit_low_usd: null, hodlmm_range_exit_high_usd: null, granite_liquidation_usd: null, current_sbtc_price_usd: 0 },
       data_sources: [],
@@ -962,13 +1191,20 @@ async function runScout(wallet: string): Promise<ScoutResult> {
     getHodlmmPositions(wallet),
   ]);
   allSources.push(...zestResult.sources, ...graniteResult.sources, ...hodlmmResult.sources);
+  // Valued only from a price that was actually read: the wallet section falls
+  // back to a typed STX price when Tenero fails, and that must not value a position.
+  zestResult.position = priceZestHoldings(zestResult.position, {
+    sbtc: balSources.includes("tenero-sbtc-price") && prices.sbtc > 0 ? prices.sbtc : null,
+    stx: balSources.includes("tenero-stx-price") && prices.stx > 0 ? prices.stx : null,
+    usdcx: 1,
+  });
 
   // Section 3: Smart Options
-  const { options, sources: optSources } = await getSmartOptions(balances, prices, graniteResult.position);
+  const { options, sources: optSources, ranking } = await getSmartOptions(balances, prices, graniteResult.position);
   allSources.push(...optSources);
 
   // Section 4: Best Move
-  const bestMove = getBestMove(balances, zestResult.position, graniteResult.position, hodlmmResult.positions, options);
+  const bestMove = getBestMove(balances, zestResult.position, graniteResult.position, hodlmmResult.positions, options, ranking);
 
   // Section 5: Break Prices
   const { breakPrices, sources: bpSources } = await getBreakPrices(
@@ -978,7 +1214,7 @@ async function runScout(wallet: string): Promise<ScoutResult> {
   );
   allSources.push(...bpSources);
 
-  const status = allSources.length >= 4 ? "ok" : "degraded";
+  const status = scoutStatus(allSources.length, zestResult.position, ranking);
 
   const result: ScoutResult = {
     status,
@@ -990,6 +1226,7 @@ async function runScout(wallet: string): Promise<ScoutResult> {
       hodlmm: hodlmmResult.positions,
     },
     smart_options: options,
+    ranking_measured: ranking,
     best_move: bestMove,
     break_prices: breakPrices,
     data_sources: [...new Set(allSources)],
@@ -1008,7 +1245,7 @@ function round(n: number, decimals: number): number {
 }
 
 // ── Human-readable renderer ────────────────────────────────────────────────────
-function renderReport(r: ScoutResult): string {
+export function renderReport(r: ScoutResult): string {
   const lines: string[] = [];
 
   lines.push("");
@@ -1035,7 +1272,11 @@ function renderReport(r: ScoutResult): string {
   lines.push("|----------|------------|--------|------:|");
 
   const z = r.zbg_positions.zest;
-  lines.push(`| Zest     | ${z.has_position ? "**ACTIVE**" : "No position"} | ${z.detail} | - |`);
+  const zestPriced = (z.holdings ?? []).filter((h) => typeof h.value_usd === "number");
+  const zestUnpriced = (z.holdings ?? []).filter((h) => typeof h.value_usd !== "number");
+  const zestUsd = round(zestPriced.reduce((sum, h) => sum + (h.value_usd as number), 0), 2);
+  const zestValue = zestPriced.length > 0 && zestUnpriced.length === 0 ? `$${zestUsd}` : "-";
+  lines.push(`| Zest     | ${z.state === "unknown" ? "**UNKNOWN**" : z.has_position ? "**ACTIVE**" : "No position"} | ${z.detail} | ${zestValue} |`);
 
   const g = r.zbg_positions.granite;
   const gDetail = g.has_position
@@ -1044,7 +1285,9 @@ function renderReport(r: ScoutResult): string {
   lines.push(`| Granite  | ${g.has_position ? "**ACTIVE**" : "No position"} | ${gDetail} | - |`);
 
   const h = r.zbg_positions.hodlmm;
-  let deployedUsd = 0;
+  // Zest is counted here too. The total used to sum HODLMM only, which was
+  // harmless while no Zest position was ever seen and false once one was.
+  let deployedUsd = zestUsd;
   if (h.has_position) {
     for (const p of h.pools) {
       const rangeTag = p.in_range ? "**IN RANGE**" : "**OUT OF RANGE**";
@@ -1063,7 +1306,11 @@ function renderReport(r: ScoutResult): string {
 
   const grandTotal = round(walletUsd + deployedUsd, 2);
   lines.push("");
-  lines.push(`**Total portfolio: $${grandTotal}** (wallet: $${walletUsd} + deployed: $${round(deployedUsd, 2)})`);
+  const notCounted = [
+    zestUnpriced.length > 0 ? `Not counted, no price: ${zestUnpriced.map((h) => `${h.amount} ${h.asset}`).join(", ")} on Zest.` : "",
+    (z.debt ?? []).length > 0 ? `Not subtracted: the Zest loan in ${(z.debt ?? []).join(", ")}.` : "",
+  ].filter(Boolean).join(" ");
+  lines.push(`**Total portfolio: $${grandTotal}** (wallet: $${walletUsd} + deployed: $${round(deployedUsd, 2)})${notCounted ? ` ${notCounted}` : ""}`);
   lines.push("");
 
   // Section 3: Smart Options
@@ -1075,6 +1322,10 @@ function renderReport(r: ScoutResult): string {
   r.smart_options.forEach((o, i) => {
     lines.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.apy_pct}% | $${o.daily_usd} | $${o.monthly_usd} | ${o.gas_to_enter_stx} STX | ${o.note} |`);
   });
+  lines.push("");
+  const m = r.ranking_measured;
+  lines.push(`Compared ${m.protocols.length} of ${m.out_of} protocols${m.protocols.length > 0 ? `: ${m.protocols.join(", ")}` : ""}.` +
+    (m.not_read.length > 0 ? ` Could not read, so left out rather than shown as 0%: ${m.not_read.join(", ")}.` : ""));
   lines.push("");
 
   // Section 4: Best Move
@@ -1165,6 +1416,15 @@ program
     } catch (e: unknown) {
       checks.push({ name: "Granite Protocol (on-chain)", ok: false, detail: e instanceof Error ? e.message : String(e) });
     }
+
+    // Zest V2 vaults (on-chain)
+    const zestSbtc = ZEST_ASSETS.find((a) => a.symbol === "sBTC")!;
+    const zestRate = await readZestSupplyRate(zestSbtc.vault);
+    checks.push({
+      name: "Zest V2 Vaults (on-chain)",
+      ok: zestRate !== null,
+      detail: zestRate ? `sBTC supply rate readable: ${zestRate.supply_apy_pct}% at ${zestRate.utilization_pct}% utilization` : "sBTC vault rate read failed",
+    });
 
     // HODLMM pool contract
     try {

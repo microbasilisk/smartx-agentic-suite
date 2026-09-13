@@ -139,6 +139,24 @@ const SBTC_REGISTRY_NAME  = "sbtc-registry";
 // -- Protocol contracts -------------------------------------------------------
 // Zest v2
 const ZEST_VAULT_SBTC     = "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-sbtc";
+// Zest V2, read on mainnet 2026-09-13. `v0-assets` lists each coin at an even id
+// and its vault's share token at the next odd id. A deposit through `v0-4-market`
+// moves those shares into `v0-market-vault` as collateral, so the wallet's own
+// share balance reads zero for somebody who has supplied: reading only the wallet
+// told a holder of 1.56 sBTC they had nothing on Zest. Both places are read.
+const ZEST_DEPLOYER       = "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7";
+const ZEST_MARKET_VAULT   = `${ZEST_DEPLOYER}.v0-market-vault`;
+export const ZEST_ASSETS: ReadonlyArray<{ symbol: string; shareAid: number; vault: string; decimals: number }> = [
+  { symbol: "STX",      shareAid: 1,  vault: `${ZEST_DEPLOYER}.v0-vault-stx`,      decimals: 6 },
+  { symbol: "sBTC",     shareAid: 3,  vault: ZEST_VAULT_SBTC,                      decimals: 8 },
+  { symbol: "stSTX",    shareAid: 5,  vault: `${ZEST_DEPLOYER}.v0-vault-ststx`,    decimals: 6 },
+  { symbol: "USDCx",    shareAid: 7,  vault: `${ZEST_DEPLOYER}.v0-vault-usdc`,     decimals: 6 },
+  { symbol: "USDh",     shareAid: 9,  vault: `${ZEST_DEPLOYER}.v0-vault-usdh`,     decimals: 8 },
+  { symbol: "stSTXbtc", shareAid: 11, vault: `${ZEST_DEPLOYER}.v0-vault-ststxbtc`, decimals: 6 },
+];
+/** What `v0-market-vault.get-position` returns for an address Zest has never seen: "none", not a failure. */
+const ZEST_ERR_NO_ACCOUNT = 600006n;
+const MAX_U128            = (1n << 128n) - 1n;
 
 // Hermetica
 const HERMETICA           = "SPN5AKG35QZSK2M8GAMR4AFX45659RJHDW353HSG";
@@ -264,7 +282,26 @@ interface ScoutAvailability {
   unavailable: string[];
 }
 
-interface ZestPosition { has_position: boolean; detail: string; supply_amount?: number; supply_apy_pct?: number; utilization_pct?: number }
+interface ZestHolding { asset: string; shares: string; amount: number }
+interface ZestPosition {
+  has_position: boolean;
+  /**
+   * "unknown" when a read failed. Kept apart from "none" because "you have
+   * nothing there" and "we could not look" are different answers about somebody's
+   * money, and this row used to give the first one for both.
+   */
+  state: "held" | "none" | "unknown";
+  detail: string;
+  holdings?: ZestHolding[];
+  /**
+   * The coins this wallet owes Zest. Supplied coins backing a loan cannot all be
+   * withdrawn, so a withdraw of "max" against them fails on chain.
+   */
+  debt?: string[];
+  /** The sBTC vault's live supply rate. Absent, never 0, when it could not be read. */
+  supply_apy_pct?: number;
+  utilization_pct?: number;
+}
 interface GranitePosition {
   has_position: boolean; detail: string;
   supply_apy_pct?: number; borrow_apr_pct?: number; utilization_pct?: number;
@@ -784,6 +821,127 @@ async function callReadOnly(
   });
 }
 
+export type ReadOnlyCall = (contractId: string, fn: string, args?: string[]) => Promise<{ okay: boolean; result?: string }>;
+
+/** One uint read, or a thrown error naming what could not be read. Never a stand-in zero. */
+async function readUint(read: ReadOnlyCall, contractId: string, fn: string, args: string[] = []): Promise<bigint> {
+  const r = await read(contractId, fn, args);
+  const v = r.okay && r.result ? parseClarityHex(r.result) : undefined;
+  if (typeof v !== "bigint") throw new Error(`${contractId.split(".")[1]}.${fn} could not be read`);
+  return v;
+}
+
+/**
+ * Two decimals, except that a real rate under 0.01% keeps two significant figures.
+ * Rounding to two places turned Zest sBTC's 0.001% into 0%, and the deploy check
+ * then refused every Zest deposit as paying nothing.
+ */
+export function roundRate(pct: number): number {
+  return pct === 0 || pct >= 0.01 ? round(pct, 2) : Number(pct.toPrecision(2));
+}
+
+/**
+ * Zest V2 supply APY in percent, from the vault's own three reads, all basis
+ * points and already annual: the borrow rate, times utilization, times the share
+ * lenders keep after the vault's fee reserve. Null when a read is out of range.
+ *
+ * The reserve differs per vault (sBTC and STX 10%, USDC 50%, USDh 99.99% on
+ * 2026-09-13), so it is read, never assumed: a fixed 10% put USDh at 0.82% against
+ * a real 0.00009%, and USDC at 1.46% against 0.81%.
+ */
+export function zestSupplyApyPct(rateBps: bigint, utilBps: bigint, feeReserveBps: bigint): number | null {
+  if (utilBps > 10000n || feeReserveBps > 10000n) return null;
+  return (Number(rateBps) / 100) * (Number(utilBps) / 10000) * (Number(10000n - feeReserveBps) / 10000);
+}
+
+/** A vault's live supply rate, or null when any of its reads failed. */
+export async function readZestSupplyRate(
+  vault: string, read: ReadOnlyCall = callReadOnly,
+): Promise<{ supply_apy_pct: number; utilization_pct: number } | null> {
+  try {
+    const [rate, util, fee] = await Promise.all([
+      readUint(read, vault, "get-interest-rate"),
+      readUint(read, vault, "get-utilization"),
+      readUint(read, vault, "get-fee-reserve"),
+    ]);
+    const apy = zestSupplyApyPct(rate, util, fee);
+    return apy === null ? null : { supply_apy_pct: roundRate(apy), utilization_pct: round(Number(util) / 100, 2) };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the wallet has supplied on Zest V2, per coin, in whole tokens.
+ *
+ * Shares are read from BOTH places they can sit: collateral in
+ * `v0-market-vault` (where a `supply-collateral-add` deposit puts them) and the
+ * wallet's own vault share balance. Each coin's shares are then converted by its
+ * vault, so interest earned since the deposit is included. Any failed read makes
+ * the answer "unknown"; only an untracked account or zero shares everywhere is
+ * "none".
+ */
+export async function readZestPosition(wallet: string, read: ReadOnlyCall = callReadOnly): Promise<ZestPosition> {
+  try {
+    const [pos, walletShares] = await Promise.all([
+      read(ZEST_MARKET_VAULT, "get-position", [cvPrincipal(wallet), cvUint(MAX_U128)]),
+      Promise.all(ZEST_ASSETS.map((a) => readUint(read, a.vault, "get-balance", [cvPrincipal(wallet)]))),
+    ]);
+    const shares = new Map<number, bigint>();
+    const debt: string[] = [];
+    const parsed = pos.okay && pos.result ? parseClarityHex(pos.result) : undefined;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && "_err" in parsed) {
+      if (parsed._err !== ZEST_ERR_NO_ACCOUNT) throw new Error(`v0-market-vault.get-position returned err ${String(parsed._err)}`);
+    } else {
+      const collateral = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, ClarityValue>).collateral
+        : undefined;
+      if (!Array.isArray(collateral)) throw new Error("v0-market-vault.get-position could not be read");
+      for (const c of collateral) {
+        const row = (c && typeof c === "object" && !Array.isArray(c) ? c : {}) as Record<string, ClarityValue>;
+        const aid = row.aid, amount = row.amount;
+        if (typeof aid !== "bigint" || typeof amount !== "bigint") throw new Error("v0-market-vault.get-position returned a collateral row that could not be parsed");
+        if (!ZEST_ASSETS.some((a) => BigInt(a.shareAid) === aid)) throw new Error(`Zest holds collateral under asset id ${aid}, which this skill does not know`);
+        shares.set(Number(aid), (shares.get(Number(aid)) ?? 0n) + amount);
+      }
+      // Debt is listed by the borrowed COIN's id, the even one below its vault's.
+      const debtRows = (parsed as Record<string, ClarityValue>).debt;
+      if (!Array.isArray(debtRows)) throw new Error("v0-market-vault.get-position returned no debt list");
+      for (const d of debtRows) {
+        const row = (d && typeof d === "object" && !Array.isArray(d) ? d : {}) as Record<string, ClarityValue>;
+        const aid = row.aid, scaled = row.scaled;
+        if (typeof aid !== "bigint" || typeof scaled !== "bigint") throw new Error("v0-market-vault.get-position returned a debt row that could not be parsed");
+        if (scaled > 0n) debt.push(ZEST_ASSETS.find((a) => BigInt(a.shareAid - 1) === aid)?.symbol ?? `asset id ${aid}`);
+      }
+    }
+    ZEST_ASSETS.forEach((a, i) => {
+      const inWallet = walletShares[i]!;
+      if (inWallet > 0n) shares.set(a.shareAid, (shares.get(a.shareAid) ?? 0n) + inWallet);
+    });
+    const held = ZEST_ASSETS.filter((a) => (shares.get(a.shareAid) ?? 0n) > 0n);
+    const underlying = await Promise.all(held.map((a) => readUint(read, a.vault, "convert-to-assets", [cvUint(shares.get(a.shareAid)!)])));
+    const holdings = held.map((a, i) => ({
+      asset: a.symbol,
+      shares: shares.get(a.shareAid)!.toString(),
+      amount: Number(underlying[i]!) / 10 ** a.decimals,
+    }));
+    const loan = debt.join(", ");
+    if (holdings.length === 0 && debt.length === 0) return { has_position: false, state: "none", detail: "No supply on Zest v2", holdings: [], debt };
+    // A loan with nothing supplied (what a liquidation can leave) is still a
+    // position: the wallet owes Zest, and "no position" would hide that.
+    if (holdings.length === 0) return { has_position: true, state: "held", holdings, debt, detail: `Nothing supplied on Zest v2, but this wallet owes Zest ${loan}` };
+    return {
+      has_position: true, state: "held", holdings, debt,
+      detail: `Supplied on Zest v2: ${holdings.map((h) => `${h.amount} ${h.asset}`).join(", ")}${debt.length > 0 ? `; a Zest loan in ${loan} stands against it` : ""}`,
+    };
+  } catch (e: unknown) {
+    return {
+      has_position: false, state: "unknown",
+      detail: `Zest v2 could not be checked (${e instanceof Error ? e.message : String(e)}), so a position there is UNKNOWN, not absent`,
+    };
+  }
+}
+
 // == Bech32m (BIP-350) ========================================================
 const B32C = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
 const B32M = 0x2bc830a3;
@@ -947,7 +1105,7 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   }
 
   // -- Yield options (3-tier) -------------------------------------------------
-  const { options, sources: optSrc } = await getYieldOptions(balances, prices, granite.position, hermetica.position);
+  const { options, sources: optSrc } = await getYieldOptions(balances, prices, granite.position, hermetica.position, zest.position);
   allSources.push(...optSrc);
 
   // -- Best move --------------------------------------------------------------
@@ -1022,9 +1180,7 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   // whose absence changes a number a person acts on now flips the status by name
   // rather than by arithmetic, and the count is kept as an additional, weaker
   // condition rather than as the whole test.
-  const status = (!balancesAvailable || !priceSbtcAvailable || !priceStxAvailable || allSources.length < 4)
-    ? "degraded" as const
-    : "ok" as const;
+  const status = scanStatus({ balancesAvailable, priceSbtcAvailable, priceStxAvailable, zest: zest.position, sourceCount: allSources.length });
 
   return {
     status,
@@ -1038,31 +1194,27 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
 }
 
 // -- Scout: Zest --------------------------------------------------------------
-async function scoutZest(wallet: string): Promise<{ position: ZestPosition; sources: string[] }> {
+/**
+ * "degraded" whenever a read that changes a number a person acts on did not
+ * return: the balances, either price, the Zest position, or Zest's rate. The
+ * source count stays as a weaker extra condition.
+ */
+export function scanStatus(r: {
+  balancesAvailable: boolean; priceSbtcAvailable: boolean; priceStxAvailable: boolean;
+  zest: ZestPosition; sourceCount: number;
+}): "ok" | "degraded" {
+  return (!r.balancesAvailable || !r.priceSbtcAvailable || !r.priceStxAvailable
+    || r.zest.state === "unknown" || r.zest.supply_apy_pct === undefined || r.sourceCount < 4)
+    ? "degraded"
+    : "ok";
+}
+
+export async function scoutZest(wallet: string, read: ReadOnlyCall = callReadOnly): Promise<{ position: ZestPosition; sources: string[] }> {
+  const [position, rate] = await Promise.all([readZestPosition(wallet, read), readZestSupplyRate(ZEST_VAULT_SBTC, read)]);
   const sources: string[] = [];
-  try {
-    const balResult = await callReadOnly(ZEST_VAULT_SBTC, "get-balance", [cvPrincipal(wallet)], wallet);
-    sources.push("zest-v2-vault");
-    const balance = balResult.okay && balResult.result ? parseUint128Hex(balResult.result) : 0n;
-
-    const [utilResult, rateResult] = await Promise.all([
-      callReadOnly(ZEST_VAULT_SBTC, "get-utilization", []),
-      callReadOnly(ZEST_VAULT_SBTC, "get-interest-rate", []),
-    ]);
-    const utilRaw = utilResult.okay && utilResult.result ? Number(parseUint128Hex(utilResult.result)) : 0;
-    const rateRaw = rateResult.okay && rateResult.result ? Number(parseUint128Hex(rateResult.result)) : 0;
-    const utilPct = utilRaw / 100;
-    const borrowRatePct = rateRaw / 100;
-    const supplyApyPct = round(borrowRatePct * (utilPct / 100) * 0.9, 2);
-    sources.push("zest-apy-live");
-
-    if (balance > 0n) {
-      return { position: { has_position: true, detail: `Active sBTC supply on Zest v2: ${Number(balance) / 1e8} sBTC`, supply_amount: Number(balance) / 1e8, supply_apy_pct: supplyApyPct, utilization_pct: round(utilPct, 2) }, sources };
-    }
-    return { position: { has_position: false, detail: "No sBTC supply on Zest v2", supply_apy_pct: supplyApyPct, utilization_pct: round(utilPct, 2) }, sources };
-  } catch {
-    return { position: { has_position: false, detail: "Zest read failed" }, sources };
-  }
+  if (position.state !== "unknown") sources.push("zest-v2-position");
+  if (rate) sources.push("zest-apy-live");
+  return { position: rate ? { ...position, ...rate } : position, sources };
 }
 
 // -- Scout: Hermetica ---------------------------------------------------------
@@ -1456,11 +1608,30 @@ export function sizeHodlmmOption(
   return { tier: "acquire_to_unlock", capUsd: 0, swapNote: null, sides: "neither" };
 }
 
+/**
+ * The engine's Zest row, from the rate the scout already read. No rate, no row:
+ * a 0% row is a claim that lending there pays nothing and sorts last by
+ * construction, and `rateRefusal` refuses a Zest deposit that has no row. The
+ * rate is not read a second time here: the same three Hiro calls twice in one
+ * scan is load that makes a throttled, and so missing, rate more likely.
+ */
+export function zestYieldOptions(balances: WalletBalances, zest: ZestPosition): YieldOption[] {
+  if (zest.supply_apy_pct === undefined || zest.utilization_pct === undefined) return [];
+  const supplyApy = zest.supply_apy_pct;
+  const utilPct = zest.utilization_pct;
+  if (balances.sbtc.amount > 0) {
+    const d = round((balances.sbtc.usd * supplyApy / 100) / 365, 4);
+    return [{ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: supplyApy > 0 ? `Lending, ${round(utilPct, 1)}% utilization.` : `0% utilization, APY rises when borrowers arrive.`, ytg_ratio: 0, ytg_profitable: false }];
+  }
+  return [{ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Need sBTC. Get via: Bitflow swap or sBTC bridge.`, ytg_ratio: 0, ytg_profitable: false }];
+}
+
 async function getYieldOptions(
   balances: WalletBalances,
   prices: { sbtc: number; stx: number; usdcx: number; usdh: number; aeusdc: number },
   granite: GranitePosition,
   hermetica: HermeticaPosition,
+  zest: ZestPosition,
 ): Promise<{ options: YieldOption[]; sources: string[] }> {
   const sources: string[] = [];
   const options: YieldOption[] = [];
@@ -1470,24 +1641,8 @@ async function getYieldOptions(
 
   // --- Tier 1: Deploy Now (user holds the token) ---
 
-  // Zest sBTC supply
-  try {
-    const [utilR, rateR] = await Promise.all([
-      callReadOnly(ZEST_VAULT_SBTC, "get-utilization", []),
-      callReadOnly(ZEST_VAULT_SBTC, "get-interest-rate", []),
-    ]);
-    const utilPct = (utilR.okay && utilR.result ? Number(parseUint128Hex(utilR.result)) : 0) / 100;
-    const borrowPct = (rateR.okay && rateR.result ? Number(parseUint128Hex(rateR.result)) : 0) / 100;
-    const supplyApy = round(borrowPct * (utilPct / 100) * 0.9, 2);
-    sources.push("zest-apy-live");
-
-    if (balances.sbtc.amount > 0) {
-      const d = dailyUsd(balances.sbtc.usd, supplyApy);
-      options.push({ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: supplyApy > 0 ? `Lending, ${round(utilPct, 1)}% utilization.` : `0% utilization, APY rises when borrowers arrive.`, ytg_ratio: 0, ytg_profitable: false });
-    } else {
-      options.push({ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Need sBTC. Get via: Bitflow swap or sBTC bridge.`, ytg_ratio: 0, ytg_profitable: false });
-    }
-  } catch { /* skip */ }
+  // Zest sBTC supply, from the rate the scout already read.
+  options.push(...zestYieldOptions(balances, zest));
 
   // Hermetica USDh staking
   if (hermetica.staking_enabled) {
@@ -2256,6 +2411,21 @@ export function scanGuardianInput(options: YieldOption[]): {
  * Returning undefined is the honest answer: the caller then reports no economics
  * rather than somebody else's.
  */
+/**
+ * Why a deposit is refused for its rate, or null when the rate does not refuse it.
+ *
+ * A 0% row refuses unless forced, as it always has. A Zest deposit with NO row
+ * refuses too: an unreadable Zest rate used to arrive as a 0% row and be refused
+ * by the first rule, and it is now left out of the options instead, so without
+ * the second rule the deposit would go ahead with no rate known at all.
+ */
+export function rateRefusal(protocol: string, targetOpt: YieldOption | undefined, force: boolean): string | null {
+  if (force) return null;
+  if (targetOpt && targetOpt.apy_pct === 0) return `${protocol} APY is 0%. Use --force to override.`;
+  if (protocol === "zest" && !targetOpt) return "Zest's supply rate could not be read this run, so there is no yield to weigh this deposit against. Run the scan again.";
+  return null;
+}
+
 export function selectTargetOption(
   options: YieldOption[], protocol: string, poolWanted: string | null,
 ): YieldOption | undefined {
@@ -3032,11 +3202,47 @@ export function buildDeployInstructions(
   return { instructions, refusal };
 }
 
+/**
+ * Why a withdraw leg built nothing a wallet can execute, or null when it built
+ * something. A leg of only `info` steps, or no steps, moves no money.
+ */
+export function nothingToExecute(protocol: string, steps: ExecuteInstruction[]): string[] | null {
+  if (steps.length === 0) return [`Nothing to withdraw from ${protocol}.`];
+  return steps.every(s => s.tool === "info") ? steps.map(s => s.description) : null;
+}
+
+/**
+ * The withdraw leg for `withdraw`, and the first half of `migrate`, or the
+ * reasons it cannot be built. Both branches take their answer from here, so what
+ * they refuse is tested as behaviour; only the line in `runPipeline` that returns
+ * it is not, because that function needs a live scan.
+ */
+export function withdrawLegOrRefusal(
+  protocol: Protocol, scout: ScoutResult,
+): { instructions: ExecuteInstruction[]; refusal: null } | { instructions: null; refusal: string[] } {
+  const instructions = buildWithdrawInstructions(protocol, scout);
+  const refusal = nothingToExecute(protocol, instructions);
+  return refusal ? { instructions: null, refusal } : { instructions, refusal: null };
+}
+
 export function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult): ExecuteInstruction[] {
   const wallet = scout.wallet;
   switch (protocol) {
-    case "zest":
+    case "zest": {
+      // This withdraw is sBTC, "max". It used to be built whatever the scan saw,
+      // so a wallet holding only STX, or sBTC locked behind a loan, got a step
+      // describing money it could not withdraw. Now it is built only when it can work.
+      const z = scout.positions.zest;
+      if (z.state === "unknown") return [{ tool: "info", params: {}, description: "Zest could not be read this run, so no Zest withdraw is built. Run the scan again." }];
+      if (!z.holdings?.some(h => h.asset === "sBTC")) return [{ tool: "info", params: {}, description: "No sBTC supply on Zest to withdraw" }];
+      if (z.debt?.length) {
+        // "May", not "would": Zest lets all of one collateral go when the rest
+        // still covers the loan. This engine cannot size that, so it builds none.
+        const onlyCollateral = (z.holdings ?? []).length === 1;
+        return [{ tool: "info", params: {}, description: `A Zest loan in ${z.debt.join(", ")} stands against this position, so withdrawing all the sBTC may fail. This engine does not size a partial withdraw, so it builds none.${onlyCollateral ? " The sBTC is the only collateral, so the loan has to be repaid before all of it can come out." : ""}` }];
+      }
       return [{ tool: "zest_withdraw", params: { asset: "sBTC", amount: "max" }, description: "Withdraw all sBTC from Zest v2" }];
+    }
 
     case "hermetica": {
       // unstake sUSDh -> creates claim in silo -> withdraw after cooldown
@@ -3172,12 +3378,46 @@ export function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult
   }
 }
 
-function buildEmergencyInstructions(scout: ScoutResult): ExecuteInstruction[] {
+/**
+ * What an emergency exit list is missing, as sentences appended to its description.
+ *
+ * Hermetica's stake is inferred from the wallet's sUSDh, so an unread balance
+ * drops that leg. Zest gets the same treatment for the same reason: a position
+ * that could not be read, a Zest coin this engine cannot withdraw, or sBTC held
+ * as collateral for a loan is a missing leg, and a short list that does not say
+ * so reads as a complete exit.
+ */
+export function emergencyIncompleteNotes(scout: ScoutResult): string {
+  const zest = scout.positions.zest;
+  const zestOther = (zest.holdings ?? []).filter(h => h.asset !== "sBTC");
+  const zestSbtc = (zest.holdings ?? []).some(h => h.asset === "sBTC");
+  const zestLoan = (zest.debt ?? []).join(", ");
+  return [
+    !scout.available.balances
+      ? " INCOMPLETE: wallet balances could not be read, so any Hermetica stake is invisible to this run and its unstake leg may be missing. Check Hermetica by hand before relying on this list."
+      : "",
+    zest.state === "unknown"
+      ? " INCOMPLETE: Zest could not be read, so any Zest supply is invisible to this run and its withdraw leg may be missing. Check Zest by hand before relying on this list."
+      : "",
+    zestOther.length > 0
+      ? ` INCOMPLETE: Zest also holds ${zestOther.map(h => `${h.amount} ${h.asset}`).join(", ")}, and this engine can withdraw only sBTC from Zest, so that is not in this list.`
+      : "",
+    zestLoan
+      ? ` INCOMPLETE: this wallet owes Zest ${zestLoan}, and this exit repays no loan.${zestSbtc ? " Withdrawing all the sBTC may fail while that loan stands, so the sBTC withdraw is not in this list either." : ""}`
+      : "",
+  ].join("");
+}
+
+export function buildEmergencyInstructions(scout: ScoutResult): ExecuteInstruction[] {
   const instructions: ExecuteInstruction[] = [];
   if (scout.positions.hodlmm.has_position) {
     instructions.push(...buildWithdrawInstructions("hodlmm", scout));
   }
-  if (scout.positions.zest.has_position) {
+  // The Zest leg withdraws all sBTC, so it is built only when sBTC is held and no
+  // Zest loan stands against it. Anything else is named as missing by
+  // `emergencyIncompleteNotes`, never covered by a step that would fail or would
+  // describe money which is not there.
+  if (scout.positions.zest.holdings?.some(h => h.asset === "sBTC") && !scout.positions.zest.debt?.length) {
     instructions.push(...buildWithdrawInstructions("zest", scout));
   }
   if (scout.positions.hermetica.has_position || scout.balances.susdh.amount > 0) {
@@ -3408,9 +3648,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     // The alternative, refusing, would take the escape hatch away on exactly the
     // day somebody needs it, and three of the four legs still build correctly
     // from position reads that did return.
-    const incomplete = !scout.available.balances
-      ? " INCOMPLETE: wallet balances could not be read, so any Hermetica stake is invisible to this run and its unstake leg may be missing. Check Hermetica by hand before relying on this list."
-      : "";
+    const incomplete = emergencyIncompleteNotes(scout);
     if (!confirmed) {
       return {
         status: "preview", command, scout, reserve,
@@ -3514,8 +3752,9 @@ let economics: {
       // the 0% APY check below behaves as it always did.
       const poolWanted = (opts as Record<string, string>).poolId;
       const targetOpt = selectTargetOption(scout.options, protocol, poolWanted);
-      if (targetOpt && targetOpt.apy_pct === 0 && !opts.force) {
-        return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [`${protocol} APY is 0%. Use --force to override.`] };
+      const noRate = rateRefusal(protocol, targetOpt, Boolean(opts.force));
+      if (noRate) {
+        return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [noRate] };
       }
 
       // Yield against gas: this INFORMS, it does not block. See the note on
@@ -3630,7 +3869,11 @@ let economics: {
     case "withdraw": {
       // Input already validated in Step 0 above
       const protocol = opts.protocol as Protocol;
-      instructions = buildWithdrawInstructions(protocol, scout);
+      // A leg of only `info` steps built nothing a wallet can execute, and
+      // "ok, 1 instruction" around it reads as a withdraw that is ready.
+      const leg = withdrawLegOrRefusal(protocol, scout);
+      if (leg.instructions === null) return { status: "refused", command, scout, reserve, guardian, refusal_reasons: leg.refusal };
+      instructions = leg.instructions;
       description = `Withdraw from ${protocol}`;
       break;
     }
@@ -3663,7 +3906,11 @@ let economics: {
       // Input (including --amount > 0) already validated in Step 0 above
       const from = opts.from as Protocol;
       const to = opts.to as Protocol;
-      instructions.push(...buildWithdrawInstructions(from, scout));
+      // With no executable withdraw nothing arrives, and the deposit below is
+      // sized to an amount the wallet may not hold: refuse rather than build half.
+      const withdrawLeg = withdrawLegOrRefusal(from, scout);
+      if (withdrawLeg.instructions === null) return { status: "refused", command, scout, reserve, guardian, refusal_reasons: withdrawLeg.refusal };
+      instructions.push(...withdrawLeg.instructions);
       const token = opts.token ?? inferToken(to);
       const amount = parseAtomicAmount(opts.amount);
       if (amount === null) return { status: "error", command, error: "Amount must be a positive whole number in the token's smallest unit, digits only" };
@@ -3926,7 +4173,7 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   L.push("|------------|------------|--------|");
 
   const z = scout.positions.zest;
-  L.push(`| Zest       | ${z.has_position ? "**ACTIVE**" : "Idle"} | ${z.detail} |`);
+  L.push(`| Zest       | ${z.state === "unknown" ? "**UNKNOWN**" : z.has_position ? "**ACTIVE**" : "Idle"} | ${z.detail} |`);
 
   const herm = scout.positions.hermetica;
   // Hermetica is the one protocol whose position is inferred from a WALLET

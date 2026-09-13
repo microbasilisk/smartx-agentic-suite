@@ -85,7 +85,7 @@ bun run zbg-yield-scout/zbg-yield-scout.ts run --wallet SP219TWC8G12CSX5AB093127
 |---|---|---|
 | Hiro Stacks API | STX balance, contract read-only calls | `api.mainnet.hiro.so` |
 | Tenero API | sBTC/STX/USDCx USD prices, wallet holdings | `api.tenero.io` |
-| Zest Protocol | Supply position (sBTC pool balance) | On-chain read via `call_read_only_function` (Hiro fallback: token balance check) |
+| Zest Protocol | Supply position per coin, and each vault's supply rate | On-chain read via `call_read_only_function`: `v0-market-vault.get-position` plus each vault's `get-balance` and `convert-to-assets`; rate from `get-interest-rate`, `get-utilization` and `get-fee-reserve` |
 | Granite Protocol | Supply/borrow params, interest rate, user position, collateral config | On-chain reads via `call_read_only_function` |
 | HODLMM Pool Contracts | User bins, bin balances, active bin, pool state | Direct pool contract reads (8 pools) |
 | Bitflow App API | HODLMM pool APR, TVL, volume | `bff.bitflowapis.finance` |

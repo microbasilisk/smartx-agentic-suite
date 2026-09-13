@@ -20,7 +20,7 @@ description: "Reads wallet balances and positions across Zest, Bitflow (HODLMM),
 ## Guardrails
 
 1. **Read-only always.** This skill never submits transactions, never spends gas, never moves funds.
-2. **No mock data.** Every number comes from a live on-chain read or API call. If a source fails, report degraded status, never substitute fake values. Exception: Zest sBTC supply APY is reported as 0% when no live rate is available, with a note directing users to check zest.fi.
+2. **No mock data.** Every number comes from a live on-chain read or API call. If a source fails, report degraded status, never substitute fake values. No exceptions: a Zest rate that could not be read is left out of the ranking, never shown as 0%, and `ranking_measured` says which protocols the ranking covered. A Zest position that could not be read is `state: "unknown"`, never "no position".
 3. **sBTC pricing, not BTC.** Break prices use on-chain sBTC price from Tenero, not BTC L1 price. sBTC can depeg from BTC during stress events: the break price must reflect what the protocol actually sees.
 4. **Graceful empty positions.** If the wallet has no position on a protocol, report "no position" and still show yield options. The skill is equally useful for someone with zero DeFi exposure.
 5. **BigInt for all Clarity values.** HODLMM bin balances and Granite params are uint128. Parse with BigInt from big-endian hex, never use JavaScript Number for on-chain values above 2^53.
