@@ -148,12 +148,30 @@ interface HodlmmUserPool {
   active_bin: number;
   user_bins: { min: number; max: number; count: number } | null;
   dlp_shares: string;
+  /**
+   * The coins the wallet's shares hold, summed bin by bin from the pool contract, in whole
+   * tokens. Null when a bin read failed, a token's decimals are unknown, or the position spans
+   * more bins than are read, so a partial sum never passes for the whole position.
+   */
+  holdings: { token_x: string; amount_x: number; token_y: string; amount_y: number } | null;
+  /**
+   * `holdings` priced only from prices actually read. Null when a needed price or the holdings
+   * are missing. It used to be the wallet's share of ALL the pool's shares times the pool's
+   * whole TVL, but a HODLMM share only means something inside its own bin: it valued one bin
+   * holding about 28 STX at $58.12 on 13 September and $59.19 on 14 September.
+   */
   estimated_value_usd: number | null;
 }
 
 interface HodlmmPositions {
   has_position: boolean;
   pools: HodlmmUserPool[];
+  /**
+   * Pools whose position could not be read, so whether the wallet holds anything there is
+   * unknown. Never folded into "no position": a pool missing from `pools` for that reason
+   * would read as nothing held, and MB would refuse to withdraw from it.
+   */
+  unread: { pool_id: number; name: string }[];
 }
 
 interface YieldOption {
@@ -831,62 +849,143 @@ export async function getGranitePosition(wallet: string, read: ReadOnlyCall = ca
   }
 }
 
-async function getHodlmmPositions(wallet: string): Promise<{ positions: HodlmmPositions; sources: string[] }> {
+/** Decimals of the coins HODLMM pools hold, read from each token contract. */
+const HODLMM_DECIMALS: Record<string, number> = { stx: 6, sbtc: 8, usdcx: 6, aeusdc: 6, usdh: 8 };
+
+/**
+ * The most bins one position is valued across. Beyond it the value is unknown, never partial.
+ *
+ * Sized to Hiro's budget, not to positions: 50 reads a minute without a key, and each bin costs
+ * two. A whole scan of a wallet with no positions made 24 Hiro requests on 14 September (23 of
+ * them contract reads), so one position at 8 bins adds 18 and stays under 50. Review measured 20
+ * bins at about 65, enough for Hiro to refuse the bin reads and the Zest rate reads after them.
+ */
+export const MAX_VALUED_BINS = 8;
+
+/**
+ * What a wallet's HODLMM shares hold, read bin by bin from the pool contract.
+ *
+ * For each bin the wallet is in: its shares (`get-balance`) over the bin's shares, times the
+ * coins the bin holds (`get-bin-balances`). Integer arithmetic throughout, so no rounding
+ * reaches the amount before the final conversion to whole tokens. Measured on 14 September:
+ * the owner's wallet holds 109,381,108 of bin 499's 83,707,709,320 shares, and the bin holds
+ * 21,620.96 STX and no USDCx, so the position is 28.25 STX.
+ */
+export async function readHodlmmHoldings(
+  pool: { contract: string; tokenX: string; tokenY: string },
+  wallet: string,
+  binIds: number[],
+  read: ReadOnlyCall,
+): Promise<HodlmmUserPool["holdings"]> {
+  const dx = HODLMM_DECIMALS[pool.tokenX];
+  const dy = HODLMM_DECIMALS[pool.tokenY];
+  if (dx === undefined || dy === undefined || binIds.length === 0 || binIds.length > MAX_VALUED_BINS) return null;
+  let x = 0n;
+  let y = 0n;
+  for (const bin of binIds) {
+    // A read that throws (Hiro still refusing after its retries) leaves the holdings unknown.
+    // It must not escape: the caller's per-pool catch would drop the whole position, the wallet
+    // would read as holding no HODLMM at all, and MB would refuse to withdraw from that pool.
+    let balance: Awaited<ReturnType<ReadOnlyCall>>;
+    let binRead: Awaited<ReturnType<ReadOnlyCall>>;
+    try {
+      [balance, binRead] = await Promise.all([
+        read(pool.contract, "get-balance", [cvUint(bin), cvPrincipal(wallet)]),
+        read(pool.contract, "get-bin-balances", [cvUint(bin)]),
+      ]);
+    } catch {
+      return null;
+    }
+    if (!balance.okay || !balance.result || !binRead.okay || !binRead.result) return null;
+    const shares = parseClarityHex(balance.result);
+    const tuple = parseClarityHex(binRead.result);
+    const field = (k: string) => cvGetField(tuple, k);
+    const binShares = field("bin-shares");
+    const xBalance = field("x-balance");
+    const yBalance = field("y-balance");
+    if (typeof shares !== "bigint" || typeof binShares !== "bigint" || typeof xBalance !== "bigint"
+      || typeof yBalance !== "bigint" || binShares <= 0n) return null;
+    x += (xBalance * shares) / binShares;
+    y += (yBalance * shares) / binShares;
+  }
+  return {
+    token_x: pool.tokenX, amount_x: round(Number(x) / 10 ** dx, dx),
+    token_y: pool.tokenY, amount_y: round(Number(y) / 10 ** dy, dy),
+  };
+}
+
+/**
+ * Price each position's holdings from prices that were actually read. Stablecoins are passed
+ * in at $1 by both callers, the same way both skills price wallet balances.
+ *
+ * A side holding nothing needs no price. A side holding something with no price read leaves
+ * the value null: a guessed price would put a confident wrong figure in front of the person,
+ * which is how the old pool-share estimate came to say $58 for a $7.60 position.
+ */
+export function priceHodlmmHoldings(positions: HodlmmPositions, prices: Record<string, number | null>): HodlmmPositions {
+  return {
+    ...positions,
+    pools: positions.pools.map((p) => {
+      const h = p.holdings;
+      if (!h) return { ...p, estimated_value_usd: null };
+      const side = (amount: number, token: string): number | null => {
+        if (amount === 0) return 0;
+        const price = prices[token];
+        return typeof price === "number" && price > 0 ? amount * price : null;
+      };
+      const xUsd = side(h.amount_x, h.token_x);
+      const yUsd = side(h.amount_y, h.token_y);
+      return { ...p, estimated_value_usd: xUsd === null || yUsd === null ? null : round(xUsd + yUsd, 2) };
+    }),
+  };
+}
+
+export async function getHodlmmPositions(
+  wallet: string,
+  read: ReadOnlyCall = (contractId, fn, args) => callReadOnly(contractId, fn, args, wallet),
+): Promise<{ positions: HodlmmPositions; sources: string[] }> {
   const sources: string[] = [];
   const userPools: HodlmmUserPool[] = [];
-
-  // Fetch Bitflow pool data once for all pools
-  let bitflowPools: BitflowPoolData[] | null = null;
-  try {
-    const poolData = await fetchJson<BitflowPoolsResponse>(`${BITFLOW_API}/api/app/v1/pools`);
-    bitflowPools = poolData.data ?? null;
-  } catch {
-    // Bitflow API unavailable: position values will be null
-  }
+  const unread: HodlmmPositions["unread"] = [];
 
   for (const pool of HODLMM_POOLS) {
     try {
-      // The wallet's shares first. Most wallets hold nothing in most pools, and
-      // the other three reads used to be made and thrown away for every such
-      // pool: 24 of a scan's reads, against Hiro's 50 a minute. Each pool ends the
-      // same way as before: a failed or zero balance skips it, and so does a
-      // failed bin list.
-      const overallResult = await callReadOnly(pool.contract, "get-overall-balance", [cvPrincipal(wallet)], wallet);
-      const dlpShares = overallResult.okay && overallResult.result
-        ? parseUint128Hex(overallResult.result)
-        : 0n;
+      // The wallet's shares first. Most wallets hold nothing in most pools, and the other
+      // reads used to be made and thrown away for every such pool, against Hiro's 50 a minute.
+      // Only a zero that was READ skips the pool. Measured 14 September, a wallet with no
+      // position gets `(ok u0)` from all 8 pools, so a failed read is not a zero: the position
+      // there is unknown, and the pool is named as unread rather than dropped.
+      const overallResult = await read(pool.contract, "get-overall-balance", [cvPrincipal(wallet)]);
+      if (!overallResult.okay || !overallResult.result) {
+        unread.push({ pool_id: pool.id, name: pool.name });
+        continue;
+      }
+      const dlpShares = parseUint128Hex(overallResult.result);
       if (dlpShares === 0n) continue;
 
-      const [userBinsResult, totalSupplyResult, activeBinResult] = await Promise.all([
-        callReadOnly(pool.contract, "get-user-bins", [cvPrincipal(wallet)], wallet),
-        callReadOnly(pool.contract, "get-overall-supply", [], wallet),
-        callReadOnly(pool.contract, "get-active-bin-id", []),
+      const [userBinsResult, activeBinResult] = await Promise.all([
+        read(pool.contract, "get-user-bins", [cvPrincipal(wallet)]),
+        read(pool.contract, "get-active-bin-id", []),
       ]);
-      if (!userBinsResult.okay) continue;
+      // Shares are held here, so a failed bin list leaves the position unknown too. So does a
+      // failed active bin, which used to fall back to bin 500 and could call the position out
+      // of range on a read that never came back.
+      if (!userBinsResult.okay || !activeBinResult.okay || !activeBinResult.result) {
+        unread.push({ pool_id: pool.id, name: pool.name });
+        continue;
+      }
 
-      const totalSupply = totalSupplyResult.okay && totalSupplyResult.result
-        ? parseUint128Hex(totalSupplyResult.result)
-        : 0n;
-
-      const activeBinSigned = activeBinResult.okay && activeBinResult.result
-        ? parseInt128Hex(activeBinResult.result)
-        : 0n;
+      const activeBinSigned = parseInt128Hex(activeBinResult.result);
       // Convert signed to unsigned: CENTER_BIN_ID (500) + signed offset
       const activeBin = 500 + Number(activeBinSigned);
 
-      // Parse user bin list from the hex response
       const userBinIds = parseUserBinList(userBinsResult.result ?? "");
       const minBin = userBinIds.length > 0 ? Math.min(...userBinIds) : 0;
       const maxBin = userBinIds.length > 0 ? Math.max(...userBinIds) : 0;
       const inRange = userBinIds.includes(activeBin);
 
-      // Estimate position USD value from pool TVL and share ratio
-      let estimatedValueUsd: number | null = null;
-      const matchPool = bitflowPools?.find(p => p.poolId === `dlmm_${pool.id}`);
-      if (matchPool && totalSupply > 0n) {
-        const shareRatio = Number(dlpShares) / Number(totalSupply);
-        estimatedValueUsd = round(shareRatio * matchPool.tvlUsd, 2);
-      }
+      // What the shares hold, bin by bin. Priced by the caller once prices are read.
+      const holdings = await readHodlmmHoldings(pool, wallet, userBinIds, read);
 
       sources.push(`hodlmm-pool-${pool.id}`);
 
@@ -897,10 +996,12 @@ async function getHodlmmPositions(wallet: string): Promise<{ positions: HodlmmPo
         active_bin: activeBin,
         user_bins: userBinIds.length > 0 ? { min: minBin, max: maxBin, count: userBinIds.length } : null,
         dlp_shares: dlpShares.toString(),
-        estimated_value_usd: estimatedValueUsd,
+        holdings,
+        estimated_value_usd: null,
       });
     } catch {
-      // Skip pool on error
+      // A read that threw (Hiro still refusing after its retries): unknown, never "no position".
+      unread.push({ pool_id: pool.id, name: pool.name });
     }
   }
 
@@ -908,6 +1009,7 @@ async function getHodlmmPositions(wallet: string): Promise<{ positions: HodlmmPo
     positions: {
       has_position: userPools.length > 0,
       pools: userPools,
+      unread,
     },
     sources,
   };
@@ -1044,6 +1146,10 @@ export function getBestMove(
   // one line a person acts on, so it must not read as complete when a position
   // or a rate was missing from the run behind it.
   const zestUnknown = zest.state === "unknown" ? " Zest could not be checked, so any Zest position is not counted here." : "";
+  const hodlmmUnread = (hodlmm.unread ?? []).map(p => p.name);
+  const hodlmmUnknown = hodlmmUnread.length > 0
+    ? ` HODLMM ${hodlmmUnread.join(", ")} could not be read, so any position there is not counted here.`
+    : "";
   const partial = ranking.not_read.length > 0
     ? ` Some rates could not be read (${ranking.not_read.join(", ")}), so a better option may be missing.`
     : "";
@@ -1066,7 +1172,7 @@ export function getBestMove(
 
   if (!bestOption || bestOption.apy_pct === 0) {
     return {
-      recommendation: `No yield opportunities currently available. Hold your assets in wallet.${zestUnknown}${partial}`,
+      recommendation: `No yield opportunities currently available. Hold your assets in wallet.${zestUnknown}${hodlmmUnknown}${partial}`,
       idle_capital_usd: round(walletUsd, 2),
       opportunity_cost_daily_usd: 0,
     };
@@ -1076,7 +1182,7 @@ export function getBestMove(
   if (outOfRangePools.length > 0) {
     const poolNames = outOfRangePools.map(p => p.name).join(", ");
     return {
-      recommendation: `WARNING: ${outOfRangePools.length} HODLMM position(s) OUT OF RANGE (${poolNames}). These are not earning fees. Consider rebalancing or withdrawing.${zestUnknown}${partial}`,
+      recommendation: `WARNING: ${outOfRangePools.length} HODLMM position(s) OUT OF RANGE (${poolNames}). These are not earning fees. Consider rebalancing or withdrawing.${zestUnknown}${hodlmmUnknown}${partial}`,
       idle_capital_usd: round(walletUsd, 2),
       opportunity_cost_daily_usd: round(bestOption.daily_usd, 4),
     };
@@ -1087,7 +1193,7 @@ export function getBestMove(
     const deployed = deployedProtocols.join(", ");
     if (walletUsd < 10) {
       return {
-        recommendation: `Your capital is ${zestLoan ? "deployed on" : "deployed and earning on"} ${deployed}. Wallet balance ($${round(walletUsd, 2)}) is minimal: nothing to move.${zestUnknown}`,
+        recommendation: `Your capital is ${zestLoan ? "deployed on" : "deployed and earning on"} ${deployed}. Wallet balance ($${round(walletUsd, 2)}) is minimal: nothing to move.${zestUnknown}${hodlmmUnknown}`,
         idle_capital_usd: round(walletUsd, 2),
         opportunity_cost_daily_usd: 0,
       };
@@ -1095,7 +1201,7 @@ export function getBestMove(
     // Has deployed positions but also meaningful wallet balance
     const dailyCost = (walletUsd * bestOption.apy_pct / 100) / 365;
     return {
-      recommendation: `Active position on ${deployed}. You also have $${round(walletUsd, 2)} idle in wallet. Best option for idle funds: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY (~$${round(dailyCost, 4)}/day missed).${zestUnknown}${partial}`,
+      recommendation: `Active position on ${deployed}. You also have $${round(walletUsd, 2)} idle in wallet. Best option for idle funds: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY (~$${round(dailyCost, 4)}/day missed).${zestUnknown}${hodlmmUnknown}${partial}`,
       idle_capital_usd: round(walletUsd, 2),
       opportunity_cost_daily_usd: round(dailyCost, 4),
     };
@@ -1103,11 +1209,14 @@ export function getBestMove(
 
   // Priority 3: Nothing deployed anywhere that could be seen
   const dailyCost = (walletUsd * bestOption.apy_pct / 100) / 365;
+  // "No active positions" is a claim about every protocol, so it is made only when each was read.
   const opening = zestUnknown
     ? `No active positions found on Granite or HODLMM, and Zest could not be checked. $${round(walletUsd, 2)} is in the wallet.`
+    : hodlmmUnknown
+    ? `No active positions found in what could be read. $${round(walletUsd, 2)} is in the wallet.`
     : `No active positions. All $${round(walletUsd, 2)} is idle in wallet.`;
   return {
-    recommendation: `${opening} Best option: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY. You're leaving ~$${round(dailyCost, 4)}/day on the table.${partial}`,
+    recommendation: `${opening} Best option: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY. You're leaving ~$${round(dailyCost, 4)}/day on the table.${hodlmmUnknown}${partial}`,
     idle_capital_usd: round(walletUsd, 2),
     opportunity_cost_daily_usd: round(dailyCost, 4),
   };
@@ -1202,8 +1311,10 @@ async function getBreakPrices(
  * four sources, a Zest position that is unknown, or a rate left out of the
  * ranking. The report must not call itself "ok" while part of it is missing.
  */
-export function scoutStatus(sourceCount: number, zest: ZestPosition, ranking: RankingMeasured): "ok" | "degraded" {
-  return sourceCount >= 4 && zest.state !== "unknown" && ranking.not_read.length === 0 ? "ok" : "degraded";
+export function scoutStatus(sourceCount: number, zest: ZestPosition, ranking: RankingMeasured, hodlmm: HodlmmPositions): "ok" | "degraded" {
+  // A HODLMM pool that could not be read is a position that is unknown, as an unread Zest is.
+  return sourceCount >= 4 && zest.state !== "unknown" && ranking.not_read.length === 0 && (hodlmm.unread ?? []).length === 0
+    ? "ok" : "degraded";
 }
 
 // ── Main scout function ────────────────────────────────────────────────────────
@@ -1216,7 +1327,7 @@ async function runScout(wallet: string): Promise<ScoutResult> {
       zbg_positions: {
         zest: { has_position: false, state: "unknown", detail: "Skipped, invalid wallet" },
         granite: { has_position: false, detail: "Skipped, invalid wallet" },
-        hodlmm: { has_position: false, pools: [] },
+        hodlmm: { has_position: false, pools: [], unread: [] },
       },
       smart_options: [],
       ranking_measured: { protocols: [], out_of: 3, not_read: [] },
@@ -1249,6 +1360,13 @@ async function runScout(wallet: string): Promise<ScoutResult> {
     usdcx: 1,
   });
 
+  // HODLMM positions priced from what they hold, from prices actually read, as Zest is above.
+  hodlmmResult.positions = priceHodlmmHoldings(hodlmmResult.positions, {
+    sbtc: balSources.includes("tenero-sbtc-price") && prices.sbtc > 0 ? prices.sbtc : null,
+    stx: balSources.includes("tenero-stx-price") && prices.stx > 0 ? prices.stx : null,
+    usdcx: 1, aeusdc: 1, usdh: 1,
+  });
+
   // Section 3: Smart Options
   const { options, sources: optSources, ranking } = await getSmartOptions(balances, prices, graniteResult.position);
   allSources.push(...optSources);
@@ -1264,7 +1382,7 @@ async function runScout(wallet: string): Promise<ScoutResult> {
   );
   allSources.push(...bpSources);
 
-  const status = scoutStatus(allSources.length, zestResult.position, ranking);
+  const status = scoutStatus(allSources.length, zestResult.position, ranking, hodlmmResult.positions);
 
   const result: ScoutResult = {
     status,
@@ -1295,6 +1413,15 @@ function round(n: number, decimals: number): number {
 }
 
 // ── Human-readable renderer ────────────────────────────────────────────────────
+/** "holds 28.252176 STX and 0 USDCx", or that the holdings are unknown. */
+function hodlmmHeld(p: HodlmmUserPool): string {
+  const label: Record<string, string> = { stx: "STX", sbtc: "sBTC", usdcx: "USDCx", aeusdc: "aeUSDC", usdh: "USDh" };
+  const h = p.holdings;
+  return h
+    ? `holds ${h.amount_x} ${label[h.token_x] ?? h.token_x} and ${h.amount_y} ${label[h.token_y] ?? h.token_y}`
+    : "holdings not read";
+}
+
 export function renderReport(r: ScoutResult): string {
   const lines: string[] = [];
 
@@ -1344,9 +1471,15 @@ export function renderReport(r: ScoutResult): string {
       const binStr = p.user_bins ? `${p.user_bins.count} bins (${p.user_bins.min}-${p.user_bins.max})` : "no bins";
       const valueStr = p.estimated_value_usd !== null ? `$${p.estimated_value_usd}` : "-";
       if (p.estimated_value_usd) deployedUsd += p.estimated_value_usd;
-      lines.push(`| HODLMM   | **ACTIVE** | ${p.name}: ${rangeTag} at bin ${p.active_bin}, ${binStr} | ${valueStr} |`);
+      lines.push(`| HODLMM   | **ACTIVE** | ${p.name}: ${rangeTag} at bin ${p.active_bin}, ${binStr}, ${hodlmmHeld(p)} | ${valueStr} |`);
     }
-  } else {
+  }
+  // A pool that could not be read is named, never counted as "no position" (the payload may
+  // come from a run before `unread` existed, so it is read defensively).
+  const hodlmmUnread = h.unread ?? [];
+  if (hodlmmUnread.length > 0) {
+    lines.push(`| HODLMM   | **UNKNOWN** | Could not read ${hodlmmUnread.map((p) => p.name).join(", ")}, so a position there is not known either way | - |`);
+  } else if (!h.has_position) {
     lines.push("| HODLMM   | No position | No positions found across all 8 pools | - |");
   }
 
@@ -1359,6 +1492,14 @@ export function renderReport(r: ScoutResult): string {
   const notCounted = [
     zestUnpriced.length > 0 ? `Not counted, no price: ${zestUnpriced.map((h) => `${h.amount} ${h.asset}`).join(", ")} on Zest.` : "",
     (z.debt ?? []).length > 0 ? `Not subtracted: the Zest loan in ${(z.debt ?? []).join(", ")}.` : "",
+    // A position with no value is named, never silently left out of the totals above.
+    h.pools.some((p) => p.estimated_value_usd === null)
+      ? `Not counted, no value: HODLMM ${h.pools.filter((p) => p.estimated_value_usd === null)
+        .map((p) => `${p.name} (${p.holdings ? `${hodlmmHeld(p)}, no price read for it`
+          : p.user_bins && p.user_bins.count > MAX_VALUED_BINS ? `spans more than ${MAX_VALUED_BINS} bins, so it was not valued`
+          : "its holdings could not be read"})`).join(", ")}.`
+      : "",
+    hodlmmUnread.length > 0 ? `Not counted, could not be read: HODLMM ${hodlmmUnread.map((p) => p.name).join(", ")}.` : "",
   ].filter(Boolean).join(" ");
   lines.push(`**Total portfolio: $${grandTotal}** (wallet: $${walletUsd} + deployed: $${round(deployedUsd, 2)})${notCounted ? ` ${notCounted}` : ""}`);
   lines.push("");

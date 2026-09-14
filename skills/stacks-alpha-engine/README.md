@@ -120,6 +120,8 @@ withdraw zest                        # recover sBTC
 
 All 8 HODLMM pools scanned with YTG ratios per pool. Reads user positions via `get-user-bins`, `get-overall-balance`, `get-active-bin-id`. Calculates break prices via DLMM Core `get-bin-price`. Generates `add-liquidity-simple` and `withdraw-liquidity-simple` instructions.
 
+The wallet's shares are read first, so a pool it does not hold costs one read. A pool whose read fails or throws is listed in `positions.hodlmm.unread`, shown as UNKNOWN and makes the scan `degraded`: it is never reported as no position, and an emergency exit says its withdraw may be missing.
+
 ## Data sources (12+ live reads)
 
 | Source | Data |

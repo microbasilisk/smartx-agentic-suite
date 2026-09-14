@@ -66,11 +66,13 @@ Always return strict JSON:
           "name": "sBTC-USDCx-10bps",
           "in_range": true,
           "active_bin": 510,
-          "user_bins": { "min": 460, "max": 680, "count": 221 },
+          "user_bins": { "min": 508, "max": 510, "count": 3 },
           "dlp_shares": "99661451",
+          "holdings": { "token_x": "sbtc", "amount_x": 0.0005, "token_y": "usdcx", "amount_y": 52.75 },
           "estimated_value_usd": 110.50
         }
-      ]
+      ],
+      "unread": []
     }
   },
   "smart_options": [
