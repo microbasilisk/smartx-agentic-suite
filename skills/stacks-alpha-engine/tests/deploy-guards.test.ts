@@ -24,8 +24,8 @@ const WALLET = "SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF";
 const scoutUsdh = (usdhAtomic: number, usdcxAtomic: number) => ({
   wallet: WALLET,
   balances: {
-    usdh:  { amount: usdhAtomic / 1e8, usd: 0 },
-    usdcx: { amount: usdcxAtomic / 1e6, usd: 0 },
+    usdh:  { amount: usdhAtomic / 1e8, usd: 0, atomic: String(usdhAtomic) },
+    usdcx: { amount: usdcxAtomic / 1e6, usd: 0, atomic: String(usdcxAtomic) },
   },
   prices: { sbtc: 78000, stx: 0.5, usdcx: 1, usdh: 1, aeusdc: 1 },
 }) as never;
@@ -33,9 +33,9 @@ const scoutUsdh = (usdhAtomic: number, usdcxAtomic: number) => ({
 const scout = (sbtcAtomic: number, usdcxAtomic: number, stxAtomic = 0) => ({
   wallet: "SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF",
   balances: {
-    sbtc:  { amount: sbtcAtomic / 1e8, usd: 0 },
-    usdcx: { amount: usdcxAtomic / 1e6, usd: 0 },
-    stx:   { amount: stxAtomic / 1e6, usd: 0 },
+    sbtc:  { amount: sbtcAtomic / 1e8, usd: 0, atomic: String(sbtcAtomic) },
+    usdcx: { amount: usdcxAtomic / 1e6, usd: 0, atomic: String(usdcxAtomic) },
+    stx:   { amount: stxAtomic / 1e6, usd: 0, atomic: String(stxAtomic) },
   },
   prices: { sbtc: 78000, stx: 0.5, usdcx: 1, usdh: 1, aeusdc: 1 },
 }) as never;
@@ -590,7 +590,7 @@ console.log("\n== FORCED FAILURE: a slippage check that cannot run never reports
 // 0. Each is forced here, not waited for.
 {
   const pool = (over: Record<string, unknown> = {}) => ({
-    poolId: "dlmm_1", tvlUsd: 1, volumeUsd1d: 1, apr24h: 1,
+    poolId: "dlmm_1", poolStatus: true, tvlUsd: 1, volumeUsd1d: 1, apr24h: 1,
     tokens: { tokenX: { priceUsd: 78000, decimals: 8, symbol: "sBTC" }, tokenY: { priceUsd: 1, decimals: 6 } },
     ...over,
   }) as never;
@@ -598,9 +598,23 @@ console.log("\n== FORCED FAILURE: a slippage check that cannot run never reports
     targetPoolId: "dlmm_1", knownPool: true, poolName: "sBTC-USDCx-10bps",
     pools: [pool()], targetPool: pool(), activeBinOkay: true,
     bins: { active_bin_id: 7, bins: [{ bin_id: 7, price: "1000000000" }] },
-    readError: null, notApplicableText: "no pool here",
+    readError: null, notApplicableText: "no pool here", poolsReadAt: 1_000_000, binsReadAt: 1_005_000,
   } as never;
   const withF = (over: Record<string, unknown>) => classifySlippage({ ...(base as object), ...over } as never);
+
+  // Stage 4 (16 September), matched freshness: the two prices must be read within 30s.
+  {
+    const far = withF({ poolsReadAt: 1_000_000, binsReadAt: 1_040_000 });
+    check("FR prices read 40s apart are unknown, never measured", far.gate.status === "unknown" && far.gate.value === null, `${far.gate.status} ${far.gate.source}`);
+    check("FR and refused, saying how far apart", (far.refusal ?? "").includes("read 40 seconds apart, more than 30"), String(far.refusal));
+    const unknownTime = withF({ poolsReadAt: null });
+    check("FR a price with no read time is unknown", unknownTime.gate.status === "unknown", unknownTime.gate.status);
+    const near = withF({ poolsReadAt: 1_000_000, binsReadAt: 1_030_000 });
+    check("FR prices read 30s apart are measured", near.gate.status !== "unknown", `${near.gate.status} ${near.gate.source}`);
+    // Stage 3, paused pools: a row not marked active is unknown before anything is measured.
+    const paused = withF({ targetPool: pool({ poolStatus: false }) });
+    check("FR a pool not marked active is unknown", paused.gate.status === "unknown" && (paused.refusal ?? "").includes("not marked active"), String(paused.refusal));
+  }
 
   // Each route carries the reason it must give. Asserting only "it refused" is not
   // enough and this suite proved it: two mutations deleting a guard SURVIVED,
@@ -729,9 +743,9 @@ const guardianScout = (over: Record<string, unknown> = {}) => ({
   status: "ok",
   available: { balances: true, prices: true, price_stx: true },
   balances: {
-    sbtc: { amount: 1, usd: 78000 }, stx: { amount: 100, usd: 50 },
-    usdcx: { amount: 100, usd: 100 }, usdh: { amount: 0, usd: 0 },
-    susdh: { amount: 0, usd: 0 }, aeusdc: { amount: 0, usd: 0 },
+    sbtc: { amount: 1, usd: 78000, atomic: "100000000" }, stx: { amount: 100, usd: 50, atomic: "100000000" },
+    usdcx: { amount: 100, usd: 100, atomic: "100000000" }, usdh: { amount: 0, usd: 0, atomic: "0" },
+    susdh: { amount: 0, usd: 0, atomic: "0" }, aeusdc: { amount: 0, usd: 0, atomic: "0" },
   },
   prices: { sbtc: 78000, stx: 0.5, usdcx: 1, usdh: 1, aeusdc: 1 },
   positions: { zest: {}, hermetica: {}, granite: {}, hodlmm: { has_position: false, pools: [] } },
@@ -741,6 +755,7 @@ const guardianScout = (over: Record<string, unknown> = {}) => ({
 
 const deadReads = {
   fetchPools: async () => null,
+  poolsReadAt: () => Date.now(),
   readActiveBin: async () => ({ okay: false }),
   fetchBins: async () => ({}),
   fetchFeeRate: async () => { throw new Error("HTTP 429"); },
@@ -762,8 +777,9 @@ const deadReads = {
 // hardcoded to "always unknown", which is its own kind of lie.
 {
   const liveReads = {
+    poolsReadAt: () => Date.now(),
     fetchPools: async () => ([{
-      poolId: "dlmm_1", tvlUsd: 1, volumeUsd1d: 500000, apr24h: 1,
+      poolId: "dlmm_1", poolStatus: true, tvlUsd: 1, volumeUsd1d: 500000, apr24h: 1,
       tokens: { tokenX: { priceUsd: 78000, decimals: 8, symbol: "sBTC" }, tokenY: { priceUsd: 1, decimals: 6 } },
     }]),
     readActiveBin: async () => ({ okay: true, result: "0x07" }),
@@ -827,8 +843,8 @@ console.log("\n== Unstaking leaves nothing behind ==");
   const hermScout = (susdhSats: number) => ({
     wallet: "SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF",
     balances: {
-      sbtc: { amount: 0, usd: 0 }, stx: { amount: 0, usd: 0 }, usdcx: { amount: 0, usd: 0 },
-      usdh: { amount: 0, usd: 0 }, susdh: { amount: susdhSats / 1e8, usd: 0 }, aeusdc: { amount: 0, usd: 0 },
+      sbtc: { amount: 0, usd: 0, atomic: "0" }, stx: { amount: 0, usd: 0, atomic: "0" }, usdcx: { amount: 0, usd: 0, atomic: "0" },
+      usdh: { amount: 0, usd: 0, atomic: "0" }, susdh: { amount: susdhSats / 1e8, usd: 0, atomic: String(susdhSats) }, aeusdc: { amount: 0, usd: 0, atomic: "0" },
     },
     positions: { zest: {}, hermetica: {}, granite: {}, hodlmm: { has_position: false, pools: [] } },
     prices: { sbtc: 78000, stx: 0.5, usdcx: 1, usdh: 1, aeusdc: 1 },
@@ -868,12 +884,12 @@ console.log("\n== The slippage gate compares two prices in the SAME units ==");
 // real divergence is 0.71%.
 {
   const slip = (over: Record<string, unknown>) => {
-    const tp = { poolId: "p", tvlUsd: 1, volumeUsd1d: 1, apr24h: 1, ...over } as never;
+    const tp = { poolId: "p", poolStatus: true, tvlUsd: 1, volumeUsd1d: 1, apr24h: 1, ...over } as never;
     return classifySlippage({
       targetPoolId: "p", knownPool: true, poolName: "p",
       pools: [tp], targetPool: tp, activeBinOkay: true,
       bins: { active_bin_id: 7, bins: [{ bin_id: 7, price: String((over as never as { _bin: number })._bin) }] },
-      readError: null, notApplicableText: "n/a",
+      readError: null, notApplicableText: "n/a", poolsReadAt: 1_000_000, binsReadAt: 1_005_000,
     } as never);
   };
 
@@ -954,12 +970,13 @@ console.log("\n== The seam itself, not just the function behind it ==");
 // from where it was closed.
 {
   const okPool = {
-    poolId: "dlmm_1", tvlUsd: 1, volumeUsd1d: 500000, apr24h: 1,
+    poolId: "dlmm_1", poolStatus: true, tvlUsd: 1, volumeUsd1d: 500000, apr24h: 1,
     tokens: { tokenX: { priceUsd: 79416, decimals: 8, symbol: "sBTC" },
               tokenY: { priceUsd: 1, decimals: 6, symbol: "USDCx" } },
   };
   const reads = (over: Record<string, unknown>) => ({
     fetchPools: async () => [okPool],
+    poolsReadAt: () => Date.now(),
     readActiveBin: async () => ({ okay: true, result: "0x07" }),
     fetchBins: async () => ({ active_bin_id: 7, bins: [{ bin_id: 7, price: "7948001654800" }] }),
     fetchFeeRate: async () => 200,

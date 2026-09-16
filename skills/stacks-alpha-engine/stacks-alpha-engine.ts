@@ -240,7 +240,15 @@ const TOKENS_BY_CONTRACT: Record<string, TokenMeta> = Object.fromEntries(
 
 // == Types ====================================================================
 interface PoolDef { id: number; contract: string; name: string; tokenX: string; tokenY: string }
-interface TokenBalance { amount: number; usd: number }
+interface TokenBalance {
+  amount: number; usd: number;
+  /**
+   * The balance in the token's smallest unit, exactly as Hiro returned it. Every balance
+   * check reads this, never `amount`, which is a float for display (KB: amounts are
+   * integers end to end, never a float round trip).
+   */
+  atomic: string;
+}
 interface WalletBalances {
   sbtc: TokenBalance; stx: TokenBalance; usdcx: TokenBalance;
   usdh: TokenBalance; susdh: TokenBalance; aeusdc: TokenBalance;
@@ -539,13 +547,22 @@ export function poolIsLive(row: { poolStatus?: unknown } | null | undefined): bo
 // == Bitflow pools cache (fetched once per run, reused across scout/yield/guardian) ==
 let _poolsCache: BitflowPoolData[] | null = null;
 let _poolsCacheTs = 0;
+/**
+ * When each pools answer was fetched, keyed by the answer itself. Gates run concurrently
+ * and can refresh the cache, so the module timestamp may belong to a newer answer than the
+ * one a gate is holding; this cannot.
+ */
+const _poolsReadAt = new WeakMap<BitflowPoolData[], number>();
 const POOLS_CACHE_TTL_MS = 60_000; // 1 minute
+/** The most two compared prices may be apart in time (KB matched freshness). */
+export const MATCHED_FRESHNESS_MS = 30_000;
 
-async function fetchBitflowPools(): Promise<BitflowPoolData[]> {
-  if (_poolsCache && (Date.now() - _poolsCacheTs) < POOLS_CACHE_TTL_MS) return _poolsCache;
+async function fetchBitflowPools(maxAgeMs: number = POOLS_CACHE_TTL_MS): Promise<BitflowPoolData[]> {
+  if (_poolsCache && (Date.now() - _poolsCacheTs) < maxAgeMs) return _poolsCache;
   const pd = await fetchJson<{ data?: BitflowPoolData[] }>(`${BITFLOW_API}/api/app/v1/pools`);
   _poolsCache = pd.data ?? [];
   _poolsCacheTs = Date.now();
+  _poolsReadAt.set(_poolsCache, _poolsCacheTs);
   return _poolsCache;
 }
 
@@ -1138,12 +1155,12 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   const aeUsdcAmt  = Number(aeUsdcMicro) / 1e6;
 
   const balances: WalletBalances = {
-    sbtc:   { amount: round(sbtcAmt, 8),   usd: round(sbtcAmt * sbtcPrice, 2) },
-    stx:    { amount: round(stxAmt, 6),     usd: round(stxAmt * stxPrice, 2) },
-    usdcx:  { amount: round(usdcxAmt, 6),   usd: round(usdcxAmt * usdcxPrice, 2) },
-    usdh:   { amount: round(usdhAmt, 8),    usd: round(usdhAmt * usdhPrice, 2) },
-    susdh:  { amount: round(susdhAmt, 8),   usd: round(susdhAmt * usdhPrice, 2) },
-    aeusdc: { amount: round(aeUsdcAmt, 6),  usd: round(aeUsdcAmt * aeUsdcPrice, 2) },
+    sbtc:   { amount: round(sbtcAmt, 8),   usd: round(sbtcAmt * sbtcPrice, 2),   atomic: sbtcSats.toString() },
+    stx:    { amount: round(stxAmt, 6),     usd: round(stxAmt * stxPrice, 2),     atomic: stxMicro.toString() },
+    usdcx:  { amount: round(usdcxAmt, 6),   usd: round(usdcxAmt * usdcxPrice, 2), atomic: usdcxMicro.toString() },
+    usdh:   { amount: round(usdhAmt, 8),    usd: round(usdhAmt * usdhPrice, 2),   atomic: usdhSats.toString() },
+    susdh:  { amount: round(susdhAmt, 8),   usd: round(susdhAmt * usdhPrice, 2),  atomic: susdhSats.toString() },
+    aeusdc: { amount: round(aeUsdcAmt, 6),  usd: round(aeUsdcAmt * aeUsdcPrice, 2), atomic: aeUsdcMicro.toString() },
   };
   const prices = { sbtc: round(sbtcPrice, 2), stx: round(stxPrice, 4), usdcx: 1.0, usdh: 1.0, aeusdc: 1.0 };
 
@@ -1941,7 +1958,51 @@ async function getBreakPrices(hodlmm: HodlmmPositions, sbtcPrice: number): Promi
 // ==  RESERVE (PoR) MODULE
 // =============================================================================
 
+/** The P2TR vector both the reserve check's self-test and `doctor` use: G, tweaked, as a mainnet address. */
+const P2TR_SELF_TEST = {
+  xOnlyHex: "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+  expected: "bc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5sspknck9",
+} as const;
+
+/**
+ * The address derivation's own test vectors, run before any address is derived.
+ *
+ * The reserve check derives the sBTC signer's Bitcoin address and reads its balance.
+ * A broken encoder would derive a wrong address, read some other balance, and could
+ * report the reserve backed. These checks used to run only in `doctor`, whose message
+ * says the engine "will not operate" when they fail, while `scan` and `deploy` never
+ * ran them. They are pure and cheap, so every reserve check now runs them first.
+ */
+export function cryptoSelfTest(
+  vectors: () => { pass: boolean; detail: string } = verifyBech32mTestVectors,
+  derive: (xHex: string) => string = xOnlyPubkeyToP2TR,
+): { ok: boolean; detail: string } {
+  const tv = vectors();
+  if (!tv.pass) return { ok: false, detail: `BIP-350 Bech32m test vectors failed: ${tv.detail}` };
+  const { xOnlyHex, expected } = P2TR_SELF_TEST;
+  try {
+    const addr = derive(xOnlyHex);
+    return addr === expected
+      ? { ok: true, detail: "Bech32m vectors and G point -> tweaked P2TR pass" }
+      : { ok: false, detail: `P2TR derivation self-test expected ${expected}, got ${addr}` };
+  } catch (e: unknown) {
+    return { ok: false, detail: `P2TR derivation self-test threw: ${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/** A reserve answer for a run whose address derivation failed its own tests: never a reading. */
+export function selfTestFailedReserve(detail: string): ReserveResult {
+  return {
+    signal: "DATA_UNAVAILABLE", reserve_ratio: null, score: 0,
+    sbtc_circulating: 0, btc_reserve: 0, signer_address: "",
+    recommendation: "The engine's address self-tests failed, so the reserve cannot be checked. Treat as RED: do not proceed.",
+    error: detail,
+  };
+}
+
 async function checkReserve(): Promise<ReserveResult> {
+  const selfTest = cryptoSelfTest();
+  if (!selfTest.ok) return selfTestFailedReserve(selfTest.detail);
   try {
     const pubkeyRes = await callReadOnly(
       `${SBTC_REGISTRY}.${SBTC_REGISTRY_NAME}`, "get-current-aggregate-pubkey", [], SBTC_REGISTRY
@@ -2036,6 +2097,8 @@ function writeState(state: EngineState): void {
  */
 export type GuardianReads = {
   fetchPools: () => Promise<BitflowPoolData[] | null>;
+  /** When this pools answer from `fetchPools` was fetched (ms since epoch), or null if unknown. */
+  poolsReadAt: (pools: BitflowPoolData[]) => number | null;
   readActiveBin: (contract: string) => Promise<{ okay: boolean; result?: string }>;
   fetchBins: (poolId: string) => Promise<BinsResponse>;
   fetchFeeRate: () => Promise<number | { transfer_fee_estimate?: number }>;
@@ -2043,7 +2106,10 @@ export type GuardianReads = {
 
 /** What the engine actually does. Overridden only by tests. */
 export const liveGuardianReads: GuardianReads = {
-  fetchPools: () => fetchBitflowPools().catch(() => null),
+  // The market price in this answer is compared with a bin price read seconds later, so a
+  // cached answer older than 20s is fetched again rather than carried toward the 30s limit.
+  fetchPools: () => fetchBitflowPools(20_000).catch(() => null),
+  poolsReadAt: (pools) => _poolsReadAt.get(pools) ?? null,
   readActiveBin: (contract) => callReadOnly(contract, "get-active-bin-id", []),
   fetchBins: (poolId) => fetchJson<BinsResponse>(`${BITFLOW_API}/api/quotes/v1/bins/${poolId}`),
   fetchFeeRate: () => fetchJson<number | { transfer_fee_estimate?: number }>(`${HIRO_API}/v2/fees/transfer`),
@@ -2122,6 +2188,7 @@ export async function checkGuardian(
   const guardianPools = targetPoolId
     ? await reads.fetchPools()
     : [];
+  const poolsReadAt = guardianPools && targetPoolId ? reads.poolsReadAt(guardianPools) : null;
 
   // 2. Slippage: the HODLMM active bin price against the market price.
   //
@@ -2136,6 +2203,7 @@ export async function checkGuardian(
     let activeBinOkay = false;
     let bins: BinsResponse | null = null;
     let readError: string | null = null;
+    let binsReadAt: number | null = null;
 
     // The reads run only when the cheap checks would not already decide, which is
     // the same order as before: no pool, unknown pool, dead endpoint, pool absent
@@ -2146,6 +2214,7 @@ export async function checkGuardian(
         activeBinOkay = Boolean(abr.okay && abr.result);
         if (activeBinOkay) {
           bins = await reads.fetchBins(targetPoolId);
+          binsReadAt = Date.now();
         }
       } catch (e) {
         readError = (e as Error).message;
@@ -2155,6 +2224,7 @@ export async function checkGuardian(
     const { gate, refusal } = classifySlippage({
       targetPoolId, knownPool: targetPoolDef !== null, poolName,
       pools: guardianPools, targetPool, activeBinOkay, bins, readError,
+      poolsReadAt, binsReadAt,
       notApplicableText: naSlippage,
     });
     if (refusal) refusals.push(refusal);
@@ -2315,19 +2385,25 @@ function defaultSlippagePct(route: DlmmSwapRoute): number {
  * balance and you are told "you hold 123456788 and named 123456789", where the
  * number the engine quotes as yours is wrong and typing it would still fail.
  *
- * `Math.round` recovers the integer, because the float is always within half a
- * unit of it. The real fix is to carry the atomic integer beside the float and
- * never round trip at all, which is the KB's "all amounts BigInt, never float"
- * requirement and a Phase 8 item.
+ * `Math.round` recovered the integer, because the float is always within half a
+ * unit of it. That was a patch on a float; since 16 September the exact figure Hiro
+ * returned is carried beside the float (`TokenBalance.atomic`) and read here, so there
+ * is no round trip at all (KB: amounts are integers end to end).
  */
-function atomicFromBalance(amount: number | undefined, decimals: number): number {
-  return Math.round((amount ?? 0) * Math.pow(10, decimals));
+export function atomicOf(balance: { atomic?: unknown } | undefined): bigint {
+  // A balance without its exact figure is not read as a zero that could pass a guard
+  // silently in either direction: it is a programming error, and it says so.
+  if (balance === undefined) return 0n;
+  if (typeof balance.atomic !== "string" || !/^[0-9]+$/.test(balance.atomic)) {
+    throw new Error("a wallet balance arrived without its exact smallest unit figure");
+  }
+  return BigInt(balance.atomic);
 }
 
 /**
  * An atomic integer as the token amount a person recognises.
  *
- * The other direction from `atomicFromBalance`, and done in BigInt rather than
+ * The other direction from `atomicOf`, and done in BigInt rather than
  * by dividing a float, because this one is read by somebody deciding whether to
  * sign. A deposit line printed "at most 100000000 USDh" for one USDh, which is
  * a false statement about their money by a factor of a hundred million, and
@@ -2365,6 +2441,10 @@ export type SlippageReads = {
   bins: BinsResponse | null;
   /** The message from a throw during the reads, or null. */
   readError: string | null;
+  /** When the pools answer (the market price) was fetched, ms since epoch, or null. */
+  poolsReadAt: number | null;
+  /** When the bins answer (the bin price) arrived, ms since epoch, or null. */
+  binsReadAt: number | null;
   /** The whole sentence to use when no pool is involved. */
   notApplicableText: string;
 };
@@ -2401,6 +2481,13 @@ export function classifySlippage(r: SlippageReads): { gate: PoolGate; refusal: s
   if (r.readError !== null) return unknown(`the slippage read failed: ${r.readError}`);
   if (!r.activeBinOkay) return unknown("the pool contract did not return its active bin");
   if (r.bins === null) return unknown("the bins endpoint returned nothing");
+  // Matched freshness (KB, and the upstream recipe): the two prices compared must be read
+  // within 30 seconds of each other, not merely each be recent. The market price came from a
+  // one minute cache while the bin price was fresh, so a fast move could read a real 0.9%
+  // divergence as 0.3% and pass.
+  if (r.poolsReadAt === null || r.binsReadAt === null) return unknown("the time either price was read is not known, so they cannot be compared");
+  const apartMs = Math.abs(r.binsReadAt - r.poolsReadAt);
+  if (apartMs > MATCHED_FRESHNESS_MS) return unknown(`the market price and the bin price were read ${Math.round(apartMs / 1000)} seconds apart, more than ${MATCHED_FRESHNESS_MS / 1000}`);
 
   const activeBinId = r.bins.active_bin_id ?? 0;
   const activeBinData = r.bins.bins?.find(b => b.bin_id === activeBinId);
@@ -2876,12 +2963,11 @@ function parseCounterAmount(opts: Record<string, string>): number | null {
  * path where the pipeline check is absent, and it is exercised directly by
  * `tests/deploy-guards.test.ts`.
  *
- * Only the two balance guards below use this channel today. Eight older `info`
- * paths in the same builder still render as `ok`. They are the same defect, they
- * are recorded in BUILD-ORDER Phase 8, and they are NOT converted here: each one
- * changes the outcome of a write path this phase has not reviewed, and widening
- * one side of a rule while leaving the other behind is how Phase 0 lost three
- * rounds.
+ * Only the two balance guards below use this channel. The five older paths that
+ * push only `info` notes (no swap route or no price to Hermetica or Granite, an
+ * unknown pool) are not converted to it; instead `nothingToDeposit` refuses any
+ * build whose steps are all notes, in `deploy` and `migrate` alike (16 September,
+ * counted as five, not the eight this comment used to say).
  */
 export type DeployBuild = { instructions: ExecuteInstruction[]; refusal: string | null };
 
@@ -3107,13 +3193,13 @@ export function buildDeployInstructions(
       // Read atomic balances of the pool's two tokens from scout. `scout.balances`
       // is typed with fixed keys, so we cast through Record<string, …> to index by
       // the pool's token-symbol strings.
-      const balances = scout.balances as unknown as Record<string, { amount: number; usd: number }>;
+      const balances = scout.balances as unknown as Record<string, TokenBalance>;
       const xMeta = TOKENS[pool.tokenX];
       const yMeta = TOKENS[pool.tokenY];
-      const xBalAtomic = atomicFromBalance(balances[pool.tokenX]?.amount, xMeta?.decimals ?? 6);
-      const yBalAtomic = atomicFromBalance(balances[pool.tokenY]?.amount, yMeta?.decimals ?? 6);
-      const hasX = xBalAtomic > 0;
-      const hasY = yBalAtomic > 0;
+      const xBalAtomic = atomicOf(balances[pool.tokenX]);
+      const yBalAtomic = atomicOf(balances[pool.tokenY]);
+      const hasX = xBalAtomic > 0n;
+      const hasY = yBalAtomic > 0n;
 
       // Same limit as the named-amount guard below: this reads what is in the
       // wallet NOW. On a migrate both balances are legitimately zero until the
@@ -3175,7 +3261,7 @@ export function buildDeployInstructions(
       // protocol position shapes reconciled and is recorded as a Phase 8 item, not
       // improvised in this phase.
       const namedHeld = namedIsX ? xBalAtomic : yBalAtomic;
-      if (fundsInWalletNow && amount > namedHeld) {
+      if (fundsInWalletNow && BigInt(amount) > namedHeld) {
         refusal = `Insufficient ${token.toUpperCase()} for ${pool.name}: you hold ${namedHeld} and named ${amount}.`;
         break;
       }
@@ -3189,7 +3275,7 @@ export function buildDeployInstructions(
         // caller that passes false and it always passes `counterAmount: null`, so
         // this branch is unreachable with the flag off. Kept for when a two sided
         // migrate lands (Phase 8), and flagged so nobody reads it as live.
-        if (fundsInWalletNow && counterAtomic > counterHeld) {
+        if (fundsInWalletNow && BigInt(counterAtomic) > counterHeld) {
           refusal = `--counter-amount ${counterAtomic} exceeds your ${(namedIsX ? pool.tokenY : pool.tokenX).toUpperCase()} balance of ${counterHeld}.`;
           break;
         }
@@ -3365,6 +3451,19 @@ export function buildDeployInstructions(
 }
 
 /**
+ * The refusal for a deposit leg that built nothing a wallet can execute, or null.
+ *
+ * Five deploy paths (no swap route or no price to Hermetica or Granite, an unknown pool)
+ * push only `info` notes, and `deploy` returned `ok` around them: a run that reads as a
+ * deposit ready to sign when there is nothing to sign. The notes become the reasons.
+ */
+export function nothingToDeposit(protocol: string, build: DeployBuild): string[] | null {
+  if (build.refusal) return [build.refusal];
+  if (build.instructions.length === 0) return [`Nothing to deposit into ${protocol} was built.`];
+  return build.instructions.every(s => s.tool === "info") ? build.instructions.map(s => s.description) : null;
+}
+
+/**
  * Why a withdraw leg built nothing a wallet can execute, or null when it built
  * something. A leg of only `info` steps, or no steps, moves no money.
  */
@@ -3418,8 +3517,8 @@ export function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult
       // Unstake burns sUSDh and creates a claim: postConditionMode must be "allow"
       // SUPERSEDED, see the note twelve lines below: a burn IS attributed to a sender,
       // so deny is achievable here and allow is a defect rather than a requirement.
-      const susdhSats = atomicFromBalance(scout.balances.susdh.amount, 8);
-      if (susdhSats <= 0) return [{ tool: "info", params: {}, description: "No sUSDh position to withdraw" }];
+      const susdhSats = atomicOf(scout.balances.susdh);
+      if (susdhSats <= 0n) return [{ tool: "info", params: {}, description: "No sUSDh position to withdraw" }];
       return [
         {
           tool: "call_contract",
@@ -3427,7 +3526,7 @@ export function buildWithdrawInstructions(protocol: Protocol, scout: ScoutResult
             contractAddress: HERMETICA,
             contractName: "staking-v1-1",
             functionName: "unstake",
-            functionArgs: [{ type: "uint", value: susdhSats }],
+            functionArgs: [{ type: "uint", value: susdhSats.toString() }],
             // STILL ALLOW, AND STILL WRONG, but wrong in a way that refuses rather than
             // misfires. Unlike the mint on `stake`, a burn IS attributed to a sender, so the
             // sUSDh burn is expressible as a sender-side post-condition and Deny is
@@ -4004,8 +4103,8 @@ let economics: {
       // Balance check: refuse if requested amount exceeds wallet balance
       const tokenKey = token as keyof WalletBalances;
       if (scout.balances[tokenKey]) {
-        const walletUnits = atomicFromBalance(scout.balances[tokenKey].amount, TOKENS[tokenKey]?.decimals ?? 6);
-        if (amount > walletUnits) {
+        const walletUnits = atomicOf(scout.balances[tokenKey]);
+        if (BigInt(amount) > walletUnits) {
           // `refused`, not `error`. This is the SAME FACT the builder refuses on
           // for a HODLMM deposit, and the two used to report it as two different
           // statuses: `error` here, `refused` there. A caller reading the status
@@ -4033,8 +4132,9 @@ let economics: {
         parseCounterAmount(opts),
         true,
       );
-      if (built.refusal) {
-        return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [built.refusal] };
+      const notBuilt = nothingToDeposit(protocol, built);
+      if (notBuilt) {
+        return { status: "refused", command, scout, reserve, guardian, refusal_reasons: notBuilt };
       }
       instructions = built.instructions;
       description = `Deploy ${amount} ${token} to ${protocol}${protocol === "hodlmm" ? ` (${((opts as Record<string, string>).poolId ?? "dlmm_1")})` : ""}`;
@@ -4108,8 +4208,11 @@ let economics: {
         null,
         false,
       );
-      if (migrateBuild.refusal) {
-        return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [migrateBuild.refusal] };
+      // The same rule as `deploy`: a deposit leg of only notes is refused, never a
+      // withdraw with nothing to put the money into.
+      const migrateNotBuilt = nothingToDeposit(to, migrateBuild);
+      if (migrateNotBuilt) {
+        return { status: "refused", command, scout, reserve, guardian, refusal_reasons: migrateNotBuilt };
       }
       instructions.push(...migrateBuild.instructions);
       description = `Migrate from ${from} to ${to}`;
@@ -4191,8 +4294,8 @@ async function runDoctor(): Promise<void> {
 
   // 2. P2TR derivation self-test
   try {
-    const addr = xOnlyPubkeyToP2TR("79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798");
-    const expected = "bc1pmfr3p9j00pfxjh0zmgp99y8zftmd3s5pmedqhyptwy6lm87hf5sspknck9";
+    const addr = xOnlyPubkeyToP2TR(P2TR_SELF_TEST.xOnlyHex);
+    const expected = P2TR_SELF_TEST.expected;
     checks.push({ name: "P2TR Derivation Self-Test", ok: addr === expected, detail: addr === expected ? "G point -> tweaked P2TR pass" : `Expected ${expected}, got ${addr}` });
   } catch (e: unknown) {
     checks.push({ name: "P2TR Derivation Self-Test", ok: false, detail: e instanceof Error ? e.message : String(e) });
