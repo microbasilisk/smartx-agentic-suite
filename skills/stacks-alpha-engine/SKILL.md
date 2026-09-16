@@ -31,7 +31,7 @@ Cross-protocol yield executor covering **all 4 major Stacks DeFi protocols**: Ze
 | Tier | Description | Example |
 |------|-------------|---------|
 | Deploy Now | You hold the token, one tx | sBTC -> Zest supply |
-| Swap First | Need a Bitflow swap, then deploy | sBTC -> swap -> USDh -> Hermetica stake |
+| Swap First | Need a Bitflow swap, then deploy | USDCx -> swap -> USDh -> Hermetica stake |
 | Acquire to Unlock | Don't have the token yet | Need aeUSDC for Granite LP |
 
 ## Why agents need it

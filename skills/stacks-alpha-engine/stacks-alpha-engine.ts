@@ -1830,14 +1830,16 @@ async function getYieldOptions(
       const d = dailyUsd(balances.usdh.usd, apy);
       const apyNote = apyRaw > 0 ? "" : " (estimated, no live rate data)";
       options.push({ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.02, swap_cost_note: null, note: `Stake USDh -> sUSDh. Rate: ${hermetica.exchange_rate} USDh/sUSDh. 7-day unstake cooldown.${apyNote}`, ytg_ratio: 0, ytg_profitable: false });
-    } else if (balances.sbtc.amount > 0 || balances.usdcx.amount > 0) {
-      // Swap path available
-      const swapFrom = balances.sbtc.amount > 0 ? "sBTC" : "USDCx";
-      const cap = balances.sbtc.amount > 0 ? balances.sbtc.usd : balances.usdcx.usd;
+    } else if (balances.usdcx.amount > 0) {
+      // Swap path available: USDCx is the only coin with a single pool route to USDh
+      // (the USDh/USDCx pool). An sBTC holder used to be told to swap sBTC to USDh, a
+      // route the builder does not have.
+      const swapFrom = "USDCx";
+      const cap = balances.usdcx.usd;
       const d = dailyUsd(cap, apy);
       options.push({ sides: "single" as OptionSides, tier: "swap_first", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.1, swap_cost_note: `Swap ${swapFrom} -> USDh on Bitflow (~0.1-0.3% fee + gas)`, note: `Then stake USDh -> sUSDh. 7-day unstake cooldown.`, ytg_ratio: 0, ytg_profitable: false });
     } else {
-      options.push({ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.02, swap_cost_note: null, note: `Need USDh. Get via: Bitflow swap (sBTC/STX/USDCx -> USDh).`, ytg_ratio: 0, ytg_profitable: false });
+      options.push({ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Hermetica", pool: "USDh Staking (sUSDh)", token_needed: "USDh", apy_pct: apy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.02, swap_cost_note: null, note: `Need USDh. Get via: a Bitflow swap from USDCx (the one pool that holds USDh), or acquire USDh directly.`, ytg_ratio: 0, ytg_profitable: false });
     }
   }
 
@@ -2335,8 +2337,12 @@ interface DlmmSwapRoute {
 }
 
 function getDlmmSwapRoute(tokenIn: string, tokenOut: string): DlmmSwapRoute | null {
+  // A route is ONE pool that holds both coins (the owner's single path rule). These two
+  // pools hold USDCx, not STX: accepting "stx" here built a swap whose condition spends
+  // USDCx while the person named STX and the balance check read STX (BUILD-ORDER stage 5,
+  // item 21). With no route, the deposit is refused as a build of only notes.
   // USDCx → aeUSDC (pool: aeUSDC/USDCx, selling Y for X)
-  if ((tokenIn === "usdcx" || tokenIn === "stx") && tokenOut === "aeusdc") {
+  if (tokenIn === "usdcx" && tokenOut === "aeusdc") {
     return {
       pool: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-aeusdc-usdcx-v-1-bps-1",
       xToken: AEUSDC_TOKEN, yToken: USDCX_TOKEN, xForY: false,
@@ -2344,7 +2350,7 @@ function getDlmmSwapRoute(tokenIn: string, tokenOut: string): DlmmSwapRoute | nu
     };
   }
   // USDCx → USDh (pool: USDh/USDCx, selling Y for X)
-  if ((tokenIn === "usdcx" || tokenIn === "stx") && tokenOut === "usdh") {
+  if (tokenIn === "usdcx" && tokenOut === "usdh") {
     return {
       pool: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-usdh-usdcx-v-1-bps-1",
       xToken: USDH_TOKEN, yToken: USDCX_TOKEN, xForY: false,
@@ -2701,8 +2707,11 @@ export function inferTargetPoolId(command: string, opts: Record<string, string>)
   const protocol = opts.protocol;
   const token = opts.token;
   if (command === "deploy") {
-    if (protocol === "hermetica" && token && token !== "usdh") return "dlmm_8";  // USDh/USDCx swap pool
-    if (protocol === "granite" && token && token !== "aeusdc") return "dlmm_7";  // aeUSDC/USDCx swap pool
+    // The pool follows the ROUTE, not merely "a token that is not the deposit token": only USDCx
+    // has a route (16 September, item 21), so any other token builds no swap and is refused for
+    // that reason, never for the volume of a pool it would not touch.
+    if (protocol === "hermetica" && token === "usdcx") return "dlmm_8";  // USDh/USDCx swap pool
+    if (protocol === "granite" && token === "usdcx") return "dlmm_7";  // aeUSDC/USDCx swap pool
     if (protocol === "hodlmm") return ((opts as Record<string, string>).poolId ?? "dlmm_1");  // honor --pool-id for HODLMM direct deploy
     return null;  // hermetica or granite already holding the right token, or zest: no pool leg
   }
@@ -2729,8 +2738,8 @@ export function inferTargetPoolId(command: string, opts: Record<string, string>)
     // not be read as a guard that is.
     const to = opts.to;
     const toToken = opts.token ?? (["zest", "hermetica", "granite", "hodlmm"].includes(to) ? inferToken(to as Protocol) : undefined);
-    if (to === "hermetica" && toToken && toToken !== "usdh") return "dlmm_8";
-    if (to === "granite" && toToken && toToken !== "aeusdc") return "dlmm_7";
+    if (to === "hermetica" && toToken === "usdcx") return "dlmm_8";
+    if (to === "granite" && toToken === "usdcx") return "dlmm_7";
     if (to === "hodlmm") return ((opts as Record<string, string>).poolId ?? "dlmm_1");
     return null;  // a direct deposit with no swap leg, or zest: no pool is touched
   }

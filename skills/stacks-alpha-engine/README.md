@@ -185,7 +185,7 @@ Every yield option gets a YTG ratio: `7-day projected yield / gas cost in USD`. 
 | Tier | Description | Example |
 |------|-------------|---------|
 | Deploy Now | You hold the token, one tx | sBTC -> HODLMM 10bps (YTG: 42x) |
-| Swap First | Need a Bitflow swap, then deploy | sBTC -> swap -> USDh -> Hermetica (YTG: 6.3x) |
+| Swap First | Need a Bitflow swap, then deploy | USDCx -> swap -> USDh -> Hermetica |
 | Acquire to Unlock | Don't have the token yet | Need aeUSDC for Granite LP |
 
 ## Why agents need it

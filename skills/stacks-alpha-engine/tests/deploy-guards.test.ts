@@ -288,8 +288,8 @@ console.log("\n== Which pool the two safety gates measure ==");
     inferTargetPoolId("migrate", { to: "hodlmm", poolId: "dlmm_3" }) === "dlmm_3",
     String(inferTargetPoolId("migrate", { to: "hodlmm", poolId: "dlmm_3" })));
   check("P a deploy that swaps into hermetica gates on the swap pool",
-    inferTargetPoolId("deploy", { protocol: "hermetica", token: "sbtc" }) === "dlmm_8",
-    String(inferTargetPoolId("deploy", { protocol: "hermetica", token: "sbtc" })));
+    inferTargetPoolId("deploy", { protocol: "hermetica", token: "usdcx" }) === "dlmm_8",
+    String(inferTargetPoolId("deploy", { protocol: "hermetica", token: "usdcx" })));
   check("P a zest deploy has no pool leg",
     inferTargetPoolId("deploy", { protocol: "zest", token: "sbtc" }) === null,
     String(inferTargetPoolId("deploy", { protocol: "zest", token: "sbtc" })));
@@ -361,9 +361,16 @@ console.log("\n== One spelling of a token, decided once ==");
   check("T a hermetica deploy already holding usdh has no swap pool leg",
     inferTargetPoolId("deploy", { protocol: "hermetica", token: "usdh" }) === null,
     String(inferTargetPoolId("deploy", { protocol: "hermetica", token: "usdh" })));
-  check("T a hermetica deploy holding another token gates on the swap pool",
-    inferTargetPoolId("deploy", { protocol: "hermetica", token: "sbtc" }) === "dlmm_8",
-    String(inferTargetPoolId("deploy", { protocol: "hermetica", token: "sbtc" })));
+  check("T a hermetica deploy holding usdcx gates on the swap pool",
+    inferTargetPoolId("deploy", { protocol: "hermetica", token: "usdcx" }) === "dlmm_8",
+    String(inferTargetPoolId("deploy", { protocol: "hermetica", token: "usdcx" })));
+  // 16 September (item 21): only USDCx has a route to USDh. sBTC and STX build no swap, so no
+  // pool is measured and the deposit is refused for having no route, not for a pool's volume.
+  for (const t of ["sbtc", "stx"]) {
+    check(`T a hermetica deploy holding ${t} has no route, so no pool is measured`,
+      inferTargetPoolId("deploy", { protocol: "hermetica", token: t }) === null,
+      String(inferTargetPoolId("deploy", { protocol: "hermetica", token: t })));
+  }
 }
 
 console.log("\n== The parser at its edges ==");
@@ -492,8 +499,11 @@ console.log("\n== A gate must measure a pool the transaction actually touches ==
   check("Z1 migrate to hermetica with the default token: no pool",
     inferTargetPoolId("migrate", { to: "hermetica" }) === null,
     String(inferTargetPoolId("migrate", { to: "hermetica" })));
-  check("Z1 migrate to hermetica holding sbtc: gated on the swap pool",
-    inferTargetPoolId("migrate", { to: "hermetica", token: "sbtc" }) === "dlmm_8",
+  check("Z1 migrate to hermetica holding usdcx: gated on the swap pool",
+    inferTargetPoolId("migrate", { to: "hermetica", token: "usdcx" }) === "dlmm_8",
+    String(inferTargetPoolId("migrate", { to: "hermetica", token: "usdcx" })));
+  check("Z1 migrate to hermetica holding sbtc: no route, no pool measured",
+    inferTargetPoolId("migrate", { to: "hermetica", token: "sbtc" }) === null,
     String(inferTargetPoolId("migrate", { to: "hermetica", token: "sbtc" })));
   // The same question, asked of deploy, must get the same answer.
   check("Z1 deploy and migrate agree for the same destination and token",
