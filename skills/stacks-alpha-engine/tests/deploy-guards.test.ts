@@ -1420,11 +1420,14 @@ console.log("\n== M: STX is a wrapper contract, not the word stx ==");
   check("ZD any loan is refused", zestDepositCase({ mask: (1n << 7n) | (1n << 70n) } as never, 7).ok === false, "");
   const usdcx = ZEST_DEPOSIT_ASSETS.find((a) => a.token === "usdcx")!;
   check("ZD USDCx spells its asset name as the contract defines it", usdcx.assetName === "usdcx-token" && usdcx.underlying.endsWith(".usdcx"), JSON.stringify(usdcx));
-  const step = buildZestDeposit("SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF", 1_000_000, { asset: usdcx, previewShares: 1_000_000n });
+  const step = buildZestDeposit("SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF", 1_000_000, { asset: usdcx, previewShares: 1_000_000n, market: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-8-market" });
   const pcs = step.params.postConditions as Array<{ principal: string; conditionCode: string; assetName?: string }>;
   check("ZD deny mode, no price proof", step.params.postConditionMode === "deny" && JSON.stringify((step.params.functionArgs as unknown[])[3]) === '{"type":"none"}', JSON.stringify(step.params));
   check("ZD the zft shares are bracketed on the wallet", pcs.filter((c) => c.assetName === "zft").map((c) => c.conditionCode).join() === "gte,lte", JSON.stringify(pcs));
   check("ZD no upper bound on any principal but the person", pcs.every((c) => c.principal === "SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF" || c.conditionCode === "gte"), JSON.stringify(pcs));
+  check("ZD the deposit calls the market it was given, and the market condition names it", step.params.contractName === "v0-8-market" && pcs[3]!.principal.endsWith(".v0-8-market"), JSON.stringify(step.params));
+  const { cvContractPrincipal, ZEST_REVIEWED_MARKETS } = await import("../stacks-alpha-engine.ts");
+  check("ZD the reviewed market encodes to what get-impl returned on chain", cvContractPrincipal(ZEST_REVIEWED_MARKETS[0]!) === "0x06165423cdfe275d8bb19862b0cf342c616a7a18c8420b76302d382d6d61726b6574", cvContractPrincipal(ZEST_REVIEWED_MARKETS[0]!));
   check("ZD floor 99.5% and ceiling 101% of the preview", zestMinShares(1_000_000n) === 995_000n && zestMaxShares(1_000_000n) === 1_010_000n, "");
 }
 

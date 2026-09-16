@@ -1321,17 +1321,18 @@ export async function scoutZest(
 // -- Zest V2 deposits a person signs ---------------------------------------------
 //
 // Later item 1 (smartx-app docs/PLAN-zest-writes.md, reviewed by Fable 2026-09-16).
-// A Zest deposit is `v0-4-market.supply-collateral-add(ft, amount, min-shares,
-// price-feeds)`. SmartX cannot supply a fresh Pyth price proof (Hermes needs a paid key
+// A Zest deposit is `<market>.supply-collateral-add(ft, amount, min-shares, price-feeds)`,
+// where the market is the contract `v0-market-vault` accepts now (v0-8-market on
+// 2026-09-16, read with `get-impl`; see ZEST_REVIEWED_MARKETS). SmartX cannot supply a fresh Pyth price proof (Hermes needs a paid key
 // since 2026-08-26), so it passes `none`, and builds only where Zest reads no price at
 // all (market source, `collateral-add`):
 //   - the account is new to Zest (`get-position` errs u600006), or
 //   - its position mask is empty (nothing supplied, nothing owed), or
 //   - it tops up the asset it already holds, and owes nothing.
-// A tracked account adding a DIFFERENT asset resolves the price of everything it holds
-// before the debt check, and aborts when the stored price is older than 120 seconds, so
-// it is refused. Any debt is refused too: that is a proof set choice (the owner's first
-// signed test has no loan), not a price fact, and it is one condition to delete later.
+// On v0-4-market a tracked account adding a DIFFERENT asset resolved prices before the
+// debt check; v0-8-market reads prices only when the account has debt. Adding a second
+// coin is still refused, as a proof set choice (no signed deposit has done it), and so is
+// any debt: the owner's first signed test has no loan. Each is one condition to relax later.
 
 export interface ZestDepositAsset {
   /** The token word the person typed, lowercase. */
@@ -1347,7 +1348,28 @@ export interface ZestDepositAsset {
   readonly decimals: number;
 }
 
-export const ZEST_MARKET = `${ZEST_DEPLOYER}.v0-4-market`;
+/**
+ * The Zest market contracts SmartX has read and checked a deposit against.
+ *
+ * Zest upgrades its market by deploying a new contract and pointing `v0-market-vault`'s `impl` at
+ * it; the old one still answers every read, and a write through it aborts with ERR-AUTH (u600001).
+ * The owner's first signed deposit, through `v0-4-market`, aborted exactly that way on 2026-09-16
+ * (tx 0xe65a82d1...78fc). So the market is read from the vault at build time, and a deposit is
+ * built only when it is one of these, each reviewed for the no price rule above; a new upgrade is
+ * refused in plain words until someone reads it.
+ */
+export const ZEST_REVIEWED_MARKETS: readonly string[] = [`${ZEST_DEPLOYER}.v0-8-market`];
+
+/**
+ * A contract principal as Clarity hex, to compare `get-impl` exactly. That read returns the bare
+ * principal (`(var-get impl)`), not wrapped in `(ok ...)`, read live on 2026-09-16.
+ */
+export function cvContractPrincipal(contract: string): string {
+  const [addr, name] = contract.split(".") as [string, string];
+  const { version, hash160 } = c32Decode(addr);
+  const nameHex = Array.from(new TextEncoder().encode(name)).map((b) => b.toString(16).padStart(2, "0")).join("");
+  return "0x06" + version.toString(16).padStart(2, "0") + hash160 + name.length.toString(16).padStart(2, "0") + nameHex;
+}
 const ZEST_EGROUP = `${ZEST_DEPLOYER}.v0-egroup`;
 const ZEST_ASSET_REGISTRY = `${ZEST_DEPLOYER}.v0-assets`;
 
@@ -1361,6 +1383,8 @@ export const ZEST_DEPOSIT_ASSETS: readonly ZestDepositAsset[] = [
 /** Everything read before a Zest deposit is built. */
 export interface ZestDepositPlan {
   readonly asset: ZestDepositAsset;
+  /** The market the vault accepts right now (`v0-market-vault.get-impl`), one SmartX has reviewed. */
+  readonly market: string;
   /** Shares the vault would mint for the amount now (`convert-to-shares`, rounded down). */
   readonly previewShares: bigint;
 }
@@ -1398,7 +1422,7 @@ export function zestDepositCase(
   if ((mask & bit) !== 0n) return { ok: true, newCollateral: false, mask };
   return {
     ok: false,
-    refusal: "This wallet already supplies a different coin on Zest. Adding a second coin makes Zest check the price of what is already there, which needs a price proof SmartX cannot supply yet, so it does not build this deposit.",
+    refusal: "This wallet already supplies a different coin on Zest. SmartX has not yet proved a Zest deposit that adds a second coin, so it does not build one.",
   };
 }
 
@@ -1413,6 +1437,12 @@ export async function readZestDepositPlan(
   if (!asset) return { plan: null, refusal: `SmartX builds Zest deposits for ${ZEST_DEPOSIT_ASSETS.map((a) => a.symbol).join(", ")} only.` };
   const refuse = (why: string) => ({ plan: null, refusal: why } as const);
   try {
+    const impl = await read(ZEST_MARKET_VAULT, "get-impl", []);
+    if (!impl.okay || !impl.result) return refuse("Zest's current market contract could not be read, so no deposit is built. Try again.");
+    const market = ZEST_REVIEWED_MARKETS.find((m) => cvContractPrincipal(m) === impl.result!.toLowerCase());
+    if (!market) {
+      return refuse("Zest has moved its deposits to a market contract SmartX has not checked yet, so it does not build one. This needs a SmartX update first.");
+    }
     const pos = await read(ZEST_MARKET_VAULT, "get-position", [cvPrincipal(wallet), cvUint(MAX_U128)]);
     if (!pos.okay || !pos.result) return refuse("Zest's record of this account could not be read, so no deposit is built. Try again.");
     const which = zestDepositCase(parseClarityHex(pos.result), asset.shareAid);
@@ -1446,7 +1476,7 @@ export async function readZestDepositPlan(
       if (g === undefined) return refuse("Zest's collateral group rules could not be read, so no deposit is built.");
       if (g && typeof g === "object" && !Array.isArray(g) && "_err" in g) return refuse(`Zest does not allow ${asset.symbol} as collateral for this account.`);
     }
-    return { plan: { asset, previewShares: preview }, refusal: null };
+    return { plan: { asset, market, previewShares: preview }, refusal: null };
   } catch (e: unknown) {
     return refuse(`A Zest read failed (${e instanceof Error ? e.message : String(e)}), so no deposit is built. Try again.`);
   }
@@ -1465,15 +1495,15 @@ export function buildZestDeposit(wallet: string, amount: number, plan: ZestDepos
       { type: "ft", principal: wallet, asset: asset.vault, assetName: "zft", conditionCode: "lte", amount: max.toString() },
       // The market moves exactly the amount into the vault. `gte`, because SmartX refuses
       // an upper bound on any principal but the person.
-      { type: "stx", principal: ZEST_MARKET, conditionCode: "gte", amount: String(amount) },
+      { type: "stx", principal: plan.market, conditionCode: "gte", amount: String(amount) },
     ]
     : [
       { type: "ft", principal: wallet, asset: asset.underlying, assetName: asset.assetName, conditionCode: "eq", amount: String(amount) },
       { type: "ft", principal: wallet, asset: asset.vault, assetName: "zft", conditionCode: "gte", amount: min.toString() },
       { type: "ft", principal: wallet, asset: asset.vault, assetName: "zft", conditionCode: "lte", amount: max.toString() },
-      { type: "ft", principal: ZEST_MARKET, asset: asset.underlying, assetName: asset.assetName, conditionCode: "gte", amount: String(amount) },
+      { type: "ft", principal: plan.market, asset: asset.underlying, assetName: asset.assetName, conditionCode: "gte", amount: String(amount) },
     ];
-  const [contractAddress, contractName] = ZEST_MARKET.split(".") as [string, string];
+  const [contractAddress, contractName] = plan.market.split(".") as [string, string];
   return {
     tool: "call_contract",
     params: {
@@ -4373,7 +4403,11 @@ let economics: {
         return { status: "refused", command, scout, reserve, guardian, refusal_reasons: notBuilt };
       }
       instructions = built.instructions;
-      description = `Deploy ${amount} ${token} to ${protocol}${protocol === "hodlmm" ? ` (${((opts as Record<string, string>).poolId ?? "dlmm_1")})` : ""}`;
+      // In the coin's own units: this line is the headline a person reads above the step, and
+      // "Deploy 5000000 usdcx" (atomic units) is what the owner saw on 2026-09-16.
+      const deployMeta = TOKENS[token];
+      const deployed = deployMeta ? `${humanAmount(BigInt(amount), deployMeta.decimals)} ${deployMeta.symbol}` : `${amount} ${token}`;
+      description = `Deploy ${deployed} to ${protocol === "hodlmm" ? "HODLMM" : protocol.charAt(0).toUpperCase() + protocol.slice(1)}${protocol === "hodlmm" ? ` (${((opts as Record<string, string>).poolId ?? "dlmm_1")})` : ""}`;
       break;
     }
 
