@@ -98,7 +98,8 @@ interface HodlmmPoolDef {
 
 interface TokenBalance {
   amount: number;
-  usd: number;
+  /** Dollar value from a price this run read, 0 for an empty balance, or null when no price was read. */
+  usd: number | null;
 }
 
 interface WalletBalances {
@@ -178,8 +179,9 @@ interface YieldOption {
   protocol: string;
   pool: string;
   apy_pct: number;
-  daily_usd: number;
-  monthly_usd: number;
+  /** Null when the capital it is sized on has no dollar value this run. */
+  daily_usd: number | null;
+  monthly_usd: number | null;
   gas_to_enter_stx: number;
   note: string;
 }
@@ -195,15 +197,16 @@ interface RankingMeasured {
 
 interface BestMove {
   recommendation: string;
-  idle_capital_usd: number;
-  opportunity_cost_daily_usd: number;
+  /** Null when something in the wallet has no price this run, so no total can be given. */
+  idle_capital_usd: number | null;
+  opportunity_cost_daily_usd: number | null;
 }
 
 interface BreakPrices {
   hodlmm_range_exit_low_usd: number | null;
   hodlmm_range_exit_high_usd: number | null;
   granite_liquidation_usd: number | null;
-  current_sbtc_price_usd: number;
+  current_sbtc_price_usd: number | null;
 }
 
 interface ScoutResult {
@@ -508,20 +511,59 @@ function cvContractPrincipal(contractId: string): string {
 }
 
 // ── Section 1: What You Have ───────────────────────────────────────────────────
-async function getWalletBalances(wallet: string): Promise<{
-  balances: WalletBalances; prices: { sbtc: number; stx: number; usdcx: number }; sources: string[];
+/**
+ * A price Tenero returned, or null. Never a typed stand-in: STX used to fall back
+ * to $0.216 and sBTC to $0, and both then became dollar figures that looked read.
+ */
+export function readPrice(data: TeneroTokenData | undefined): number | null {
+  const p = data?.price_usd ?? data?.price?.current_price;
+  return typeof p === "number" && Number.isFinite(p) && p > 0 ? p : null;
+}
+
+/** An amount and its dollar value. An empty balance is worth $0 whatever the price; otherwise no price, no figure. */
+export function tokenBalance(amount: number, price: number | null, decimals: number): TokenBalance {
+  return { amount: round(amount, decimals), usd: amount === 0 ? 0 : price === null ? null : round(amount * price, 2) };
+}
+
+/** Every token's dollar value added up, or null if any held token has none. */
+export function walletTotalUsd(balances: WalletBalances): number | null {
+  const parts = [balances.sbtc.usd, balances.stx.usd, balances.usdcx.usd];
+  return parts.some((v) => v === null) ? null : round(parts.reduce((a: number, v) => a + (v as number), 0), 2);
+}
+
+/** The coins that are held but have no dollar value this run, for saying so in words. */
+export function unpricedTokens(balances: WalletBalances): string[] {
+  return ([["sBTC", balances.sbtc], ["STX", balances.stx], ["USDCx", balances.usdcx]] as const)
+    .filter(([, b]) => b.usd === null).map(([name]) => name);
+}
+
+type WalletRead = {
+  balances: WalletBalances; prices: { sbtc: number | null; stx: number | null; usdcx: number }; sources: string[];
   /** Every fungible token the wallet holds, or null when the balance read failed. */
   fungibleTokens: Record<string, { balance: string }> | null;
-}> {
-  const sources: string[] = [];
+};
 
+async function getWalletBalances(wallet: string): Promise<WalletRead> {
   // Fetch balances and prices in parallel
   const [hiroBalance, teneroSbtc, teneroStx] = await Promise.all([
     fetchJson<HiroBalanceResponse>(`${HIRO_API}/extended/v1/address/${wallet}/balances`).catch(() => null),
     fetchJson<TeneroTokenResponse>(`${TENERO_API}/v1/stacks/tokens/${SBTC_CONTRACT}`).catch(() => null),
     fetchJson<TeneroTokenResponse>(`${TENERO_API}/v1/stacks/tokens/stx`).catch(() => null),
   ]);
+  return walletFrom(hiroBalance, teneroSbtc, teneroStx);
+}
 
+/**
+ * The wallet section built from the three answers, null for any that failed. Pure, so
+ * a failed price read can be replayed: it must give a coin no dollar value, never a
+ * typed price.
+ */
+export function walletFrom(
+  hiroBalance: HiroBalanceResponse | null,
+  teneroSbtc: TeneroTokenResponse | null,
+  teneroStx: TeneroTokenResponse | null,
+): WalletRead {
+  const sources: string[] = [];
   if (hiroBalance) sources.push("hiro-balances");
   if (teneroSbtc) sources.push("tenero-sbtc-price");
   if (teneroStx) sources.push("tenero-stx-price");
@@ -544,20 +586,18 @@ async function getWalletBalances(wallet: string): Promise<{
   const usdcxMicro = BigInt(hiroBalance?.fungible_tokens?.[usdcxKey ?? ""]?.balance ?? "0");
   const usdcxAmount = Number(usdcxMicro) / 1_000_000;
 
-  // Prices from Tenero
-  const sbtcData = teneroSbtc?.data;
-  const sbtcPrice = sbtcData?.price_usd ?? sbtcData?.price?.current_price ?? 0;
-  const stxData = teneroStx?.data;
-  const stxPrice = stxData?.price_usd ?? stxData?.price?.current_price ?? 0.216;
+  // Prices from Tenero, or null. No price read means no dollar figure.
+  const sbtcPrice = readPrice(teneroSbtc?.data);
+  const stxPrice = readPrice(teneroStx?.data);
   const usdcxPrice = 1.0; // stablecoin
 
   return {
     balances: {
-      sbtc: { amount: round(sbtcAmount, 8), usd: round(sbtcAmount * sbtcPrice, 2) },
-      stx: { amount: round(stxAmount, 6), usd: round(stxAmount * stxPrice, 2) },
-      usdcx: { amount: round(usdcxAmount, 6), usd: round(usdcxAmount * usdcxPrice, 2) },
+      sbtc: tokenBalance(sbtcAmount, sbtcPrice, 8),
+      stx: tokenBalance(stxAmount, stxPrice, 6),
+      usdcx: tokenBalance(usdcxAmount, usdcxPrice, 6),
     },
-    prices: { sbtc: round(sbtcPrice, 2), stx: round(stxPrice, 4), usdcx: usdcxPrice },
+    prices: { sbtc: sbtcPrice === null ? null : round(sbtcPrice, 2), stx: stxPrice === null ? null : round(stxPrice, 4), usdcx: usdcxPrice },
     sources,
     // A reply without the token map is not "holds nothing": null, so Zest reads
     // as unknown rather than as a wallet with no shares.
@@ -698,6 +738,13 @@ export async function readZestPosition(
   }
 }
 
+/** What a rate pays a day and a month on capital worth `usd`, or nulls when that capital has no dollar value. */
+export function earnings(usd: number | null, apyPct: number): { daily_usd: number | null; monthly_usd: number | null } {
+  if (usd === null) return { daily_usd: null, monthly_usd: null };
+  const daily = (usd * apyPct / 100) / 365;
+  return { daily_usd: round(daily, 4), monthly_usd: round(daily * 30, 2) };
+}
+
 /**
  * Zest's ranking rows, from rates already read. A rate that could not be read
  * gives no row and is named in `not_read` instead: a 0% row is a claim that
@@ -714,13 +761,13 @@ export function zestOptions(
       notRead.push(`Zest ${asset.symbol} supply rate`);
       continue;
     }
-    const dailyUsd = (balances[asset.key].usd * rate.supply_apy_pct / 100) / 365;
+    const { daily_usd, monthly_usd } = earnings(balances[asset.key].usd, rate.supply_apy_pct);
     options.push({
       protocol: "Zest",
       pool: `${asset.symbol} Supply`,
       apy_pct: rate.supply_apy_pct,
-      daily_usd: round(dailyUsd, 4),
-      monthly_usd: round(dailyUsd * 30, 2),
+      daily_usd,
+      monthly_usd,
       gas_to_enter_stx: 0.03,
       note: `Lending, ${rate.utilization_pct}% utilization. Lenders earn only while people borrow.`,
     });
@@ -1048,7 +1095,6 @@ function parseUserBinList(hex: string): number[] {
 // ── Section 3: Smart Options ───────────────────────────────────────────────────
 async function getSmartOptions(
   balances: WalletBalances,
-  prices: { sbtc: number; stx: number },
   granite: GranitePosition,
 ): Promise<{ options: YieldOption[]; sources: string[]; ranking: RankingMeasured }> {
   const sources: string[] = [];
@@ -1060,13 +1106,11 @@ async function getSmartOptions(
   if (granite.supply_rate_read) measured.push("Granite");
   else notRead.push("Granite supply rate");
   if (granite.supply_rate_read && granite.supply_apy_pct && granite.supply_apy_pct > 0) {
-    const dailyUsd = (balances.sbtc.usd * granite.supply_apy_pct / 100) / 365;
     options.push({
       protocol: "Granite",
       pool: "sBTC Supply",
       apy_pct: granite.supply_apy_pct,
-      daily_usd: round(dailyUsd, 4),
-      monthly_usd: round(dailyUsd * 30, 2),
+      ...earnings(balances.sbtc.usd, granite.supply_apy_pct),
       gas_to_enter_stx: 0.05,
       note: `Lending yield, ${granite.utilization_pct}% utilization, borrow APR ${granite.borrow_apr_pct}%. Max LTV ${granite.max_ltv_pct}%.`,
     });
@@ -1089,13 +1133,11 @@ async function getSmartOptions(
             const capital = poolDef.tokenX === "sbtc" || poolDef.tokenY === "sbtc"
               ? balances.sbtc.usd
               : balances.stx.usd;
-            const dailyUsd = (capital * bp.apr24h / 100) / 365;
             options.push({
               protocol: "HODLMM",
               pool: poolDef.name,
               apy_pct: round(bp.apr24h, 2),
-              daily_usd: round(dailyUsd, 4),
-              monthly_usd: round(dailyUsd * 30, 2),
+              ...earnings(capital, bp.apr24h),
               gas_to_enter_stx: 0.05,
               note: `Fee-based yield, varies with swap volume. TVL: $${Math.round(bp.tvlUsd).toLocaleString()}.`,
             });
@@ -1139,8 +1181,15 @@ export function getBestMove(
   options: YieldOption[],
   ranking: RankingMeasured,
 ): BestMove {
-  const walletUsd = balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd;
+  const walletUsd = walletTotalUsd(balances);
   const bestOption = options[0];
+  // A wallet with a coin that has no price this run is never given a dollar total,
+  // and never called "minimal": that would be a figure built on a guess.
+  const unpriced = unpricedTokens(balances);
+  const unvalued = walletUsd === null
+    ? ` No price could be read for ${unpriced.join(" or ")}, so what is in the wallet is not valued.`
+    : "";
+  const dailyCostOf = (apyPct: number): number | null => walletUsd === null ? null : round((walletUsd * apyPct / 100) / 365, 4);
 
   // What this sentence could not see, said inside it: the recommendation is the
   // one line a person acts on, so it must not read as complete when a position
@@ -1172,8 +1221,8 @@ export function getBestMove(
 
   if (!bestOption || bestOption.apy_pct === 0) {
     return {
-      recommendation: `No yield opportunities currently available. Hold your assets in wallet.${zestUnknown}${hodlmmUnknown}${partial}`,
-      idle_capital_usd: round(walletUsd, 2),
+      recommendation: `No yield opportunities currently available. Hold your assets in wallet.${unvalued}${zestUnknown}${hodlmmUnknown}${partial}`,
+      idle_capital_usd: walletUsd,
       opportunity_cost_daily_usd: 0,
     };
   }
@@ -1182,43 +1231,55 @@ export function getBestMove(
   if (outOfRangePools.length > 0) {
     const poolNames = outOfRangePools.map(p => p.name).join(", ");
     return {
-      recommendation: `WARNING: ${outOfRangePools.length} HODLMM position(s) OUT OF RANGE (${poolNames}). These are not earning fees. Consider rebalancing or withdrawing.${zestUnknown}${hodlmmUnknown}${partial}`,
-      idle_capital_usd: round(walletUsd, 2),
-      opportunity_cost_daily_usd: round(bestOption.daily_usd, 4),
+      recommendation: `WARNING: ${outOfRangePools.length} HODLMM position(s) OUT OF RANGE (${poolNames}). These are not earning fees. Consider rebalancing or withdrawing.${unvalued}${zestUnknown}${hodlmmUnknown}${partial}`,
+      idle_capital_usd: walletUsd,
+      opportunity_cost_daily_usd: bestOption.daily_usd,
     };
   }
 
   // Priority 2: Capital is deployed and working
   if (deployedProtocols.length > 0) {
     const deployed = deployedProtocols.join(", ");
+    if (walletUsd === null) {
+      return {
+        recommendation: `Your capital is ${zestLoan ? "deployed on" : "deployed and earning on"} ${deployed}.${unvalued} Best option for anything idle: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY.${zestUnknown}${hodlmmUnknown}${partial}`,
+        idle_capital_usd: null,
+        opportunity_cost_daily_usd: null,
+      };
+    }
     if (walletUsd < 10) {
       return {
-        recommendation: `Your capital is ${zestLoan ? "deployed on" : "deployed and earning on"} ${deployed}. Wallet balance ($${round(walletUsd, 2)}) is minimal: nothing to move.${zestUnknown}${hodlmmUnknown}`,
-        idle_capital_usd: round(walletUsd, 2),
+        recommendation: `Your capital is ${zestLoan ? "deployed on" : "deployed and earning on"} ${deployed}. Wallet balance ($${walletUsd}) is minimal: nothing to move.${zestUnknown}${hodlmmUnknown}`,
+        idle_capital_usd: walletUsd,
         opportunity_cost_daily_usd: 0,
       };
     }
     // Has deployed positions but also meaningful wallet balance
-    const dailyCost = (walletUsd * bestOption.apy_pct / 100) / 365;
+    const dailyCost = dailyCostOf(bestOption.apy_pct) as number;
     return {
-      recommendation: `Active position on ${deployed}. You also have $${round(walletUsd, 2)} idle in wallet. Best option for idle funds: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY (~$${round(dailyCost, 4)}/day missed).${zestUnknown}${hodlmmUnknown}${partial}`,
-      idle_capital_usd: round(walletUsd, 2),
-      opportunity_cost_daily_usd: round(dailyCost, 4),
+      recommendation: `Active position on ${deployed}. You also have $${walletUsd} idle in wallet. Best option for idle funds: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY (~$${dailyCost}/day missed).${zestUnknown}${hodlmmUnknown}${partial}`,
+      idle_capital_usd: walletUsd,
+      opportunity_cost_daily_usd: dailyCost,
     };
   }
 
   // Priority 3: Nothing deployed anywhere that could be seen
-  const dailyCost = (walletUsd * bestOption.apy_pct / 100) / 365;
+  const dailyCost = dailyCostOf(bestOption.apy_pct);
   // "No active positions" is a claim about every protocol, so it is made only when each was read.
+  // With no wallet value, the sentence naming the unpriced coin (`unvalued`) says it once, below.
+  const inWallet = walletUsd === null ? "" : ` $${walletUsd} is in the wallet.`;
   const opening = zestUnknown
-    ? `No active positions found on Granite or HODLMM, and Zest could not be checked. $${round(walletUsd, 2)} is in the wallet.`
+    ? `No active positions found on Granite or HODLMM, and Zest could not be checked.${inWallet}`
     : hodlmmUnknown
-    ? `No active positions found in what could be read. $${round(walletUsd, 2)} is in the wallet.`
-    : `No active positions. All $${round(walletUsd, 2)} is idle in wallet.`;
+    ? `No active positions found in what could be read.${inWallet}`
+    : walletUsd === null
+    ? "No active positions. Everything is idle in the wallet."
+    : `No active positions. All $${walletUsd} is idle in wallet.`;
+  const missed = dailyCost === null ? "" : ` You're leaving ~$${dailyCost}/day on the table.`;
   return {
-    recommendation: `${opening} Best option: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY. You're leaving ~$${round(dailyCost, 4)}/day on the table.${hodlmmUnknown}${partial}`,
-    idle_capital_usd: round(walletUsd, 2),
-    opportunity_cost_daily_usd: round(dailyCost, 4),
+    recommendation: `${opening} Best option: ${bestOption.protocol} ${bestOption.pool} at ${bestOption.apy_pct}% APY.${missed}${unvalued}${hodlmmUnknown}${partial}`,
+    idle_capital_usd: walletUsd,
+    opportunity_cost_daily_usd: dailyCost,
   };
 }
 
@@ -1226,7 +1287,7 @@ export function getBestMove(
 async function getBreakPrices(
   hodlmm: HodlmmPositions,
   granite: GranitePosition,
-  sbtcPrice: number,
+  sbtcPrice: number | null,
 ): Promise<{ breakPrices: BreakPrices; sources: string[] }> {
   const sources: string[] = [];
   let rangeLow: number | null = null;
@@ -1323,7 +1384,7 @@ async function runScout(wallet: string): Promise<ScoutResult> {
     return {
       status: "error",
       wallet,
-      what_you_have: { sbtc: { amount: 0, usd: 0 }, stx: { amount: 0, usd: 0 }, usdcx: { amount: 0, usd: 0 } },
+      what_you_have: { sbtc: { amount: 0, usd: null }, stx: { amount: 0, usd: null }, usdcx: { amount: 0, usd: null } },
       zbg_positions: {
         zest: { has_position: false, state: "unknown", detail: "Skipped, invalid wallet" },
         granite: { has_position: false, detail: "Skipped, invalid wallet" },
@@ -1331,8 +1392,8 @@ async function runScout(wallet: string): Promise<ScoutResult> {
       },
       smart_options: [],
       ranking_measured: { protocols: [], out_of: 3, not_read: [] },
-      best_move: { recommendation: "Invalid wallet address", idle_capital_usd: 0, opportunity_cost_daily_usd: 0 },
-      break_prices: { hodlmm_range_exit_low_usd: null, hodlmm_range_exit_high_usd: null, granite_liquidation_usd: null, current_sbtc_price_usd: 0 },
+      best_move: { recommendation: "Invalid wallet address", idle_capital_usd: null, opportunity_cost_daily_usd: null },
+      break_prices: { hodlmm_range_exit_low_usd: null, hodlmm_range_exit_high_usd: null, granite_liquidation_usd: null, current_sbtc_price_usd: null },
       data_sources: [],
       rendered_report: "",
       error: { code: "INVALID_WALLET", message: "Wallet must be a valid Stacks mainnet address (SP...)" },
@@ -1352,23 +1413,22 @@ async function runScout(wallet: string): Promise<ScoutResult> {
     getHodlmmPositions(wallet),
   ]);
   allSources.push(...zestResult.sources, ...graniteResult.sources, ...hodlmmResult.sources);
-  // Valued only from a price that was actually read: the wallet section falls
-  // back to a typed STX price when Tenero fails, and that must not value a position.
+  // Valued only from a price that was actually read, which is all `prices` holds.
   zestResult.position = priceZestHoldings(zestResult.position, {
-    sbtc: balSources.includes("tenero-sbtc-price") && prices.sbtc > 0 ? prices.sbtc : null,
-    stx: balSources.includes("tenero-stx-price") && prices.stx > 0 ? prices.stx : null,
+    sbtc: prices.sbtc,
+    stx: prices.stx,
     usdcx: 1,
   });
 
   // HODLMM positions priced from what they hold, from prices actually read, as Zest is above.
   hodlmmResult.positions = priceHodlmmHoldings(hodlmmResult.positions, {
-    sbtc: balSources.includes("tenero-sbtc-price") && prices.sbtc > 0 ? prices.sbtc : null,
-    stx: balSources.includes("tenero-stx-price") && prices.stx > 0 ? prices.stx : null,
+    sbtc: prices.sbtc,
+    stx: prices.stx,
     usdcx: 1, aeusdc: 1, usdh: 1,
   });
 
   // Section 3: Smart Options
-  const { options, sources: optSources, ranking } = await getSmartOptions(balances, prices, graniteResult.position);
+  const { options, sources: optSources, ranking } = await getSmartOptions(balances, graniteResult.position);
   allSources.push(...optSources);
 
   // Section 4: Best Move
@@ -1431,15 +1491,16 @@ export function renderReport(r: ScoutResult): string {
   lines.push("");
 
   // Section 1: What You Have (wallet only, available to move)
-  const walletUsd = round(r.what_you_have.sbtc.usd + r.what_you_have.stx.usd + r.what_you_have.usdcx.usd, 2);
+  const walletUsd = walletTotalUsd(r.what_you_have);
+  const dollars = (v: number | null): string => v === null ? "no price" : `$${v}`;
   lines.push("## 1. What You Have (available in wallet)");
   lines.push("");
   lines.push("| Token   | Amount             | USD      |");
   lines.push("|---------|--------------------|---------:|");
-  lines.push(`| sBTC    | ${pad(String(r.what_you_have.sbtc.amount), 18)} | $${r.what_you_have.sbtc.usd} |`);
-  lines.push(`| STX     | ${pad(String(r.what_you_have.stx.amount), 18)} | $${r.what_you_have.stx.usd} |`);
-  lines.push(`| USDCx   | ${pad(String(r.what_you_have.usdcx.amount), 18)} | $${r.what_you_have.usdcx.usd} |`);
-  lines.push(`| **Wallet Total** |              | **$${walletUsd}** |`);
+  lines.push(`| sBTC    | ${pad(String(r.what_you_have.sbtc.amount), 18)} | ${dollars(r.what_you_have.sbtc.usd)} |`);
+  lines.push(`| STX     | ${pad(String(r.what_you_have.stx.amount), 18)} | ${dollars(r.what_you_have.stx.usd)} |`);
+  lines.push(`| USDCx   | ${pad(String(r.what_you_have.usdcx.amount), 18)} | ${dollars(r.what_you_have.usdcx.usd)} |`);
+  lines.push(`| **Wallet Total** |              | **${walletUsd === null ? `not valued, no price for ${unpricedTokens(r.what_you_have).join(" or ")}` : `$${walletUsd}`}** |`);
   lines.push("");
 
   // Section 2: ZBG Positions (what's deployed)
@@ -1487,7 +1548,6 @@ export function renderReport(r: ScoutResult): string {
     lines.push(`| **Deployed Total** | | | **$${round(deployedUsd, 2)}** |`);
   }
 
-  const grandTotal = round(walletUsd + deployedUsd, 2);
   lines.push("");
   const notCounted = [
     zestUnpriced.length > 0 ? `Not counted, no price: ${zestUnpriced.map((h) => `${h.amount} ${h.asset}`).join(", ")} on Zest.` : "",
@@ -1501,7 +1561,10 @@ export function renderReport(r: ScoutResult): string {
       : "",
     hodlmmUnread.length > 0 ? `Not counted, could not be read: HODLMM ${hodlmmUnread.map((p) => p.name).join(", ")}.` : "",
   ].filter(Boolean).join(" ");
-  lines.push(`**Total portfolio: $${grandTotal}** (wallet: $${walletUsd} + deployed: $${round(deployedUsd, 2)})${notCounted ? ` ${notCounted}` : ""}`);
+  // No grand total when the wallet has no value: a total that silently drops a coin is a smaller, wrong number.
+  lines.push(walletUsd === null
+    ? `**Total portfolio: not valued** (wallet: no price for ${unpricedTokens(r.what_you_have).join(" or ")}; deployed: $${round(deployedUsd, 2)})${notCounted ? ` ${notCounted}` : ""}`
+    : `**Total portfolio: $${round(walletUsd + deployedUsd, 2)}** (wallet: $${walletUsd} + deployed: $${round(deployedUsd, 2)})${notCounted ? ` ${notCounted}` : ""}`);
   lines.push("");
 
   // Section 3: Smart Options
@@ -1511,7 +1574,7 @@ export function renderReport(r: ScoutResult): string {
   lines.push("|---|----------|------|----:|------:|--------:|-----|------|");
 
   r.smart_options.forEach((o, i) => {
-    lines.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.apy_pct}% | $${o.daily_usd} | $${o.monthly_usd} | ${o.gas_to_enter_stx} STX | ${o.note} |`);
+    lines.push(`| ${i + 1} | ${o.protocol} | ${o.pool} | ${o.apy_pct}% | ${dollars(o.daily_usd)} | ${dollars(o.monthly_usd)} | ${o.gas_to_enter_stx} STX | ${o.note} |`);
   });
   lines.push("");
   const m = r.ranking_measured;
@@ -1526,8 +1589,8 @@ export function renderReport(r: ScoutResult): string {
   lines.push("");
   lines.push(`| Metric | Value |`);
   lines.push(`|--------|------:|`);
-  lines.push(`| Idle in wallet | $${r.best_move.idle_capital_usd} |`);
-  lines.push(`| Opportunity cost | $${r.best_move.opportunity_cost_daily_usd}/day |`);
+  lines.push(`| Idle in wallet | ${dollars(r.best_move.idle_capital_usd)} |`);
+  lines.push(`| Opportunity cost | ${r.best_move.opportunity_cost_daily_usd === null ? "no price" : `$${r.best_move.opportunity_cost_daily_usd}/day`} |`);
   lines.push("");
 
   // Section 5: Break Prices
@@ -1539,7 +1602,7 @@ export function renderReport(r: ScoutResult): string {
   if (bp.hodlmm_range_exit_low_usd) {
     lines.push(`| HODLMM range exit (low) | **$${bp.hodlmm_range_exit_low_usd.toLocaleString()}** |`);
   }
-  lines.push(`| Current sBTC price | $${bp.current_sbtc_price_usd.toLocaleString()} |`);
+  lines.push(`| Current sBTC price | ${bp.current_sbtc_price_usd === null ? "not read" : `$${bp.current_sbtc_price_usd.toLocaleString()}`} |`);
   if (bp.hodlmm_range_exit_high_usd) {
     lines.push(`| HODLMM range exit (high) | **$${bp.hodlmm_range_exit_high_usd.toLocaleString()}** |`);
   }
@@ -1550,7 +1613,7 @@ export function renderReport(r: ScoutResult): string {
   }
   lines.push("");
 
-  if (bp.hodlmm_range_exit_low_usd && bp.hodlmm_range_exit_high_usd) {
+  if (bp.hodlmm_range_exit_low_usd && bp.hodlmm_range_exit_high_usd && bp.current_sbtc_price_usd !== null) {
     const bufferLow = round(bp.current_sbtc_price_usd - bp.hodlmm_range_exit_low_usd, 0);
     const bufferHigh = round(bp.hodlmm_range_exit_high_usd - bp.current_sbtc_price_usd, 0);
     lines.push(`Your position is safe: $${bufferLow.toLocaleString()} above low exit, $${bufferHigh.toLocaleString()} below high exit.`);
@@ -1594,8 +1657,8 @@ program
     // Tenero API
     try {
       const token = await fetchJson<TeneroTokenResponse>(`${TENERO_API}/v1/stacks/tokens/${SBTC_CONTRACT}`);
-      const price = token.data?.price_usd ?? token.data?.price?.current_price ?? 0;
-      checks.push({ name: "Tenero Price Oracle", ok: price > 0, detail: `sBTC: $${round(price, 2)}` });
+      const price = readPrice(token.data);
+      checks.push({ name: "Tenero Price Oracle", ok: price !== null, detail: price === null ? "sBTC: no price returned" : `sBTC: $${round(price, 2)}` });
     } catch (e: unknown) {
       checks.push({ name: "Tenero Price Oracle", ok: false, detail: e instanceof Error ? e.message : String(e) });
     }
