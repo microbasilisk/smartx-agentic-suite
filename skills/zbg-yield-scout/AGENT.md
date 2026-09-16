@@ -11,7 +11,7 @@ description: "Reads wallet balances and positions across Zest, Bitflow (HODLMM),
 1. Read wallet balances (sBTC, STX, USDCx) and convert to USD via Tenero
 2. Check Zest for active supply position
 3. Check Granite for active supply/borrow position via on-chain reads
-4. Scan all 8 HODLMM pool contracts for user bin positions
+4. Scan the 12 HODLMM pool contracts it knows for user bin positions
 5. Fetch yield rates: Zest APY, Granite supply APR (derived from on-chain IR model), HODLMM fee APR
 6. Compare yields, rank options, identify best move for idle capital
 7. Calculate break prices: HODLMM bin range boundaries, Granite liquidation threshold

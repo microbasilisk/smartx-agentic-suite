@@ -15,7 +15,7 @@ stacks-alpha-engine
 - [ ] Infrastructure
 - [ ] Signals
 
-**HODLMM integration?** Yes: all 8 pools scanned with YTG ratios
+**HODLMM integration?** Yes: 12 pools scanned with YTG ratios
 
 ## What it does
 
@@ -118,7 +118,7 @@ withdraw zest                        # recover sBTC
 
 ## HODLMM integration
 
-All 8 HODLMM pools scanned with YTG ratios per pool. Reads user positions via `get-user-bins`, `get-overall-balance`, `get-active-bin-id`. Calculates break prices via DLMM Core `get-bin-price`. Generates `add-liquidity-simple` and `withdraw-liquidity-simple` instructions.
+The 12 HODLMM pools it knows are scanned with YTG ratios per pool. Reads user positions via `get-user-bins`, `get-overall-balance`, `get-active-bin-id`. Calculates break prices via DLMM Core `get-bin-price`. Generates `add-liquidity-simple` and `withdraw-liquidity-simple` instructions.
 
 The wallet's shares are read first, so a pool it does not hold costs one read. A pool whose read fails or throws is listed in `positions.hodlmm.unread`, shown as UNKNOWN and makes the scan `degraded`: it is never reported as no position, and an emergency exit says its withdraw may be missing.
 
@@ -133,7 +133,7 @@ The wallet's shares are read first, so a pool it does not hold costs one read. A
 | Zest v2 Vault | Supply position, utilization |
 | Hermetica staking-v1 | Exchange rate, staking status |
 | Granite state-v1 | LP params, user position |
-| HODLMM Pool Contracts | User bins, balances, active bin (8 pools) |
+| HODLMM Pool Contracts | User bins, balances, active bin (12 pools) |
 | sbtc-registry/sbtc-token | Signer pubkey, sBTC supply |
 | DLMM Core | Bin price calculations |
 
@@ -225,7 +225,7 @@ PR #196 was closed because of a **fundamental Granite bug**: the LP pool accepts
 
 - [x] Yes: eligible for the HODLMM bonus
 
-All 8 HODLMM pools scanned with YTG ratios per pool. Reads user positions via `get-user-bins`, `get-overall-balance`, `get-active-bin-id`. Calculates break prices via DLMM Core `get-bin-price`. Generates `add-liquidity-simple` and `withdraw-liquidity-simple` instructions. Rebalance with 4h cooldown.
+The 12 HODLMM pools it knows are scanned with YTG ratios per pool. Reads user positions via `get-user-bins`, `get-overall-balance`, `get-active-bin-id`. Calculates break prices via DLMM Core `get-bin-price`. Generates `add-liquidity-simple` and `withdraw-liquidity-simple` instructions. Rebalance with 4h cooldown.
 
 | Pool | Pair | Scanned |
 |------|------|---------|

@@ -202,6 +202,15 @@ const HODLMM_POOLS: PoolDef[] = [
   { id: 6, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-1-bps-15",   name: "STX-sBTC-15bps",   tokenX: "stx",  tokenY: "sbtc" },
   { id: 7, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-aeusdc-usdcx-v-1-bps-1", name: "aeUSDC-USDCx-1bps", tokenX: "aeusdc", tokenY: "usdcx" },
   { id: 8, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-usdh-usdcx-v-1-bps-1",  name: "USDh-USDCx-1bps",  tokenX: "usdh", tokenY: "usdcx" },
+  // Pools 14 to 17 are second and third pools for pairs already listed, with the same coins,
+  // coin order and bin step as their twins and an identical contract interface (read from
+  // chain 2026-09-16). The version stays in the name, so two pools are never one name.
+  // Pools 9 to 13 hold ZEST, stSTX and LEO, coins this skill has no metadata or price for,
+  // and are left out on purpose until that is decided (smartx-app docs/LATER.md).
+  { id: 14, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-2-bps-10", name: "STX-USDCx-10bps-v2", tokenX: "stx",  tokenY: "usdcx" },
+  { id: 15, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-2-bps-15",  name: "STX-sBTC-15bps-v2",  tokenX: "stx",  tokenY: "sbtc" },
+  { id: 16, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-3-bps-15",  name: "STX-sBTC-15bps-v3",  tokenX: "stx",  tokenY: "sbtc" },
+  { id: 17, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-sbtc-usdcx-v-2-bps-10", name: "sBTC-USDCx-10bps-v2", tokenX: "sbtc", tokenY: "usdcx" },
 ];
 
 // Token metadata for yield calculations
@@ -516,7 +525,16 @@ interface EngineResult {
 // `symbol` is optional because it is used only in a message, never in arithmetic.
 // It was read off `tokenX` without being declared, which `tsc --noEmit --strict`
 // reports as TS2339 and nobody had run. The live endpoint does return it.
-interface BitflowPoolData { poolId: string; tvlUsd: number; volumeUsd1d: number; apr24h: number; tokens?: { tokenX: { priceUsd: number; decimals: number; symbol?: string }; tokenY: { priceUsd: number; decimals: number; symbol?: string } } }
+interface BitflowPoolData { poolId: string; poolStatus?: boolean; tvlUsd: number; volumeUsd1d: number; apr24h: number; tokens?: { tokenX: { priceUsd: number; decimals: number; symbol?: string }; tokenY: { priceUsd: number; decimals: number; symbol?: string } } }
+
+/**
+ * Whether Bitflow marks a pool active. A pool paused upstream still returns volume
+ * and a bin price, so without this both gates pass and a deposit is built (KB pool
+ * eligibility). A row with no status is not active: the field is the only signal.
+ */
+export function poolIsLive(row: { poolStatus?: unknown } | null | undefined): boolean {
+  return row?.poolStatus === true;
+}
 
 // == Bitflow pools cache (fetched once per run, reused across scout/yield/guardian) ==
 let _poolsCache: BitflowPoolData[] | null = null;
@@ -1489,7 +1507,7 @@ export async function scoutHodlmm(
       // list used to come first, and it answers ok for a wallet with no bins, so review counted
       // about 36 reads for a scan with no positions against Hiro's 50 a minute.
       // Only a zero that was READ skips the pool: a wallet with no position gets `(ok u0)` from
-      // all 8 pools (measured 14 September), so a failed read leaves the position unknown.
+      // the 8 pools read on 14 September, so a failed read leaves the position unknown.
       const ovr = await read(pool.contract, "get-overall-balance", [cvPrincipal(wallet)]);
       if (!ovr.okay || !ovr.result) { unread.push({ pool_id: pool.id, name: pool.name }); continue; }
       const dlpShares = parseUint128Hex(ovr.result);
@@ -1825,7 +1843,7 @@ async function getYieldOptions(
     if (pools.length > 0) {
       sources.push("bitflow-hodlmm-apr");
       for (const bp of pools) {
-        if (bp.apr24h <= 0) continue;
+        if (bp.apr24h <= 0 || !poolIsLive(bp)) continue;
         const def = HODLMM_POOLS.find(p => `dlmm_${p.id}` === bp.poolId);
         if (!def) continue;
 
@@ -2378,6 +2396,7 @@ export function classifySlippage(r: SlippageReads): { gate: PoolGate; refusal: s
   if (!r.knownPool) return unknown(`${r.targetPoolId} is not a pool this engine knows`);
   if (r.pools === null) return unknown("the Bitflow pools endpoint did not answer");
   if (!r.targetPool) return unknown(`${r.targetPoolId} was not in the pools the endpoint returned`);
+  if (!poolIsLive(r.targetPool)) return unknown(`${r.targetPoolId} is not marked active on Bitflow (paused, or no status returned)`);
   if (!r.targetPool.tokens) return unknown(`${r.targetPoolId} came back without token metadata, so decimals are unknown`);
   if (r.readError !== null) return unknown(`the slippage read failed: ${r.readError}`);
   if (!r.activeBinOkay) return unknown("the pool contract did not return its active bin");
@@ -3739,7 +3758,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
       // `if (mPool && ...)` skipped the whole check when the pool was unknown, so
       // migrate never produced the error deploy produces and a typo was caught
       // much later, by the guardian, reported as a slippage MEASUREMENT failure.
-      // dlmm_9 through dlmm_17 are real Bitflow pools this engine does not carry,
+      // dlmm_9 through dlmm_13 are real Bitflow pools this engine does not carry,
       // so the typo is ordinary. Added to `deploy` a round before this and not
       // here, in the round whose own comment complained about exactly that.
       if (!mPool) {
@@ -4270,7 +4289,7 @@ function pad(s: string, len: number): string {
 export function hodlmmQuietRow(h: HodlmmPositions): string | null {
   const unread = h.unread ?? [];
   if (unread.length > 0) return `| HODLMM     | **UNKNOWN** | Could not read ${unread.map(p => p.name).join(", ")}, so a position there is not known either way |`;
-  return h.has_position ? null : "| HODLMM     | Idle | No positions across 8 pools |";
+  return h.has_position ? null : `| HODLMM     | Idle | No positions across ${HODLMM_POOLS.length} pools |`;
 }
 
 function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: GuardianResult): string {

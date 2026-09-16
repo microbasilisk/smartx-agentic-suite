@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * ZBG Yield Scout
- * Scans Zest, Granite, and all 8 HODLMM pools for sBTC/STX/USDCx positions.
+ * Scans Zest, Granite, and the HODLMM pools of its pool list for sBTC/STX/USDCx positions.
  * Compares yield, recommends the best safe move, shows sBTC break prices.
  *
  * Read-only, no transactions, no gas, no risk.
@@ -60,6 +60,15 @@ const HODLMM_POOLS: HodlmmPoolDef[] = [
   { id: 6, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-1-bps-15",   name: "STX-sBTC-15bps",   tokenX: "stx",  tokenY: "sbtc" },
   { id: 7, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-aeusdc-usdcx-v-1-bps-1", name: "aeUSDC-USDCx-1bps", tokenX: "aeusdc", tokenY: "usdcx" },
   { id: 8, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-usdh-usdcx-v-1-bps-1",  name: "USDh-USDCx-1bps",  tokenX: "usdh", tokenY: "usdcx" },
+  // Pools 14 to 17 are second and third pools for pairs already listed, with the same coins,
+  // coin order and bin step as their twins and an identical contract interface (read from
+  // chain 2026-09-16). The version stays in the name, so two pools are never one name.
+  // Pools 9 to 13 hold ZEST, stSTX and LEO, coins this skill has no metadata or price for,
+  // and are left out on purpose until that is decided (smartx-app docs/LATER.md).
+  { id: 14, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-2-bps-10", name: "STX-USDCx-10bps-v2", tokenX: "stx",  tokenY: "usdcx" },
+  { id: 15, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-2-bps-15",  name: "STX-sBTC-15bps-v2",  tokenX: "stx",  tokenY: "sbtc" },
+  { id: 16, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-3-bps-15",  name: "STX-sBTC-15bps-v3",  tokenX: "stx",  tokenY: "sbtc" },
+  { id: 17, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-sbtc-usdcx-v-2-bps-10", name: "sBTC-USDCx-10bps-v2", tokenX: "sbtc", tokenY: "usdcx" },
 ];
 
 // Token contracts
@@ -261,6 +270,8 @@ interface ClarityReadResult {
 
 interface BitflowPoolData {
   poolId: string;
+  /** True only for a pool Bitflow marks active; a paused pool is not offered. */
+  poolStatus?: boolean;
   tvlUsd: number;
   volumeUsd1d: number;
   apr24h: number;
@@ -1123,7 +1134,8 @@ async function getSmartOptions(
     if (poolData.data) {
       sources.push("bitflow-hodlmm-apr");
       for (const bp of poolData.data) {
-        if (bp.apr24h > 0) {
+        // A pool Bitflow does not mark active (paused, or no status) is not offered.
+        if (bp.apr24h > 0 && bp.poolStatus === true) {
           const poolDef = HODLMM_POOLS.find(p => `dlmm_${p.id}` === bp.poolId);
           const isRelevant = poolDef && (
             poolDef.tokenX === "sbtc" || poolDef.tokenY === "sbtc" ||
@@ -1541,7 +1553,7 @@ export function renderReport(r: ScoutResult): string {
   if (hodlmmUnread.length > 0) {
     lines.push(`| HODLMM   | **UNKNOWN** | Could not read ${hodlmmUnread.map((p) => p.name).join(", ")}, so a position there is not known either way | - |`);
   } else if (!h.has_position) {
-    lines.push("| HODLMM   | No position | No positions found across all 8 pools | - |");
+    lines.push(`| HODLMM   | No position | No positions found across all ${HODLMM_POOLS.length} pools | - |`);
   }
 
   if (deployedUsd > 0) {

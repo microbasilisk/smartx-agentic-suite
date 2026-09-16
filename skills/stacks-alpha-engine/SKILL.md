@@ -253,7 +253,7 @@ Unstaking sUSDh creates a claim. USDh is available after 7-day cooldown via `sta
 | Zest v2 Vault | Supply position, utilization, interest rate |
 | Hermetica staking-v1-1 | Exchange rate (USDh/sUSDh), staking status |
 | Granite state-v1 | LP params, IR params, user position, utilization |
-| HODLMM Pool Contracts | User bins, balances, active bin (8 pools) |
+| HODLMM Pool Contracts | User bins, balances, active bin (12 pools) |
 | sbtc-registry | Signer aggregate pubkey |
 | sbtc-token | Total sBTC supply |
 | DLMM Core | Bin price calculations |
