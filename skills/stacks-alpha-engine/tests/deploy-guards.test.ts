@@ -1410,5 +1410,23 @@ console.log("\n== M: STX is a wrapper contract, not the word stx ==");
   check("M and it is the wrapper the pool actually binds", xTrait.includes("token-stx-v-1-2"), xTrait);
 }
 
+// Later item 1 (16 September): Zest deposits a person signs, only where Zest reads no price.
+{
+  const { zestDepositCase, buildZestDeposit, ZEST_DEPOSIT_ASSETS, zestMinShares, zestMaxShares } = await import("../stacks-alpha-engine.ts");
+  check("ZD a new account may deposit", zestDepositCase({ _err: 600006n } as never, 7).ok === true, "");
+  check("ZD an empty position may deposit", zestDepositCase({ mask: 0n } as never, 7).ok === true, "");
+  check("ZD a top up of the same coin may deposit", zestDepositCase({ mask: 1n << 7n } as never, 7).ok === true, "");
+  check("ZD a different coin beside existing collateral is refused", zestDepositCase({ mask: 1n << 3n } as never, 7).ok === false, "");
+  check("ZD any loan is refused", zestDepositCase({ mask: (1n << 7n) | (1n << 70n) } as never, 7).ok === false, "");
+  const usdcx = ZEST_DEPOSIT_ASSETS.find((a) => a.token === "usdcx")!;
+  check("ZD USDCx spells its asset name as the contract defines it", usdcx.assetName === "usdcx-token" && usdcx.underlying.endsWith(".usdcx"), JSON.stringify(usdcx));
+  const step = buildZestDeposit("SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF", 1_000_000, { asset: usdcx, previewShares: 1_000_000n });
+  const pcs = step.params.postConditions as Array<{ principal: string; conditionCode: string; assetName?: string }>;
+  check("ZD deny mode, no price proof", step.params.postConditionMode === "deny" && JSON.stringify((step.params.functionArgs as unknown[])[3]) === '{"type":"none"}', JSON.stringify(step.params));
+  check("ZD the zft shares are bracketed on the wallet", pcs.filter((c) => c.assetName === "zft").map((c) => c.conditionCode).join() === "gte,lte", JSON.stringify(pcs));
+  check("ZD no upper bound on any principal but the person", pcs.every((c) => c.principal === "SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF" || c.conditionCode === "gte"), JSON.stringify(pcs));
+  check("ZD floor 99.5% and ceiling 101% of the preview", zestMinShares(1_000_000n) === 995_000n && zestMaxShares(1_000_000n) === 1_010_000n, "");
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

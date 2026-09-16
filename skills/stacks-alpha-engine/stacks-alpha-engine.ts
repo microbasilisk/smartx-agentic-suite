@@ -318,6 +318,12 @@ interface ZestPosition {
   /** The sBTC vault's live supply rate. Absent, never 0, when it could not be read. */
   supply_apy_pct?: number;
   utilization_pct?: number;
+  /**
+   * The STX and USDCx vaults' live supply rates, for their own deposit rows (later item 1):
+   * a deposit is weighed against ITS vault's rate, never the sBTC vault's. A rate that could
+   * not be read is absent, so that coin has no row and its deposit is refused for no rate.
+   */
+  other_rates?: { STX?: { supply_apy_pct: number; utilization_pct: number }; USDCx?: { supply_apy_pct: number; utilization_pct: number } };
 }
 interface GranitePosition {
   has_position: boolean; detail: string;
@@ -1298,11 +1304,193 @@ export function scanStatus(r: {
 export async function scoutZest(
   wallet: string, read: ReadOnlyCall = callReadOnly, walletTokens?: Record<string, { balance: string }> | null,
 ): Promise<{ position: ZestPosition; sources: string[] }> {
-  const [position, rate] = await Promise.all([readZestPosition(wallet, read, walletTokens), readZestSupplyRate(ZEST_VAULT_SBTC, read)]);
+  const [position, rate, stxRate, usdcRate] = await Promise.all([
+    readZestPosition(wallet, read, walletTokens),
+    readZestSupplyRate(ZEST_VAULT_SBTC, read),
+    readZestSupplyRate(`${ZEST_DEPLOYER}.v0-vault-stx`, read),
+    readZestSupplyRate(`${ZEST_DEPLOYER}.v0-vault-usdc`, read),
+  ]);
   const sources: string[] = [];
   if (position.state !== "unknown") sources.push("zest-v2-position");
   if (rate) sources.push("zest-apy-live");
-  return { position: rate ? { ...position, ...rate } : position, sources };
+  const other_rates = { ...(stxRate ? { STX: stxRate } : {}), ...(usdcRate ? { USDCx: usdcRate } : {}) };
+  const withOthers = Object.keys(other_rates).length > 0 ? { ...position, other_rates } : position;
+  return { position: rate ? { ...withOthers, ...rate } : withOthers, sources };
+}
+
+// -- Zest V2 deposits a person signs ---------------------------------------------
+//
+// Later item 1 (smartx-app docs/PLAN-zest-writes.md, reviewed by Fable 2026-09-16).
+// A Zest deposit is `v0-4-market.supply-collateral-add(ft, amount, min-shares,
+// price-feeds)`. SmartX cannot supply a fresh Pyth price proof (Hermes needs a paid key
+// since 2026-08-26), so it passes `none`, and builds only where Zest reads no price at
+// all (market source, `collateral-add`):
+//   - the account is new to Zest (`get-position` errs u600006), or
+//   - its position mask is empty (nothing supplied, nothing owed), or
+//   - it tops up the asset it already holds, and owes nothing.
+// A tracked account adding a DIFFERENT asset resolves the price of everything it holds
+// before the debt check, and aborts when the stored price is older than 120 seconds, so
+// it is refused. Any debt is refused too: that is a proof set choice (the owner's first
+// signed test has no loan), not a price fact, and it is one condition to delete later.
+
+export interface ZestDepositAsset {
+  /** The token word the person typed, lowercase. */
+  readonly token: "stx" | "sbtc" | "usdcx";
+  readonly symbol: string;
+  /** The `ft` argument: the underlying token contract (wSTX for STX). */
+  readonly underlying: string;
+  /** The Clarity asset name a post-condition must spell; null for native STX. */
+  readonly assetName: string | null;
+  readonly vault: string;
+  /** The vault share token's asset id in `v0-assets`, and its bit in the position mask. */
+  readonly shareAid: number;
+  readonly decimals: number;
+}
+
+export const ZEST_MARKET = `${ZEST_DEPLOYER}.v0-4-market`;
+const ZEST_EGROUP = `${ZEST_DEPLOYER}.v0-egroup`;
+const ZEST_ASSET_REGISTRY = `${ZEST_DEPLOYER}.v0-assets`;
+
+/** The assets SmartX builds Zest deposits for, each checked on chain 2026-09-16. */
+export const ZEST_DEPOSIT_ASSETS: readonly ZestDepositAsset[] = [
+  { token: "stx", symbol: "STX", underlying: `${ZEST_DEPLOYER}.wstx`, assetName: null, vault: `${ZEST_DEPLOYER}.v0-vault-stx`, shareAid: 1, decimals: 6 },
+  { token: "sbtc", symbol: "sBTC", underlying: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token", assetName: "sbtc-token", vault: ZEST_VAULT_SBTC, shareAid: 3, decimals: 8 },
+  { token: "usdcx", symbol: "USDCx", underlying: "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx", assetName: "usdcx-token", vault: `${ZEST_DEPLOYER}.v0-vault-usdc`, shareAid: 7, decimals: 6 },
+];
+
+/** Everything read before a Zest deposit is built. */
+export interface ZestDepositPlan {
+  readonly asset: ZestDepositAsset;
+  /** Shares the vault would mint for the amount now (`convert-to-shares`, rounded down). */
+  readonly previewShares: bigint;
+}
+
+/** The floor on shares: 99.5% of the preview, since shares per asset fall as interest accrues. */
+export function zestMinShares(preview: bigint): bigint {
+  return (preview * 9950n) / 10000n;
+}
+
+/** The ceiling on shares leaving the wallet: 101% of the preview, rounded up, so loose shares stay put. */
+export function zestMaxShares(preview: bigint): bigint {
+  return (preview * 10100n + 9999n) / 10000n;
+}
+
+/**
+ * Which case of the no price rule a position is in, from `get-position`'s parsed answer.
+ * Pure, so each case is tested with no network.
+ */
+export function zestDepositCase(
+  position: ClarityValue | undefined, shareAid: number,
+): { ok: true; newCollateral: boolean; mask: bigint } | { ok: false; refusal: string } {
+  if (position && typeof position === "object" && !Array.isArray(position) && "_err" in position) {
+    if (position._err === ZEST_ERR_NO_ACCOUNT) return { ok: true, newCollateral: true, mask: 0n };
+    return { ok: false, refusal: `Zest could not read this account (error ${String(position._err)}), so no deposit is built.` };
+  }
+  const mask = position && typeof position === "object" && !Array.isArray(position)
+    ? (position as Record<string, ClarityValue>).mask : undefined;
+  if (typeof mask !== "bigint") return { ok: false, refusal: "Zest's record of this account could not be read, so no deposit is built." };
+  const debtBits = mask >> 64n;
+  if (debtBits !== 0n) {
+    return { ok: false, refusal: "This wallet has a Zest loan. SmartX has not yet proved a Zest deposit on an account with a loan, so it does not build one." };
+  }
+  const bit = 1n << BigInt(shareAid);
+  if (mask === 0n) return { ok: true, newCollateral: true, mask };
+  if ((mask & bit) !== 0n) return { ok: true, newCollateral: false, mask };
+  return {
+    ok: false,
+    refusal: "This wallet already supplies a different coin on Zest. Adding a second coin makes Zest check the price of what is already there, which needs a price proof SmartX cannot supply yet, so it does not build this deposit.",
+  };
+}
+
+/**
+ * The reads before a Zest deposit, or the plain reason it is refused. Every read that fails
+ * refuses: an unread pause, cap or position is unknown, never assumed fine.
+ */
+export async function readZestDepositPlan(
+  wallet: string, token: string, amount: number, read: ReadOnlyCall = callReadOnly,
+): Promise<{ plan: ZestDepositPlan; refusal: null } | { plan: null; refusal: string }> {
+  const asset = ZEST_DEPOSIT_ASSETS.find((a) => a.token === token);
+  if (!asset) return { plan: null, refusal: `SmartX builds Zest deposits for ${ZEST_DEPOSIT_ASSETS.map((a) => a.symbol).join(", ")} only.` };
+  const refuse = (why: string) => ({ plan: null, refusal: why } as const);
+  try {
+    const pos = await read(ZEST_MARKET_VAULT, "get-position", [cvPrincipal(wallet), cvUint(MAX_U128)]);
+    if (!pos.okay || !pos.result) return refuse("Zest's record of this account could not be read, so no deposit is built. Try again.");
+    const which = zestDepositCase(parseClarityHex(pos.result), asset.shareAid);
+    if (!which.ok) return refuse(which.refusal);
+
+    const [vaultPause, marketPause, status, cap, held, preview] = await Promise.all([
+      read(asset.vault, "get-pause-states", []),
+      read(ZEST_MARKET_VAULT, "get-pause-states", []),
+      read(ZEST_ASSET_REGISTRY, "get-status", [cvUint(asset.shareAid)]),
+      readUint(read, asset.vault, "get-cap-supply"),
+      readUint(read, asset.vault, "get-assets"),
+      readUint(read, asset.vault, "convert-to-shares", [cvUint(amount)]),
+    ]);
+    const tuple = (r: { okay: boolean; result?: string }): Record<string, ClarityValue> | null => {
+      const v = r.okay && r.result ? parseClarityHex(r.result) : undefined;
+      return v && typeof v === "object" && !Array.isArray(v) && !("_err" in v) ? v as Record<string, ClarityValue> : null;
+    };
+    const vp = tuple(vaultPause), mp = tuple(marketPause), st = tuple(status);
+    if (!vp || typeof vp.deposit !== "boolean") return refuse(`Zest's ${asset.symbol} vault pause state could not be read, so no deposit is built.`);
+    if (vp.deposit) return refuse(`Zest has paused deposits into its ${asset.symbol} vault.`);
+    if (!mp || typeof mp["collateral-add"] !== "boolean") return refuse("Zest's collateral pause state could not be read, so no deposit is built.");
+    if (mp["collateral-add"]) return refuse("Zest has paused adding collateral.");
+    if (!st || typeof st.collateral !== "boolean") return refuse(`Zest's settings for ${asset.symbol} could not be read, so no deposit is built.`);
+    if (!st.collateral) return refuse(`Zest does not accept ${asset.symbol} shares as collateral right now.`);
+    if (held + BigInt(amount) > cap) return refuse(`Zest's ${asset.symbol} vault is at its supply cap, so a deposit of this size would be refused.`);
+    if (preview <= 0n || zestMinShares(preview) <= 0n) return refuse(`That amount is too small for Zest's ${asset.symbol} vault: it would mint no shares.`);
+
+    if (which.newCollateral) {
+      const egroup = await read(ZEST_EGROUP, "resolve", [cvUint(which.mask | (1n << BigInt(asset.shareAid)))]);
+      const g = egroup.okay && egroup.result ? parseClarityHex(egroup.result) : undefined;
+      if (g === undefined) return refuse("Zest's collateral group rules could not be read, so no deposit is built.");
+      if (g && typeof g === "object" && !Array.isArray(g) && "_err" in g) return refuse(`Zest does not allow ${asset.symbol} as collateral for this account.`);
+    }
+    return { plan: { asset, previewShares: preview }, refusal: null };
+  } catch (e: unknown) {
+    return refuse(`A Zest read failed (${e instanceof Error ? e.message : String(e)}), so no deposit is built. Try again.`);
+  }
+}
+
+/** The unsigned Zest deposit, with the conditions the chain enforces under deny. */
+export function buildZestDeposit(wallet: string, amount: number, plan: ZestDepositPlan): ExecuteInstruction {
+  const { asset } = plan;
+  const min = zestMinShares(plan.previewShares);
+  const max = zestMaxShares(plan.previewShares);
+  const conditions = asset.assetName === null
+    ? [
+      // One STX condition on the wallet: exactly the amount. `wstx.transfer` is a bare stx-transfer.
+      { type: "stx", principal: wallet, conditionCode: "eq", amount: String(amount) },
+      { type: "ft", principal: wallet, asset: asset.vault, assetName: "zft", conditionCode: "gte", amount: min.toString() },
+      { type: "ft", principal: wallet, asset: asset.vault, assetName: "zft", conditionCode: "lte", amount: max.toString() },
+      // The market moves exactly the amount into the vault. `gte`, because SmartX refuses
+      // an upper bound on any principal but the person.
+      { type: "stx", principal: ZEST_MARKET, conditionCode: "gte", amount: String(amount) },
+    ]
+    : [
+      { type: "ft", principal: wallet, asset: asset.underlying, assetName: asset.assetName, conditionCode: "eq", amount: String(amount) },
+      { type: "ft", principal: wallet, asset: asset.vault, assetName: "zft", conditionCode: "gte", amount: min.toString() },
+      { type: "ft", principal: wallet, asset: asset.vault, assetName: "zft", conditionCode: "lte", amount: max.toString() },
+      { type: "ft", principal: ZEST_MARKET, asset: asset.underlying, assetName: asset.assetName, conditionCode: "gte", amount: String(amount) },
+    ];
+  const [contractAddress, contractName] = ZEST_MARKET.split(".") as [string, string];
+  return {
+    tool: "call_contract",
+    params: {
+      contractAddress, contractName,
+      functionName: "supply-collateral-add",
+      functionArgs: [
+        { type: "principal", value: asset.underlying },
+        { type: "uint", value: String(amount) },
+        { type: "uint", value: min.toString() },
+        // No price proof: this build is only reached where Zest reads no price.
+        { type: "none" },
+      ],
+      postConditionMode: "deny",
+      postConditions: conditions,
+    },
+    description: `Supply ${humanAmount(BigInt(amount), asset.decimals)} ${asset.symbol} to Zest v2 as collateral`,
+  };
 }
 
 // -- Scout: Hermetica ---------------------------------------------------------
@@ -1794,14 +1982,29 @@ export function sizeHodlmmOption(
  * scan is load that makes a throttled, and so missing, rate more likely.
  */
 export function zestYieldOptions(balances: WalletBalances, zest: ZestPosition): YieldOption[] {
-  if (zest.supply_apy_pct === undefined || zest.utilization_pct === undefined) return [];
+  // STX and USDCx rows, each on its own vault's rate, only for a coin the wallet holds.
+  const others: YieldOption[] = [];
+  for (const [symbol, key] of [["STX", "stx"], ["USDCx", "usdcx"]] as const) {
+    const r = zest.other_rates?.[symbol];
+    const held = (balances as unknown as Record<string, TokenBalance | undefined>)[key];
+    if (!r) continue;
+    // A coin the wallet does not hold still gets its row, as sBTC does, so a deposit of it is
+    // refused for the true reason (no balance) and never as "the rate could not be read".
+    if (!held || !(held.amount > 0)) {
+      others.push({ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Zest", pool: `${symbol} Supply (v2)`, token_needed: symbol, apy_pct: r.supply_apy_pct, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Need ${symbol}.`, ytg_ratio: 0, ytg_profitable: false });
+      continue;
+    }
+    const d = round((held.usd * r.supply_apy_pct / 100) / 365, 4);
+    others.push({ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Zest", pool: `${symbol} Supply (v2)`, token_needed: symbol, apy_pct: r.supply_apy_pct, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Lending, ${round(r.utilization_pct, 1)}% utilization.`, ytg_ratio: 0, ytg_profitable: false });
+  }
+  if (zest.supply_apy_pct === undefined || zest.utilization_pct === undefined) return others;
   const supplyApy = zest.supply_apy_pct;
   const utilPct = zest.utilization_pct;
   if (balances.sbtc.amount > 0) {
     const d = round((balances.sbtc.usd * supplyApy / 100) / 365, 4);
-    return [{ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: supplyApy > 0 ? `Lending, ${round(utilPct, 1)}% utilization.` : `0% utilization, APY rises when borrowers arrive.`, ytg_ratio: 0, ytg_profitable: false }];
+    return [{ sides: "single" as OptionSides, tier: "deploy_now", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: d, monthly_usd: round(d * 30, 2), gas_to_enter_stx: 0.03, swap_cost_note: null, note: supplyApy > 0 ? `Lending, ${round(utilPct, 1)}% utilization.` : `0% utilization, APY rises when borrowers arrive.`, ytg_ratio: 0, ytg_profitable: false }, ...others];
   }
-  return [{ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Need sBTC. Get via: Bitflow swap or sBTC bridge.`, ytg_ratio: 0, ytg_profitable: false }];
+  return [{ sides: "single" as OptionSides, tier: "acquire_to_unlock", protocol: "Zest", pool: "sBTC Supply (v2)", token_needed: "sBTC", apy_pct: supplyApy, daily_usd: 0, monthly_usd: 0, gas_to_enter_stx: 0.03, swap_cost_note: null, note: `Need sBTC. Get via: Bitflow swap or sBTC bridge.`, ytg_ratio: 0, ytg_profitable: false }, ...others];
 }
 
 async function getYieldOptions(
@@ -2683,12 +2886,17 @@ export function rateRefusal(protocol: string, targetOpt: YieldOption | undefined
 
 export function selectTargetOption(
   options: YieldOption[], protocol: string, poolWanted: string | null,
+  /** The coin being deposited. A Zest deposit is weighed against its own vault's row only. */
+  token?: string,
 ): YieldOption | undefined {
   const exact = poolWanted
     ? options.find(o => o.protocol.toLowerCase() === protocol && o.pool_id === poolWanted)
     : undefined;
   if (exact) return exact;
   if (protocol === "hodlmm") return undefined;
+  if (protocol === "zest" && token) {
+    return options.find(o => o.protocol.toLowerCase() === "zest" && o.token_needed.toLowerCase() === token.toLowerCase());
+  }
   return options.find(o => o.protocol.toLowerCase() === protocol);
 }
 
@@ -3005,6 +3213,12 @@ export function buildDeployInstructions(
    * says which question it is asking.
    */
   fundsInWalletNow: boolean = true,
+  /**
+   * The reads a Zest deposit needs, made by the caller before this synchronous builder runs
+   * (`readZestDepositPlan`). Without one there is no Zest deposit: a caller that did not
+   * read the account's position, pauses, cap and share preview gets a refusal.
+   */
+  zestPlan: ZestDepositPlan | null = null,
 ): DeployBuild {
   const instructions: ExecuteInstruction[] = [];
   let refusal: string | null = null;
@@ -3012,11 +3226,13 @@ export function buildDeployInstructions(
 
   switch (protocol) {
     case "zest":
-      instructions.push({
-        tool: "zest_supply",
-        params: { asset: "sBTC", amount: String(amount) },
-        description: `Supply ${amount} sats sBTC to Zest v2 vault`,
-      });
+      // A real transaction the person signs (later item 1). It used to push a
+      // `zest_supply` tool name, which nobody holding no key can execute.
+      if (!zestPlan || zestPlan.asset.token !== token) {
+        refusal = "A Zest deposit is built only after its account, pause, cap and share reads, and those were not made for this request.";
+        break;
+      }
+      instructions.push(buildZestDeposit(wallet, amount, zestPlan));
       break;
 
     case "hermetica": {
@@ -3754,7 +3970,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     const amount = parseAtomicAmount(opts.amount);
     if (amount === null) return { status: "error", command, error: "Amount must be a positive whole number in the token's smallest unit, digits only (no decimal point, no exponent, no 0x)" };
     const token = opts.token ?? inferToken(protocol as Protocol);
-    const validTokens: Record<string, string[]> = { zest: ["sbtc"], hermetica: ["usdh", "sbtc", "usdcx", "stx"], granite: ["aeusdc", "usdcx"], hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc"] };
+    const validTokens: Record<string, string[]> = { zest: ["sbtc", "stx", "usdcx"], hermetica: ["usdh", "sbtc", "usdcx", "stx"], granite: ["aeusdc", "usdcx"], hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc"] };
     if (!validTokens[protocol].includes(token)) {
       return { status: "error", command, error: `${protocol} does not accept ${token}. Valid: ${validTokens[protocol].join(", ")}` };
     }
@@ -4034,7 +4250,7 @@ let economics: {
       // scored 140.4%. Falls back to the protocol match when no pool is named, so
       // the 0% APY check below behaves as it always did.
       const poolWanted = (opts as Record<string, string>).poolId;
-      const targetOpt = selectTargetOption(scout.options, protocol, poolWanted);
+      const targetOpt = selectTargetOption(scout.options, protocol, poolWanted, token);
       const noRate = rateRefusal(protocol, targetOpt, Boolean(opts.force));
       if (noRate) {
         return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [noRate] };
@@ -4135,11 +4351,22 @@ let economics: {
       // The money is in the wallet already: this command's whole premise is that
       // the caller holds it, and Step 3 above checked the balance for the named
       // token. The builder's own guards can be answered here.
+      // A Zest deposit's reads, made here because the builder is synchronous. A refusal
+      // here is the plain reason, before anything is built.
+      let zestPlan: ZestDepositPlan | null = null;
+      if (protocol === "zest") {
+        const zest = await readZestDepositPlan(wallet, token, amount);
+        if (zest.refusal !== null) {
+          return { status: "refused", command, scout, reserve, guardian, refusal_reasons: [zest.refusal] };
+        }
+        zestPlan = zest.plan;
+      }
       const built = buildDeployInstructions(
         protocol, amount, token, scout,
         ((opts as Record<string, string>).poolId ?? "dlmm_1"),
         parseCounterAmount(opts),
         true,
+        zestPlan,
       );
       const notBuilt = nothingToDeposit(protocol, built);
       if (notBuilt) {

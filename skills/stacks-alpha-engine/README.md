@@ -27,7 +27,7 @@ Every write runs: **Scout -> Reserve -> Guardian -> Executor**. The single excep
 
 | Protocol | Token(s) | Deposit | Withdraw | Debt (borrow/repay) | Method |
 |----------|---------|---------|----------|---------------------|--------|
-| Zest v2 | sBTC (supply), USDh (borrow) | `zest_supply` | `zest_withdraw` | `zest_borrow` / `zest_repay`: USDh only | MCP native |
+| Zest v2 | STX, sBTC, USDCx (supply), USDh (borrow) | unsigned `supply-collateral-add` call | `zest_withdraw` | `zest_borrow` / `zest_repay`: USDh only | deploy: call_contract; others MCP native |
 | Hermetica | USDh/sUSDh | `staking-v1-1.stake` | `staking-v1-1.unstake` + `silo.withdraw` | - | call_contract |
 | Granite | aeUSDC | `lp-v1.deposit` | `lp-v1.redeem` (ERC-4626, 3-PC shape) | - | call_contract |
 | HODLMM | per pool pair | `add-liquidity-simple` | `withdraw-liquidity-simple` | - | Bitflow skill |
@@ -242,7 +242,7 @@ The 12 HODLMM pools it knows are scanned with YTG ratios per pool. Reads user po
 
 | Protocol | Deposit | Withdraw | Token | Method |
 |----------|---------|----------|-------|--------|
-| Zest v2 | `zest_supply` | `zest_withdraw` | sBTC | MCP native |
+| Zest v2 | unsigned `supply-collateral-add` | `zest_withdraw` | STX, sBTC, USDCx | deploy: call_contract |
 | Hermetica | `staking-v1-1.stake(uint, optional buff)` | `staking-v1-1.unstake(uint)` + `silo-v1-1.withdraw(uint)` | USDh/sUSDh | call_contract |
 | Granite | `liquidity-provider-v1.deposit(assets, principal)` | `liquidity-provider-v1.redeem(shares, principal)` | aeUSDC | call_contract |
 | HODLMM | `add-liquidity-simple` | `withdraw-liquidity-simple` | per pool pair | Bitflow skill |

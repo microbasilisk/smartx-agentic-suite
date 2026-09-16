@@ -57,7 +57,7 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 ## Protocol-Specific Rules
 
 ### Zest v2
-- Supply sBTC via `zest_supply` (MCP native; routes to `v0-4-market.supply-collateral-add`)
+- Supply STX, sBTC or USDCx: `deploy --protocol zest` builds an unsigned `v0-4-market.supply-collateral-add` (price proof `none`) for the person to sign, only for an account new to Zest, with an empty position, or topping up the coin it already supplies with no loan; everything else is refused before signing
 - Withdraw sBTC via `zest_withdraw` (MCP native; routes to `v0-4-market.collateral-remove-redeem`)
 - Borrow USDh via `zest_borrow` (MCP native; routes to `v0-4-market.borrow`): **USDh only** by `validTokens_borrowRepay` gate. USDCx/wSTX/stSTX return `abort_by_response (err none)` on MCP probe, likely an upstream `borrow-helper-v2-1-7` routing gap; refused to save gas.
 - Repay USDh via `zest_repay` (MCP native; routes to `v0-4-market.repay`)

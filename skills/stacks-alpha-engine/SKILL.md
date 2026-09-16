@@ -21,7 +21,7 @@ Cross-protocol yield executor covering **all 4 major Stacks DeFi protocols**: Ze
 
 | Protocol | Token(s) | Deposit | Withdraw | Debt (borrow/repay) | Method |
 |----------|---------|---------|----------|---------------------|--------|
-| Zest v2 | sBTC (supply), USDh (borrow) | `zest_supply` | `zest_withdraw` | `zest_borrow` / `zest_repay`: USDh only | MCP native |
+| Zest v2 | STX, sBTC, USDCx (supply), USDh (borrow) | unsigned `supply-collateral-add` call (no price proof; new, empty or same coin accounts with no loan) | `zest_withdraw` | `zest_borrow` / `zest_repay`: USDh only | deploy: call_contract; others MCP native |
 | Hermetica | USDh -> sUSDh | `staking-v1-1.stake(amount, affiliate)` | `staking-v1-1.unstake` + `silo.withdraw` | - | call_contract |
 | Granite | aeUSDC | `liquidity-provider-v1.deposit` | `.redeem` (ERC-4626 shares) | - | call_contract |
 | HODLMM | sBTC, STX, USDCx, USDh, aeUSDC (per pool) | `add-liquidity-simple` | `withdraw-liquidity-simple` | - | Bitflow skill |
@@ -190,7 +190,7 @@ Rules a consumer can rely on:
 
 | Protocol | Deposit | Withdraw | Debt (borrow/repay) | Token | Method |
 |----------|---------|----------|---------------------|-------|--------|
-| Zest v2 | `zest_supply` | `zest_withdraw` | `zest_borrow` / `zest_repay` (USDh only) | sBTC (supply), USDh (borrow) | MCP native |
+| Zest v2 | unsigned `supply-collateral-add` | `zest_withdraw` | `zest_borrow` / `zest_repay` (USDh only) | STX, sBTC, USDCx (supply), USDh (borrow) | deploy: call_contract; others MCP native |
 | Hermetica | `staking-v1-1.stake(uint, optional buff)` | `staking-v1-1.unstake(uint)` + `silo-v1-1.withdraw(uint)` | - | USDh/sUSDh | call_contract |
 | Granite | `lp-v1.deposit(assets, principal)` | `lp-v1.redeem(shares, principal)` | - | aeUSDC | call_contract |
 | HODLMM | `add-liquidity-simple` | `withdraw-liquidity-simple` | - | per pool pair | Bitflow skill |
