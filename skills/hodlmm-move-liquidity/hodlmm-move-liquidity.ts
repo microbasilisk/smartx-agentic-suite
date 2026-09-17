@@ -15,6 +15,7 @@
  */
 
 import { Command } from "commander";
+import { MoveBlocked, moveInstruction, planMove, type ReadOnly } from "./move-plan.ts";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -23,7 +24,8 @@ import * as os from "os";
 
 const BITFLOW_QUOTES = "https://bff.bitflowapis.finance/api/quotes/v1";
 const BITFLOW_APP = "https://bff.bitflowapis.finance/api/app/v1";
-const HIRO_API = "https://api.mainnet.hiro.so";
+// `HIRO_API` wins when set, so a runner that points skills at a keyed proxy spends that budget.
+const HIRO_API = process.env.HIRO_API || "https://api.mainnet.hiro.so";
 const EXPLORER = "https://explorer.hiro.so/txid";
 
 // Router v-1-1 at the SM deployer: this is the current mainnet DLMM liquidity router.
@@ -549,6 +551,64 @@ program
       });
     } catch (e: unknown) {
       out("error", "scan", null, (e as Error).message);
+    }
+  });
+
+// ── plan ─────────────────────────────────────────────────────────────────────
+
+/** A read-only call through Hiro, for the plan. */
+const hiroRead: ReadOnly = async (contract, fn, args) => {
+  const [address, name] = contract.split(".") as [string, string];
+  return fetchJson<{ okay: boolean; result?: string }>(`${HIRO_API}/v2/contracts/call-read/${address}/${name}/${fn}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sender: address, arguments: args }),
+  });
+};
+
+program
+  .command("plan")
+  .description("Size a move of the whole position back beside the active bin from the pool contract and print it unsigned; never signs or broadcasts")
+  .requiredOption("--wallet <address>", "STX address")
+  .requiredOption("--pool-id <id>", "Pool ID (e.g. dlmm_3)")
+  .action(async (opts) => {
+    try {
+      if (!/^S[PM][0-9A-HJKMNP-TV-Z]{38,39}$/.test(String(opts.wallet))) {
+        out("blocked", "plan", null, "--wallet must be a Stacks mainnet address");
+        return;
+      }
+      const pools = await fetchPools();
+      const pool = pools.find((p) => p.pool_id === opts.poolId);
+      if (!pool || !/^S[PM][0-9A-Z]+\.[a-z0-9-]+$/.test(pool.pool_contract)) {
+        out("blocked", "plan", null, `No HODLMM pool ${opts.poolId}`);
+        return;
+      }
+      const plan = await planMove(hiroRead, pool.pool_contract, opts.wallet);
+      const instruction = moveInstruction(opts.wallet, plan);
+      const toBins = [...new Set(plan.legs.map((l) => l.to))].sort((a, b) => a - b);
+      out("success", "plan", {
+        wallet: opts.wallet,
+        pool_id: pool.pool_id,
+        pool_contract: pool.pool_contract,
+        active_bin: plan.facts.activeBin,
+        side: plan.side,
+        from_bins: [...plan.held.keys()].sort((a, b) => a - b),
+        to_bins: toBins,
+        shares_moved: plan.legs.reduce((s, l) => s + l.amount, 0n).toString(),
+        legs: plan.legs.map((l) => ({ from: l.from, to: l.to, amount: l.amount.toString(), expected_dlp: l.dlp.toString(), min_dlp: l.minDlp.toString() })),
+        sized_from: "pool contract (get-pool-for-add, get-user-bins, get-balance, get-bin-balances) and dlmm-core get-bin-price",
+        safety: {
+          post_condition_mode: "deny",
+          note: "Nothing but the pool shares moved can leave the wallet; no coin moves at all. Liquidity fees are capped at 0 because nothing moves into the active bin.",
+        },
+        instructions: [instruction],
+      });
+    } catch (e: unknown) {
+      if (e instanceof MoveBlocked) {
+        out("blocked", "plan", { code: e.code, next: e.next }, e.message);
+        return;
+      }
+      out("error", "plan", null, (e as Error).message);
     }
   });
 

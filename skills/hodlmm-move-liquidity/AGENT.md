@@ -8,6 +8,17 @@ description: "Autonomous agent behavior for HODLMM Move-Liquidity & Auto-Rebalan
 
 ## Decision order
 
+### For an agent that never holds the wallet's key (`plan`)
+
+`run` and `auto` sign with a key the skill resolves itself; an agent that hands the person an unsigned transaction
+never calls them. Its order is:
+
+1. `scan --wallet <addr>` and find a pool where the position is out of range.
+2. Confirm the person asked, in their own words, to move that position back into range.
+3. `plan --wallet <addr> --pool-id <id>`. Relay a `blocked` reason plainly. An `error` is a failed read, not a
+   verdict: try once more before saying anything. On `success`, the transaction in `data.instructions[0]` is what
+   the person reviews and signs in their own wallet.
+
 ### Manual mode (`run`)
 
 1. Run `doctor --wallet <addr>`. If any check fails, stop and surface the blocker to the operator.

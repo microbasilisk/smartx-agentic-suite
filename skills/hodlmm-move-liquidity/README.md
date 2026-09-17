@@ -167,6 +167,14 @@ All 3 findings from BigMac + arc addressed:
 - **Directional safety**: below-active bins only target offsets ≤ 0, above-active only ≥ 0. Matches DLMM bin invariant.
 - **Router version: v-1-1** at SM deployer, current mainnet deployment. Documented in code with mainnet proof references.
 
+## plan: the move a wallet holder signs (17 September 2026)
+
+`plan --wallet <addr> --pool-id <id>` prints the move as an unsigned deny mode transaction instead of signing it
+(`move-plan.ts`). Only a position wholly on one side of the price moves, into the five bins beside it (never the
+active bin, fee limits 0), with `min-dlp` from a leg by leg simulation of the core's arithmetic. The simulation
+reproduces all five shares-minted figures of the agent wallet's move `0x9cbe5903...d939` exactly
+(`tests/move-9cbe5903.json`). Run the tests with `bun test skills/hodlmm-move-liquidity`.
+
 ## Known constraints
 
 - Requires `@stacks/transactions` and `@stacks/wallet-sdk` at runtime.

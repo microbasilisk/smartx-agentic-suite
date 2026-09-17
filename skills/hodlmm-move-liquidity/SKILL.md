@@ -5,7 +5,7 @@ metadata:
   author: "cliqueengagements"
   author-agent: "Micro Basilisk (Agent 77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "false"
-  arguments: "doctor | scan | run | auto | install-packs"
+  arguments: "doctor | scan | plan | run | auto | install-packs"
   entry: "hodlmm-move-liquidity/hodlmm-move-liquidity.ts"
   requires: "wallet, signing"
   tags: "defi, write, mainnet-only, requires-funds"
@@ -97,6 +97,40 @@ Options:
 - `--spread <n>`: bin spread ±N around active bin (default: 5, max: 10)
 - `--max-moves <n>`: max moves per cycle, 0 = unlimited (default: 0)
 - `--once`: run one cycle then exit
+
+### plan
+
+Sizes a move of the WHOLE position in one pool back beside the current price, from the pool contract, and prints it
+as an unsigned transaction for the wallet holder to sign. Never signs or broadcasts. Added 17 September 2026 for
+SmartX (`move-plan.ts`).
+
+```bash
+bun run hodlmm-move-liquidity/hodlmm-move-liquidity.ts plan --wallet <STX_ADDRESS> --pool-id dlmm_3
+```
+
+- Only a position wholly on one side of the active bin moves: above it to `active+1 .. active+5`, below it to
+  `active-5 .. active-1`. Never into the active bin, so both liquidity fee limits are 0. Every share of every bin
+  moves, split evenly over the five destinations.
+- Refuses (`status: "blocked"`, `data.code`): `NO_POSITION`, `COVERS_PRICE` (straddles the price or holds its bin),
+  `ALREADY_BESIDE_PRICE`, `TOO_MANY_BINS` (more than 10), `MIXED_BIN`, `EMPTY_DESTINATION`, `DUST`,
+  `POOR_DESTINATION` (a leg could claim back under 99 percent of what it moved), `UNREVIEWED_CORE`, `READ_FAILED`.
+- `min-dlp` per leg is the shares the core will mint, simulated leg by leg with the core's own arithmetic, less half
+  a percent.
+- Deny mode: the wallet sends exactly the shares moved of `<pool>::pool-token`, plus one `maybe-sent`
+  `<pool>::pool-token-id` receipt condition per bin touched. No coin moves, so no coin condition.
+- The whole position moves or nothing does. A position with one bin already inside the five destination bins and
+  another far away is refused as `ALREADY_BESIDE_PRICE`, which leaves the far bin where it is: withdraw it, or
+  move it once the near bin is gone.
+- A Hiro or Bitflow read that fails prints `status: "error"`, not `blocked`. It is not a verdict on the position;
+  run `plan` again.
+- If the price moves between signing and mining toward a position above it, rising into a destination aborts the
+  whole call (the person loses only the network fee), and falling several bins still lands the move, a few bins
+  further from the price than planned. Below the price it is the mirror: falling into a destination aborts, rising
+  lands it further off.
+  A destination another provider empties in that window mints 1000 shares to the burn address (about 0.01 percent)
+  or aborts. No path burns shares without minting.
+- `maybe-sent` is the SIP-040 condition (wire code 18), accepted by the node from epoch 3.4. As of 17 September 2026
+  no deny mode move built this way has been signed on mainnet, so the first signing also proves the wallet shows it.
 
 ### install-packs
 
