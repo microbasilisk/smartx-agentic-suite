@@ -157,9 +157,12 @@ export async function quotePool(
     // recorded sBTC pool, at most 0.0000134 percent of the deposit across 1 to 1000 USDCx.
     const yPerOneX = atomicToDecimal((10n ** BigInt(tx.decimals) * y) / x, ty.decimals);
     const xPerOneY = atomicToDecimal((10n ** BigInt(ty.decimals) * x) / y, tx.decimals);
+    // A ratio smaller than the coin's smallest unit floors to "0", which would read as "costs nothing". Said as a
+    // bound instead: on LEO-STX the true figure is about 0.0000000011 STX for every 1 LEO (Fable's review, part 2).
+    const said = (figure: string, coin: QuoteToken) => (figure === "0" ? `under ${atomicToDecimal(1n, coin.decimals)}` : figure);
     feeFree = {
       case: "both", y_per_one_x: yPerOneX, x_per_one_y: xPerOneY,
-      says: `A pair matching bin ${unsigned}'s own mix pays no liquidity fee, apart from rounding worth far less than a hundredth of a percent: ${xPerOneY} ${tx.symbol} for every 1 ${ty.symbol}, which is ${yPerOneX} ${ty.symbol} for every 1 ${tx.symbol}.`,
+      says: `A pair matching bin ${unsigned}'s own mix pays no liquidity fee, apart from rounding worth far less than a hundredth of a percent: ${said(xPerOneY, tx)} ${tx.symbol} for every 1 ${ty.symbol}, which is ${said(yPerOneX, ty)} ${ty.symbol} for every 1 ${tx.symbol}.`,
     };
   }
 

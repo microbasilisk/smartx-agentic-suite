@@ -269,3 +269,27 @@ describe("the command", () => {
     expect(out.data).toBeUndefined();
   });
 });
+
+describe("a ratio smaller than a coin's smallest unit", () => {
+  test("is said as a bound, never as zero, so no coin reads as costing nothing", async () => {
+    // LEO-STX shape: the active bin holds 116,097 LEO against 0.000127 STX (read 17 September 2026), so STX per
+    // one LEO is about 0.0000000011, under a microSTX.
+    const hex = (n: bigint) => n.toString(16).padStart(32, "0");
+    const key = (k: string) => (k.length.toString(16).padStart(2, "0")) + Buffer.from(k).toString("hex");
+    const balances = (x: bigint, y: bigint, shares: bigint): QuoteRead => async (contract, fn, args) => {
+      if (fn !== "get-bin-balances") return reader()(contract, fn, args);
+      return { okay: true, result: "0x07" + "0c" + "00000003" + key("bin-shares") + "01" + hex(shares) + key("x-balance") + "01" + hex(x) + key("y-balance") + "01" + hex(y) };
+    };
+    // The recorded pool's own two traits, renamed LEO and STX, so the record still matches and only the decimals
+    // and the balances matter to the figures under test.
+    const q = await quotePool({ ...POOLS.dlmm_3!, name: "LEO-STX-50bps", tokenX: "leo", tokenY: "ministx" },
+      { leo: { symbol: "LEO", decimals: 6 }, ministx: { symbol: "STX", decimals: 6 } },
+      (t) => (t === "leo" ? TRAITS.stx! : TRAITS.usdcx!),
+      balances(116_097_000_000n, 127n, 1_000_000n), HEIGHT, NOW);
+    expect(q.fee_free.y_per_one_x).toBe("0");
+    expect(q.fee_free.says).toContain("under 0.000001 STX for every 1 LEO");
+    expect(q.fee_free.says).not.toContain("0 STX for every 1 LEO");
+    // The other direction is a real figure and is printed as one.
+    expect(q.fee_free.says).toContain(`${q.fee_free.x_per_one_y} LEO for every 1 STX`);
+  });
+});

@@ -199,8 +199,10 @@ run by `dlmm-core-v-1-1` and still holds the listed coins.
 
 Two numbers, which are not the same thing:
 - **`price`**: what one coin is worth in the other (`y_per_x`, `x_per_y`, human units, rounded down to 18 places).
-- **`fee_free`**: the pair that matches the active bin's own mix, per one whole coin each way, rounded down to the
-  other coin's smallest unit. `dlmm-core-v-1-1` `add-liquidity` charges its liquidity fee (`fee_bps`) only in the
+- **`fee_free`**: the pair that matches the active bin's own mix, per one whole coin each way. The two figures are
+  rounded DOWN to the other coin's smallest unit, so one of them can be `0` when the true ratio is smaller than
+  that (LEO-STX: about 0.0000000011 STX for one LEO). `says` carries the honest wording, "under 0.000001 STX", and
+  is the sentence to relay; the raw figures are floors, never quotes. `dlmm-core-v-1-1` `add-liquidity` charges its liquidity fee (`fee_bps`) only in the
   active bin and only on the part of a deposit that does not match this mix. On 17 September dlmm_3's bin held
   about 52 STX per USDCx while the price was about 4 STX per USDCx. `case` is `both`, `only_x` or `only_y` (any of
   the missing coin is unmatched, no per unit figure), or `empty` (no fee on any split).
