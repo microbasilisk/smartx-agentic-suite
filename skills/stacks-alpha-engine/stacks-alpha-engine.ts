@@ -223,6 +223,12 @@ const HODLMM_POOLS: PoolDef[] = [
   { id: 17, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-sbtc-usdcx-v-2-bps-10", name: "sBTC-USDCx-10bps-v2", tokenX: "sbtc", tokenY: "usdcx" },
   // stSTX/STX at bin step 1, fee 5 bps a side, the pool contract byte identical to dlmm_3's (2026-09-17).
   { id: 10, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-ststx-stx-v-1-bps-1",  name: "stSTX-STX-1bps",     tokenX: "ststx", tokenY: "stx" },
+  // ZEST/STX at bin step 50, fee 100 bps a side. Two of Zest Protocol's token pools: v2 is the live one (about $114k,
+  // read 2026-09-17), v1 is small; the version stays in the name so the two are never one name.
+  { id: 11, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-zest-stx-v-2-bps-50",  name: "ZEST-STX-50bps-v2",  tokenX: "zest",  tokenY: "stx" },
+  { id: 9,  contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-zest-stx-v-1-bps-50",  name: "ZEST-STX-50bps-v1",  tokenX: "zest",  tokenY: "stx" },
+  // LEO/STX at bin step 50, fee 100 bps a side, a meme token; thin (its active bin held 0.000925 STX on 2026-09-17).
+  { id: 13, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-leo-stx-v-1-bps-50",   name: "LEO-STX-50bps",      tokenX: "leo",   tokenY: "stx" },
 ];
 
 // Token metadata for yield calculations
@@ -4089,7 +4095,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     const amount = parseAtomicAmount(opts.amount);
     if (amount === null) return { status: "error", command, error: "Amount must be a positive whole number in the token's smallest unit, digits only (no decimal point, no exponent, no 0x)" };
     const token = opts.token ?? inferToken(protocol as Protocol);
-    const validTokens: Record<string, string[]> = { zest: ["sbtc", "stx", "usdcx"], hermetica: ["usdh", "sbtc", "usdcx", "stx"], granite: ["aeusdc", "usdcx"], hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx"] };
+    const validTokens: Record<string, string[]> = { zest: ["sbtc", "stx", "usdcx"], hermetica: ["usdh", "sbtc", "usdcx", "stx"], granite: ["aeusdc", "usdcx"], hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx", "zest", "leo"] };
     if (!validTokens[protocol].includes(token)) {
       return { status: "error", command, error: `${protocol} does not accept ${token}. Valid: ${validTokens[protocol].join(", ")}` };
     }

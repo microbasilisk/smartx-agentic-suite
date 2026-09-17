@@ -34,7 +34,7 @@ Together, ZBG represents **over $100M in TVL**: the three places serious sBTC yi
 One command. Five sections. No DeFi knowledge required.
 
 1. **What You Have**: Your sBTC, STX, and USDCx balances shown in dollars. No raw decimals, no hex, just what you own.
-2. **Available ZBG Positions**: Checks all three protocols for any active deposits. Scans 13 HODLMM pools (the stSTX pool was added 17 September 2026; the ZEST and LEO pools are not included yet). If you have nothing deployed, it tells you straight: "idle, earning nothing."
+2. **Available ZBG Positions**: Checks all three protocols for any active deposits. Scans 16 HODLMM pools (the stSTX, ZEST and LEO pools were added 17 September 2026; ZEST-STX v3 is never included). If you have nothing deployed, it tells you straight: "idle, earning nothing."
 3. **ZBG Smart Options**: Side-by-side yield comparison. APY, what you'd earn daily and monthly, gas cost to enter. Sorted best to worst. You don't need to understand interest rate models, just read the table.
 4. **Best Safe Move**: One recommendation. Not five options to research, one clear next step based on your holdings and current rates. Shows exactly how much you're leaving on the table by doing nothing.
 5. **Break Prices**: The sBTC price where things go wrong. Where your HODLMM bins go out of range. Where Granite liquidates your collateral. A plain dollar number so you know when to pay attention.
@@ -87,7 +87,7 @@ bun run zbg-yield-scout/zbg-yield-scout.ts run --wallet SP219TWC8G12CSX5AB093127
 | Tenero API | sBTC/STX/USDCx USD prices, wallet holdings | `api.tenero.io` |
 | Zest Protocol | Supply position per coin, and each vault's supply rate | On-chain read via `call_read_only_function`: `v0-market-vault.get-position` plus each vault's `get-balance` and `convert-to-assets`; rate from `get-interest-rate`, `get-utilization` and `get-fee-reserve` |
 | Granite Protocol | Supply/borrow params, interest rate, user position, collateral config | On-chain reads via `call_read_only_function` |
-| HODLMM Pool Contracts | User bins, bin balances, active bin, pool state | Direct pool contract reads (13 pools) |
+| HODLMM Pool Contracts | User bins, bin balances, active bin, pool state | Direct pool contract reads (16 pools) |
 | Bitflow App API | HODLMM pool APR, TVL, volume | `bff.bitflowapis.finance` |
 
 ## Output contract

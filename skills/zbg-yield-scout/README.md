@@ -13,7 +13,7 @@ zbg-yield-scout
 - [ ] Infrastructure
 - [ ] Signals
 
-**HODLMM integration?** Yes: scans 13 HODLMM pools
+**HODLMM integration?** Yes: scans 16 HODLMM pools
 
 ## What it does
 
@@ -24,7 +24,7 @@ One command, five sections, no DeFi knowledge required. Scans Zest, Bitflow (HOD
 ### Five-section output
 
 1. **What You Have**: Token balances in USD
-2. **Available ZBG Positions**: Active deposits across all 3 protocols + 13 HODLMM pools
+2. **Available ZBG Positions**: Active deposits across all 3 protocols + 16 HODLMM pools
 3. **ZBG Smart Options**: Side-by-side yield comparison sorted best to worst with APY, daily/monthly earnings, gas cost
 4. **Best Safe Move**: One clear recommendation with opportunity cost
 5. **Break Prices**: sBTC prices where HODLMM bins go out of range or Granite liquidates
@@ -45,7 +45,7 @@ Most agents deposit into one protocol and forget. They don't know if Granite is 
 
 ## HODLMM integration
 
-Scans 13 HODLMM pools for user positions, active bins, and APR. Shows per-pool yield in the Smart Options table. Break prices show where HODLMM bins exit range.
+Scans 16 HODLMM pools for user positions, active bins, and APR. Shows per-pool yield in the Smart Options table. Break prices show where HODLMM bins exit range.
 
 ## Data sources
 
@@ -55,7 +55,7 @@ Scans 13 HODLMM pools for user positions, active bins, and APR. Shows per-pool y
 | Tenero API | sBTC/STX/USDCx USD prices |
 | Zest Protocol | Supply position (on-chain read) |
 | Granite Protocol | Supply/borrow params, user position (on-chain read) |
-| HODLMM Pool Contracts | User bins, balances, active bin (13 pools) |
+| HODLMM Pool Contracts | User bins, balances, active bin (16 pools) |
 | Bitflow App API | HODLMM pool APR, TVL, volume |
 
 ## Known constraints
@@ -71,7 +71,7 @@ Scans 13 HODLMM pools for user positions, active bins, and APR. Shows per-pool y
 **Author:** cliqueengagements
 **Author Agent:** Micro Basilisk (Agent #77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5
 **Category:** Yield
-**HODLMM integration?** Yes: scans 13 HODLMM pools, reads bin positions, calculates break prices from on-chain bin math
+**HODLMM integration?** Yes: scans 16 HODLMM pools, reads bin positions, calculates break prices from on-chain bin math
 
 ---
 
@@ -96,7 +96,7 @@ Together, ZBG represents **over $100M in TVL**: the three places serious sBTC yi
 **One command. Five sections. No DeFi knowledge required.**
 
 1. **What You Have** - Your sBTC, STX, and USDCx balances shown in dollars. No raw decimals, no hex: just what you own.
-2. **Available ZBG Positions** - Checks all three protocols for active deposits. Scans 13 HODLMM pools. If nothing deployed: "idle, earning nothing."
+2. **Available ZBG Positions** - Checks all three protocols for active deposits. Scans 16 HODLMM pools. If nothing deployed: "idle, earning nothing."
 3. **Your Options** - Side-by-side yield comparison. APY, daily/monthly earnings, gas cost. Sorted best to worst.
 4. **Best Safe Move** - One recommendation. Not five options to research: one clear next step. Shows exactly how much you're leaving on the table.
 5. **Break Prices** - The sBTC price where things go wrong. Where your bins exit range. Where Granite liquidates. A plain dollar number.
@@ -277,6 +277,6 @@ Frontmatter manually verified against registry spec:
 - **HODLMM position value is read bin by bin.** For each bin the wallet is in, its shares over the bin's shares, times the coins the bin holds (`get-balance` and `get-bin-balances` on the pool contract), reported as `holdings` and priced from prices that were read (stablecoins at $1). A position spanning more than 8 bins, a bin read that fails, or a price that was not read leaves `estimated_value_usd` null, and the report names the position as not counted rather than showing a partial or estimated figure. Until 2026-09-14 this was `dlpShares / totalSupply * poolTVL`, which is wrong for HODLMM: a share only means something inside its own bin, and it valued a position holding about 28 STX at $59.
 - **Granite liquidation price is null for supply-only.** The `liquidator-v1.account-health` call needs a `trait_reference` arg (not encodable via Hiro API). For borrowers, liquidation threshold is derivable from `max_ltv_pct` (50%) and `liquidation_ltv_pct` (65%) read from `get-collateral`. For supply-only positions (no debt), there is no liquidation risk: `granite_liquidation_usd` correctly returns `null`.
 - **Gas cost estimates are fixed approximations.** All options show 0.05 STX (0.03 for Zest): typical transaction overhead, not measured per-call.
-- **13 HODLMM pools scanned sequentially.** A pool the wallet does not hold takes 1 read; a pool it holds takes 3, plus 2 for each bin valued (at most 8). Hiro allows 50 reads a minute without a key, which is why the bin count is capped. A pool whose read fails or throws is listed in `hodlmm.unread`, shown as UNKNOWN and makes the run `degraded`: it is never reported as no position.
+- **16 HODLMM pools scanned sequentially.** A pool the wallet does not hold takes 1 read; a pool it holds takes 3, plus 2 for each bin valued (at most 8). Hiro allows 50 reads a minute without a key, which is why the bin count is capped. A pool whose read fails or throws is listed in `hodlmm.unread`, shown as UNKNOWN and makes the run `degraded`: it is never reported as no position.
 
 

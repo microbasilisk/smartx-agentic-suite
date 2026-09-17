@@ -81,15 +81,15 @@ describe("one coin's price from a Tenero answer", () => {
 
 describe("the records name what the chain defines", () => {
   const src = require("node:fs").readFileSync(engine, "utf8") as string;
-  test("contract, asset name and 6 decimals for each coin, and HODLMM deploys accept stSTX", () => {
+  test("contract, asset name and 6 decimals for each coin, and HODLMM deploys accept all three", () => {
     expect(src).toContain('const STSTX_TOKEN         = "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststx-token";');
     expect(src).toContain('const ZEST_TOKEN          = "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.zest-token";');
     expect(src).toContain('const LEO_TOKEN           = "SP1AY6K3PQV5MRT6R4S671NWW2FRVPKM0BR162CT6.leo-token";');
     expect(src).toContain('ststx:  { symbol: "stSTX",  contract: STSTX_TOKEN,  decimals: 6, ftSuffix: "::ststx" },');
     expect(src).toContain('zest:   { symbol: "ZEST",   contract: ZEST_TOKEN,   decimals: 6, ftSuffix: "::zest" },');
     expect(src).toContain('leo:    { symbol: "LEO",    contract: LEO_TOKEN,    decimals: 6, ftSuffix: "::leo" },');
-    // Only the coins of pools this skill lists: ZEST and LEO join when their pools do.
-    expect(src).toContain('hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx"] };');
+    // Only the coins of pools this skill lists: ZEST and LEO joined with their pools (part 2, 17 September).
+    expect(src).toContain('hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx", "zest", "leo"] };');
   });
 });
 
@@ -148,5 +148,42 @@ describe("a pool too quiet for the volume check is listed, never offered as ente
     expect(src).toContain("enterable: clearsVolumeFloor(bp.volumeUsd1d),");
     expect(src).toContain("is under the $${MIN_24H_VOLUME_USD.toLocaleString()} the safety check requires.");
     expect(src).toContain("const ok = clearsVolumeFloor(usd);");
+  });
+});
+
+describe("the ZEST and LEO pools", () => {
+  const scoutWith = (coin: "zest" | "leo", atomic: string) => ({
+    wallet: W,
+    balances: { stx: { amount: 50, usd: 0, atomic: "50000000" }, [coin]: { amount: Number(atomic) / 1e6, usd: 0, atomic } },
+    prices: { sbtc: 78000, stx: 0.25, usdcx: 1, usdh: 1, aeusdc: 1, ststx: 0.29, zest: 0.128, leo: 0.0001 },
+  }) as never;
+
+  test("a two coin ZEST deposit into the v2 pool caps ZEST under its own asset name and STX as STX", async () => {
+    const { buildDeployInstructions } = await import("../stacks-alpha-engine.ts");
+    const b = buildDeployInstructions("hodlmm" as never, 30_000_000, "zest", scoutWith("zest", "40000000"), "dlmm_11", 5_000_000, true);
+    expect(b.refusal ?? null).toBeNull();
+    const p = b.instructions.find((i) => i.tool === "call_contract")!.params as Record<string, any>;
+    expect(p.functionArgs[1].value).toBe("SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-zest-stx-v-2-bps-50");
+    expect(p.functionArgs[2].value).toBe("SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.zest-token");
+    expect(p.postConditions).toEqual([
+      { type: "ft", principal: W, asset: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.zest-token", assetName: "zest", conditionCode: "lte", amount: "30000000" },
+      { type: "stx", principal: W, conditionCode: "lte", amount: "5000000" },
+    ]);
+  });
+
+  test("LEO's pool builds with LEO's asset name, and the v1 and v2 ZEST pools are distinct", async () => {
+    const { buildDeployInstructions } = await import("../stacks-alpha-engine.ts");
+    const leo = buildDeployInstructions("hodlmm" as never, 5_000_000, "stx", scoutWith("leo", "900000000000"), "dlmm_13", 800_000_000_000, true);
+    const p = leo.instructions.find((i) => i.tool === "call_contract")!.params as Record<string, any>;
+    expect(p.postConditions[0]).toMatchObject({ asset: "SP1AY6K3PQV5MRT6R4S671NWW2FRVPKM0BR162CT6.leo-token", assetName: "leo", amount: "800000000000" });
+    const v1 = buildDeployInstructions("hodlmm" as never, 30_000_000, "zest", scoutWith("zest", "40000000"), "dlmm_9", 5_000_000, true);
+    expect((v1.instructions.find((i) => i.tool === "call_contract")!.params as Record<string, any>).functionArgs[1].value)
+      .toBe("SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-zest-stx-v-1-bps-50");
+  });
+
+  test("dlmm_12, the ZEST pool stuck at the lowest bin, is never listed", async () => {
+    const src = require("node:fs").readFileSync(engine, "utf8") as string;
+    expect(src).not.toContain("dlmm-pool-zest-stx-v-3-bps-50\"");
+    expect(src).not.toMatch(/\{ id: 12,/);
   });
 });
