@@ -40,7 +40,12 @@ async function waitForSlot(): Promise<void> {
   nextRequestAt = at + REQUEST_GAP_MS;
   if (at > now) await new Promise((r) => setTimeout(r, at - now));
 }
-const HIRO_API = "https://api.mainnet.hiro.so";
+/**
+ * Where Stacks reads go. `HIRO_API` lets whoever runs the skill put an authenticated hop in front of Hiro and keep
+ * any key on their own side; SmartX passes one to every skill. Unset, it is the public host. Added 17 September
+ * 2026: one scan is 24 to 42 Hiro reads, and anonymous Hiro allows 50 a minute shared with everything else.
+ */
+const HIRO_API = process.env.HIRO_API || "https://api.mainnet.hiro.so";
 const TENERO_API = "https://api.tenero.io";
 const BITFLOW_API = "https://bff.bitflowapis.finance";
 
