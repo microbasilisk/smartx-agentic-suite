@@ -213,12 +213,16 @@ const HODLMM_POOLS: PoolDef[] = [
   // Pools 14 to 17 are second and third pools for pairs already listed, with the same coins,
   // coin order and bin step as their twins and an identical contract interface (read from
   // chain 2026-09-16). The version stays in the name, so two pools are never one name.
-  // Pools 9 to 13 hold ZEST, stSTX and LEO, coins this skill has no metadata or price for,
-  // and are left out on purpose until that is decided (smartx-app docs/LATER.md).
+  // Pools 9 to 13 hold ZEST, stSTX and LEO, added one at a time (smartx-app docs/PLAN-new-pools.md). In all
+  // five STX is the Y coin, the other way round from every STX pool above; the build is side generic.
+  // dlmm_12 (ZEST-STX v3) is never added: its active bin is pinned at the lowest bin, empty, at 3.8 times the
+  // market price, with no volume for 30 days (read from chain 2026-09-17).
   { id: 14, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-2-bps-10", name: "STX-USDCx-10bps-v2", tokenX: "stx",  tokenY: "usdcx" },
   { id: 15, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-2-bps-15",  name: "STX-sBTC-15bps-v2",  tokenX: "stx",  tokenY: "sbtc" },
   { id: 16, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-3-bps-15",  name: "STX-sBTC-15bps-v3",  tokenX: "stx",  tokenY: "sbtc" },
   { id: 17, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-sbtc-usdcx-v-2-bps-10", name: "sBTC-USDCx-10bps-v2", tokenX: "sbtc", tokenY: "usdcx" },
+  // stSTX/STX at bin step 1, fee 5 bps a side, the pool contract byte identical to dlmm_3's (2026-09-17).
+  { id: 10, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-ststx-stx-v-1-bps-1",  name: "stSTX-STX-1bps",     tokenX: "ststx", tokenY: "stx" },
 ];
 
 // Token metadata for yield calculations
@@ -425,6 +429,13 @@ interface YieldOption {
    */
   gates?: "passed" | "failed" | "not-measured";
   /**
+   * HODLMM only: whether the pool's 24 hour volume clears the floor the guardian's volume gate refuses under, so
+   * a deposit could be built today. A row that cannot be entered is still listed (a person may hold it, and the
+   * rate is real), but must never read as an offer: the note says why, and a caller must not propose it.
+   */
+  enterable?: boolean;
+  volume_24h_usd?: number;
+  /**
    * Which sides of the pair the wallet holds, or `single` for unpaired products.
    *
    * REQUIRED. Optional, it could be dropped from the HODLMM push with the suite
@@ -563,6 +574,11 @@ interface BitflowPoolData { poolId: string; poolStatus?: boolean; tvlUsd: number
  * and a bin price, so without this both gates pass and a deposit is built (KB pool
  * eligibility). A row with no status is not active: the field is the only signal.
  */
+/** Whether a pool's 24 hour volume clears the guardian's volume floor. Not a number is not clear. */
+export function clearsVolumeFloor(volumeUsd1d: unknown): boolean {
+  return typeof volumeUsd1d === "number" && Number.isFinite(volumeUsd1d) && volumeUsd1d >= MIN_24H_VOLUME_USD;
+}
+
 export function poolIsLive(row: { poolStatus?: unknown } | null | undefined): boolean {
   return row?.poolStatus === true;
 }
@@ -2197,7 +2213,11 @@ async function getYieldOptions(
           token_x: def.tokenX, token_y: def.tokenY,
           apy_pct: round(bp.apr24h, 2), daily_usd: d, monthly_usd: round(d * 30, 2),
           gas_to_enter_stx: 0.05, swap_cost_note: swapNote,
-          note: `Fee-based LP. TVL: $${Math.round(bp.tvlUsd).toLocaleString()}.`,
+          enterable: clearsVolumeFloor(bp.volumeUsd1d),
+          ...(typeof bp.volumeUsd1d === "number" && Number.isFinite(bp.volumeUsd1d) ? { volume_24h_usd: Math.round(bp.volumeUsd1d) } : {}),
+          note: `Fee-based LP. TVL: $${Math.round(bp.tvlUsd).toLocaleString()}.`
+            + (clearsVolumeFloor(bp.volumeUsd1d) ? ""
+              : ` Cannot be entered today: 24h volume ${typeof bp.volumeUsd1d === "number" && Number.isFinite(bp.volumeUsd1d) ? `$${Math.round(bp.volumeUsd1d).toLocaleString()}` : "unknown"} is under the $${MIN_24H_VOLUME_USD.toLocaleString()} the safety check requires.`),
           ytg_ratio: 0, ytg_profitable: false,
         });
       }
@@ -2544,7 +2564,7 @@ export async function checkGuardian(
     if (!targetPool) return unknown(`${targetPoolId} was not in the pools the endpoint returned`);
     const usd = targetPool.volumeUsd1d;
     if (typeof usd !== "number" || !Number.isFinite(usd)) return unknown(`${targetPoolId} came back without a 24h volume figure`);
-    const ok = usd >= MIN_24H_VOLUME_USD;
+    const ok = clearsVolumeFloor(usd);
     if (!ok) refusals.push(`24h volume $${Math.round(usd)} on ${targetPoolId} < $${MIN_24H_VOLUME_USD} minimum`);
     return {
       ok, status: ok ? "pass" : "fail", value: round(usd, 2),
@@ -4066,7 +4086,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     const amount = parseAtomicAmount(opts.amount);
     if (amount === null) return { status: "error", command, error: "Amount must be a positive whole number in the token's smallest unit, digits only (no decimal point, no exponent, no 0x)" };
     const token = opts.token ?? inferToken(protocol as Protocol);
-    const validTokens: Record<string, string[]> = { zest: ["sbtc", "stx", "usdcx"], hermetica: ["usdh", "sbtc", "usdcx", "stx"], granite: ["aeusdc", "usdcx"], hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx", "zest", "leo"] };
+    const validTokens: Record<string, string[]> = { zest: ["sbtc", "stx", "usdcx"], hermetica: ["usdh", "sbtc", "usdcx", "stx"], granite: ["aeusdc", "usdcx"], hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx"] };
     if (!validTokens[protocol].includes(token)) {
       return { status: "error", command, error: `${protocol} does not accept ${token}. Valid: ${validTokens[protocol].join(", ")}` };
     }

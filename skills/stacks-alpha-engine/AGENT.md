@@ -85,7 +85,7 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 ### HODLMM (Bitflow DLMM)
 - Add liquidity via `bitflow add-liquidity-simple`
 - Withdraw via `bitflow withdraw-liquidity-simple`
-- 12 pools covering sBTC, STX, USDCx, USDh, aeUSDC pairs (Bitflow lists 17; the ZEST, stSTX and LEO pools are not included)
+- 13 pools covering sBTC, STX, USDCx, USDh, aeUSDC and stSTX pairs (Bitflow lists 17; the ZEST and LEO pools are not included yet, and ZEST-STX v3 is never included). A pool whose 24 hour volume is under the $10,000 volume gate is listed with `enterable: false` and a reason, and is never proposed
 - Two-token detection: one-sided above/below active bin as needed
 
 ## Emergency Protocol

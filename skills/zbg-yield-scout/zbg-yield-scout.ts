@@ -68,12 +68,13 @@ const HODLMM_POOLS: HodlmmPoolDef[] = [
   // Pools 14 to 17 are second and third pools for pairs already listed, with the same coins,
   // coin order and bin step as their twins and an identical contract interface (read from
   // chain 2026-09-16). The version stays in the name, so two pools are never one name.
-  // Pools 9 to 13 hold ZEST, stSTX and LEO, coins this skill has no metadata or price for,
-  // and are left out on purpose until that is decided (smartx-app docs/LATER.md).
+  // Pools 9 to 13 hold ZEST, stSTX and LEO, added one at a time (smartx-app docs/PLAN-new-pools.md); STX is the
+  // Y coin in all five. dlmm_12 is never added: pinned at the lowest bin, empty, no volume for 30 days.
   { id: 14, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-usdcx-v-2-bps-10", name: "STX-USDCx-10bps-v2", tokenX: "stx",  tokenY: "usdcx" },
   { id: 15, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-2-bps-15",  name: "STX-sBTC-15bps-v2",  tokenX: "stx",  tokenY: "sbtc" },
   { id: 16, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-stx-sbtc-v-3-bps-15",  name: "STX-sBTC-15bps-v3",  tokenX: "stx",  tokenY: "sbtc" },
   { id: 17, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-sbtc-usdcx-v-2-bps-10", name: "sBTC-USDCx-10bps-v2", tokenX: "sbtc", tokenY: "usdcx" },
+  { id: 10, contract: "SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-ststx-stx-v-1-bps-1",  name: "stSTX-STX-1bps",     tokenX: "ststx", tokenY: "stx" },
 ];
 
 // Token contracts
@@ -913,7 +914,9 @@ export async function getGranitePosition(wallet: string, read: ReadOnlyCall = ca
 }
 
 /** Decimals of the coins HODLMM pools hold, read from each token contract. */
-const HODLMM_DECIMALS: Record<string, number> = { stx: 6, sbtc: 8, usdcx: 6, aeusdc: 6, usdh: 8 };
+// stSTX read from chain 2026-09-17 (`get-decimals` 6). No price is read for it here, so a position in its pool
+// is listed with its coins and no dollar figure; SmartX prices those amounts itself.
+const HODLMM_DECIMALS: Record<string, number> = { stx: 6, sbtc: 8, usdcx: 6, aeusdc: 6, usdh: 8, ststx: 6 };
 
 /**
  * The most bins one position is valued across. Beyond it the value is unknown, never partial.

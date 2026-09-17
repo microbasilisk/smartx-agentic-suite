@@ -81,13 +81,72 @@ describe("one coin's price from a Tenero answer", () => {
 
 describe("the records name what the chain defines", () => {
   const src = require("node:fs").readFileSync(engine, "utf8") as string;
-  test("contract, asset name and 6 decimals for each coin, and HODLMM deploys accept them", () => {
+  test("contract, asset name and 6 decimals for each coin, and HODLMM deploys accept stSTX", () => {
     expect(src).toContain('const STSTX_TOKEN         = "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststx-token";');
     expect(src).toContain('const ZEST_TOKEN          = "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.zest-token";');
     expect(src).toContain('const LEO_TOKEN           = "SP1AY6K3PQV5MRT6R4S671NWW2FRVPKM0BR162CT6.leo-token";');
     expect(src).toContain('ststx:  { symbol: "stSTX",  contract: STSTX_TOKEN,  decimals: 6, ftSuffix: "::ststx" },');
     expect(src).toContain('zest:   { symbol: "ZEST",   contract: ZEST_TOKEN,   decimals: 6, ftSuffix: "::zest" },');
     expect(src).toContain('leo:    { symbol: "LEO",    contract: LEO_TOKEN,    decimals: 6, ftSuffix: "::leo" },');
-    expect(src).toContain('hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx", "zest", "leo"] };');
+    // Only the coins of pools this skill lists: ZEST and LEO join when their pools do.
+    expect(src).toContain('hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx"] };');
+  });
+});
+
+describe("the stSTX pool, where STX is the second coin", () => {
+  test("a two coin deposit naming STX first puts STX on the Y side and stSTX on X, with one condition each", async () => {
+    const { buildDeployInstructions } = await import("../stacks-alpha-engine.ts");
+    const scout = {
+      wallet: W,
+      balances: {
+        stx:   { amount: 50, usd: 0, atomic: "50000000" },
+        ststx: { amount: 40, usd: 0, atomic: "40000000" },
+      },
+      prices: { sbtc: 78000, stx: 0.25, usdcx: 1, usdh: 1, aeusdc: 1, ststx: 0.29, zest: 0.128, leo: 0.0001 },
+    } as never;
+    // 12 STX named, with 10 stSTX as the counter amount.
+    const b = buildDeployInstructions("hodlmm" as never, 12_000_000, "stx", scout, "dlmm_10", 10_000_000, true);
+    expect(b.refusal ?? null).toBeNull();
+    const call = b.instructions.find((i) => i.tool === "call_contract")!;
+    const p = call.params as Record<string, any>;
+    const [bins, pool, xTrait, yTrait] = p.functionArgs;
+    expect(pool.value).toBe("SM1FKXGNZJWSTWDWXQZJNF7B5TV5ZB235JTCXYXKD.dlmm-pool-ststx-stx-v-1-bps-1");
+    expect(xTrait.value).toBe("SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststx-token");
+    expect(yTrait.value).toBe("SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR.token-stx-v-1-2");
+    expect(bins.value).toHaveLength(1);
+    expect(bins.value[0].value["active-bin-id-offset"].value).toBe(0);
+    expect(bins.value[0].value["x-amount"].value).toBe("10000000");
+    expect(bins.value[0].value["y-amount"].value).toBe("12000000");
+    expect(p.postConditionMode).toBe("deny");
+    expect(p.postConditions).toEqual([
+      { type: "ft", principal: W, asset: "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststx-token", assetName: "ststx", conditionCode: "lte", amount: "10000000" },
+      { type: "stx", principal: W, conditionCode: "lte", amount: "12000000" },
+    ]);
+    expect(call.description).toContain("at most 10 stSTX and 12 STX leaving your wallet");
+  });
+
+  test("a wallet holding stSTX is not told it holds none", async () => {
+    const { buildDeployInstructions } = await import("../stacks-alpha-engine.ts");
+    const scout = { wallet: W, balances: { stx: { amount: 0, usd: 0, atomic: "0" }, ststx: { amount: 3, usd: 0, atomic: "3000000" } }, prices: {} } as never;
+    const b = buildDeployInstructions("hodlmm" as never, 5_000_000, "ststx", scout, "dlmm_10", null, true);
+    expect(String(b.refusal ?? "")).toContain("you hold 3000000 and named 5000000");
+  });
+});
+
+describe("a pool too quiet for the volume check is listed, never offered as enterable", () => {
+  test("the floor is the guardian's own: 10,000 dollars of 24 hour volume, and not a number is not clear", async () => {
+    const { clearsVolumeFloor } = await import("../stacks-alpha-engine.ts");
+    expect(clearsVolumeFloor(10_000)).toBe(true);
+    expect(clearsVolumeFloor(61_873.29)).toBe(true);
+    for (const v of [9_999.99, 249, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, "12000", null, undefined]) {
+      expect(clearsVolumeFloor(v), String(v)).toBe(false);
+    }
+  });
+
+  test("the option row carries the flag, the volume and the reason from the same floor", () => {
+    const src = require("node:fs").readFileSync(engine, "utf8") as string;
+    expect(src).toContain("enterable: clearsVolumeFloor(bp.volumeUsd1d),");
+    expect(src).toContain("is under the $${MIN_24H_VOLUME_USD.toLocaleString()} the safety check requires.");
+    expect(src).toContain("const ok = clearsVolumeFloor(usd);");
   });
 });
