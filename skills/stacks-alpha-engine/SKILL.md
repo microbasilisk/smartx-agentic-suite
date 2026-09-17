@@ -5,7 +5,7 @@ metadata:
   author: "cliqueengagements"
   author-agent: "Micro Basilisk (Agent 77), SP219TWC8G12CSX5AB093127NC82KYQWEH8ADD1AY | bc1qzh2z92dlvccxq5w756qppzz8fymhgrt2dv8cf5"
   user-invocable: "false"
-  arguments: "doctor | scan | deploy | withdraw | borrow | repay | rebalance | migrate | emergency | install-packs"
+  arguments: "doctor | scan | pool-quote | deploy | withdraw | borrow | repay | rebalance | migrate | emergency | install-packs"
   entry: "stacks-alpha-engine/stacks-alpha-engine.ts"
   requires: "wallet, signing, settings"
   tags: "defi, write, mainnet-only, requires-funds, l2"
@@ -177,6 +177,7 @@ Rules a consumer can rely on:
 | Command | Type | Description |
 |---------|------|-------------|
 | `scan` | read | Full report: 6 tokens, 4 protocols, 3-tier yields, PoR, safety gates |
+| `pool-quote` | read | One HODLMM pool now: its price, and the coin mix of its active bin that a two coin deposit matches with no fee. Names no wallet |
 | `deploy` | write | Deploy capital to a protocol (with --token flag for specific token) |
 | `withdraw` | write | Pull capital from a specific protocol |
 | `borrow` | write | Borrow a debt asset against existing Zest collateral (USDh only: leveraged-yield leg) |
@@ -185,6 +186,30 @@ Rules a consumer can rely on:
 | `migrate` | write | Cross-protocol capital movement (withdraw A + deploy B) |
 | `emergency` | write | Withdraw ALL positions across all 4 protocols |
 | `doctor` | read | 11 self-tests: crypto vectors, data sources, PoR, all protocol reads |
+
+### pool-quote
+
+```bash
+bun run stacks-alpha-engine/stacks-alpha-engine.ts pool-quote --pool-id dlmm_3
+```
+
+Added 17 September 2026 for SmartX (`pool-quote.ts`). Reads, in order: the chain tip (`/v2/info`), the pool's
+`get-pool-for-add`, its active bin's `get-bin-balances`, and the core's `get-bin-price`. Checks the pool is still
+run by `dlmm-core-v-1-1` and still holds the listed coins.
+
+Two numbers, which are not the same thing:
+- **`price`**: what one coin is worth in the other (`y_per_x`, `x_per_y`, human units, rounded down to 18 places).
+- **`fee_free`**: the pair that matches the active bin's own mix, per one whole coin each way, rounded down to the
+  other coin's smallest unit. `dlmm-core-v-1-1` `add-liquidity` charges its liquidity fee (`fee_bps`) only in the
+  active bin and only on the part of a deposit that does not match this mix. On 17 September dlmm_3's bin held
+  about 52 STX per USDCx while the price was about 4 STX per USDCx. `case` is `both`, `only_x` or `only_y` (any of
+  the missing coin is unmatched, no per unit figure), or `empty` (no fee on any split).
+
+The fee is not a transfer: it stays in the bin and the depositor receives fewer shares. A pair scaled from the per
+unit figure can leave a few smallest units unmatched; measured on sBTC-USDCx, at most 0.0000134 percent of the
+deposit. The quote carries `block_height` and `read_at`; the coins of a later deposit land in whichever bin is
+active when that transaction confirms. Refusals: a pool id not in the list, or a changed core or coins
+(`blocked`); any read that fails (`error`). Both exit 1 and print no quote.
 
 ## Write Paths (verified on-chain)
 

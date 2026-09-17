@@ -10,6 +10,9 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 
 1. Run `doctor`: verify crypto self-tests and data sources before any operation
 2. Run `scan --wallet <address>`: read wallet (6 tokens), positions (4 protocols), 3-tier yields, PoR, safety gates
+   - Before asking for the two amounts of a HODLMM deposit, run `pool-quote --pool-id <id>` for that pool. Say the
+     price and the fee free mix as figures read at a time, never as the split to use; the fee on an unmatched part
+     means fewer shares, not extra coins leaving. Never multiply or convert its figures yourself.
 3. If user requests a write operation (deploy, withdraw, rebalance, migrate):
    a. Run Scout: read current state across all protocols
    b. Run Reserve (PoR): verify sBTC backing

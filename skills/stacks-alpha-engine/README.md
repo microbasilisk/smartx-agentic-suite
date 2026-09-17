@@ -107,6 +107,7 @@ withdraw zest                        # recover sBTC
 |---------|------|-------------|
 | `doctor` | read | 11 self-tests: crypto vectors, data sources, PoR, all protocol reads |
 | `scan` | read | Full report: 6 tokens, 4 protocols, 3-tier yields with YTG, PoR, safety gates |
+| `pool-quote` | read | One HODLMM pool now: price, and the active bin's coin mix a two coin deposit matches with no fee |
 | `deploy` | write | Deploy capital to a protocol |
 | `withdraw` | write | Pull capital from a protocol |
 | `borrow` | write | Borrow a debt asset against existing Zest collateral (USDh only: leveraged-yield leg) |
@@ -121,6 +122,11 @@ withdraw zest                        # recover sBTC
 The 12 HODLMM pools it knows are scanned with YTG ratios per pool. Reads user positions via `get-user-bins`, `get-overall-balance`, `get-active-bin-id`. Calculates break prices via DLMM Core `get-bin-price`. Generates `add-liquidity-simple` and `withdraw-liquidity-simple` instructions.
 
 The wallet's shares are read first, so a pool it does not hold costs one read. A pool whose read fails or throws is listed in `positions.hodlmm.unread`, shown as UNKNOWN and makes the scan `degraded`: it is never reported as no position, and an emergency exit says its withdraw may be missing.
+
+`pool-quote --pool-id dlmm_N` reads one pool for a two coin deposit: the price, and the mix of coins in its active
+bin, which is what decides the liquidity fee (the core charges it only on the unmatched part, in the active bin).
+The two can be far apart: on 17 September 2026 dlmm_3 (STX-USDCx) priced 1 STX at 0.25097679 USDCx while its active
+bin held 12,732.136661 STX and 245.048228 USDCx, so a fee free pair was 51.957676 STX for every 1 USDCx.
 
 ## Data sources (12+ live reads)
 

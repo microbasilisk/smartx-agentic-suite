@@ -37,6 +37,7 @@ import { homedir }    from "os";
 import { join }       from "path";
 import { readFileSync, writeFileSync } from "fs";
 import * as ecc       from "tiny-secp256k1";
+import { QuoteError, quotePool } from "./pool-quote.ts";
 
 // == Constants ================================================================
 const FETCH_TIMEOUT_MS    = 30_000;
@@ -5035,6 +5036,34 @@ program
     } catch (err: unknown) {
       console.error(JSON.stringify({ status: "error", command: "scan", error: err instanceof Error ? err.message : String(err) }));
       process.exit(1);
+    }
+  });
+
+program
+  .command("pool-quote")
+  .description("Read one HODLMM pool now: its price, and the coin mix of its active bin that a two coin deposit can match with no fee. Read only, names no wallet")
+  .requiredOption("--pool-id <id>", "HODLMM pool ID, dlmm_N, one of the pools this skill lists")
+  .action(async (opts: { poolId: string }) => {
+    const say = (status: "ok" | "blocked" | "error", body: Record<string, unknown>) => {
+      console.log(JSON.stringify({ status, command: "pool-quote", ...body }, null, 2));
+      if (status !== "ok") process.exit(1);
+    };
+    const pool = HODLMM_POOLS.find((p) => `dlmm_${p.id}` === opts.poolId);
+    if (!pool) {
+      say("blocked", { error: `No HODLMM pool ${opts.poolId} in this skill's list: ${HODLMM_POOLS.map((p) => `dlmm_${p.id}`).join(", ")}.` });
+      return;
+    }
+    try {
+      // The tip first, so the quote is never labelled newer than the reads behind it.
+      const info = await fetchJson<{ stacks_tip_height?: number }>(`${HIRO_API}/v2/info`);
+      if (typeof info.stacks_tip_height !== "number") throw new QuoteError("error", "the chain tip could not be read");
+      const now = new Date();
+      const tokens = Object.fromEntries(Object.entries(TOKENS).map(([k, t]) => [k, { symbol: t.symbol, decimals: t.decimals }]));
+      const data = await quotePool(pool, tokens, traitFor, (c, fn, args) => callReadOnly(c, fn, args), info.stacks_tip_height, now);
+      say("ok", { data });
+    } catch (err: unknown) {
+      if (err instanceof QuoteError) say(err.status, { error: err.message });
+      else say("error", { error: err instanceof Error ? err.message : String(err) });
     }
   });
 
