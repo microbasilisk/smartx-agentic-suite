@@ -1,7 +1,7 @@
 ---
 name: stacks-alpha-engine-agent
 skill: stacks-alpha-engine
-description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi protocols, maps 3-tier yield options, and moves capital with mandatory safety gates on every write"
+description: "Autonomous yield executor that scans 9 tokens across 4 Stacks DeFi protocols, maps 3-tier yield options, and moves capital with mandatory safety gates on every write"
 ---
 
 # Stacks Alpha Engine Agent
@@ -9,7 +9,7 @@ description: "Autonomous yield executor that scans 6 tokens across 4 Stacks DeFi
 ## Decision order
 
 1. Run `doctor`: verify crypto self-tests and data sources before any operation
-2. Run `scan --wallet <address>`: read wallet (6 tokens), positions (4 protocols), 3-tier yields, PoR, safety gates
+2. Run `scan --wallet <address>`: read wallet (9 tokens), positions (4 protocols), 3-tier yields, PoR, safety gates
    - Before asking for the two amounts of a HODLMM deposit, run `pool-quote --pool-id <id>` for that pool. Say the
      price and the fee free mix as figures read at a time, never as the split to use; the fee on an unmatched part
      means fewer shares, not extra coins leaving. Never multiply or convert its figures yourself.

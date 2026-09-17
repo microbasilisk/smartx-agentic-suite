@@ -154,6 +154,8 @@ bin held 12,732.136661 STX and 245.048228 USDCx, so a fee free pair was 51.95767
 
 ## PR Description
 
+*The submission text as it was written (April 2026). Counts in it describe the skill at that time: it now scans 9 tokens and 13 HODLMM pools.*
+
 ## Skill Name
 
 > **The first 4-protocol yield executor with YTG reporting, 3-tier yield mapping, and cryptographic reserve verification.** Scans 6 tokens across Zest, Hermetica, Granite, and HODLMM: maps every earning path with Yield-to-Gas profitability ratios, verifies the sBTC peg, then executes.

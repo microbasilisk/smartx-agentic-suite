@@ -240,7 +240,7 @@ All outputs are strict JSON to stdout.
 | `data.slippage_ok` | `boolean` | Whether price deviation is within cap |
 | `data.slippage_pct` | `number` | `\|hodlmm_price − bitflow_price\| / bitflow_price × 100` |
 | `data.bin_price_raw` | `number` | Raw active bin price from Bitflow bins API |
-| `data.pool_price_usd` | `number \| null` | HODLMM derived USD price: `(bin_price_raw / 1e8) × 10^(xDec − yDec)` |
+| `data.pool_price_usd` | `number \| null` | HODLMM derived USD price: `(bin_price_raw / 1e8) × 10^(xDec − yDec) × tokenY_price_usd` (the bin price is Y per X) |
 | `data.market_price_usd` | `number \| null` | Bitflow app reported token price in USD |
 | `data.slippage_source` | `string` | Price source identifier |
 | `data.gas_ok` | `boolean` | Whether estimated gas is within limit |
@@ -279,7 +279,7 @@ All outputs are strict JSON to stdout.
 
 **Before:** Constant value, always passed.
 
-**After:** `(bin_price_raw / 1e8) × 10^(xDec − yDec)` vs Bitflow app API token price. No external oracles: all data from Bitflow endpoints.
+**After:** `(bin_price_raw / 1e8) × 10^(xDec − yDec) × tokenY_price_usd` vs Bitflow app API token X price (Y's price added 17 September 2026: without it, pools quoted in STX or sBTC read hundreds of percent out of line). No external oracles: all data from Bitflow endpoints.
 
 ### Gas estimate: was a made-up constant, now live
 

@@ -2,13 +2,13 @@
 /**
  * Stacks Alpha Engine
  * Cross-protocol yield executor for Zest, Hermetica, Granite, and HODLMM (Bitflow DLMM).
- * Scans ALL relevant tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC), reads positions
+ * Scans ALL relevant tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC, stSTX, ZEST, LEO), reads positions
  * across 4 protocols, compares yield options (direct + swap-then-deploy), verifies sBTC
  * reserve integrity via BIP-341 P2TR derivation, checks market safety gates, then
  * executes deploy/withdraw/rebalance/migrate/emergency operations.
  *
  * Architecture:
- *   SCOUT    -> wallet scan (7 tokens), positions (4 protocols), yields, break prices
+ *   SCOUT    -> wallet scan (9 tokens), positions (4 protocols), yields, break prices
  *   RESERVE  -> sBTC Proof-of-Reserve (P2TR derivation, BTC balance, GREEN/YELLOW/RED)
  *   GUARDIAN -> slippage, volume, gas, cooldown, relay health, price source gates
  *   EXECUTOR -> deploy, withdraw, rebalance, migrate, emergency
@@ -1149,6 +1149,9 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   if (hiroBalance) allSources.push("hiro-balances");
   if (teneroSbtc) allSources.push("tenero-sbtc-price");
   if (teneroStx) allSources.push("tenero-stx-price");
+  if (teneroStstx) allSources.push("tenero-ststx-price");
+  if (teneroZest) allSources.push("tenero-zest-price");
+  if (teneroLeo) allSources.push("tenero-leo-price");
 
   // Whether the balance read RETURNED, recorded before any of its values are
   // touched. Everything below this line reads a zero out of a null response

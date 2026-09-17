@@ -192,5 +192,38 @@ const r13 = await guardian({ body: { bins: [{ bin_id: 653, userLiquidity: "" }] 
 check("an empty liquidity value is unreadable, not a wallet holding nothing",
   r13.action.startsWith("CHECK:"), r13.action);
 
+// A pool quoted in a coin that is not a dollar: stSTX/STX (dlmm_10). The bin price is STX per stSTX, so the call
+// site must hand the check STX's dollar price, or a healthy pool reads about 300 percent out of line (Fable's review
+// of the stSTX pool, 17 September 2026). Figures are Bitflow's and the chain's, read that day.
+{
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown) => {
+    const url = String(input);
+    const json = (body: unknown, status = 200) =>
+      new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+    if (url.includes("/positions/")) return json({ bins: [{ bin_id: 525, userLiquidity: 1000 }] });
+    if (url.includes("/api/quotes/v1/pools")) {
+      return json({ pools: [{ pool_id: "dlmm_10", pool_name: "stSTX-STX-LP", token_x: "X", token_y: "Y", bin_step: 1, active_bin: 525 }] });
+    }
+    if (url.includes("/api/quotes/v1/bins/")) return json({ active_bin_id: 525, bins: [{ bin_id: 525, price: "117677812" }] });
+    if (url.includes("/api/app/v1/pools")) {
+      return json({ data: [{ poolId: "dlmm_10", tvlUsd: 357921, volumeUsd1d: 12992, apr24h: 0.33,
+        tokens: { tokenX: { contract: "X", priceUsd: 0.2934, decimals: 6 }, tokenY: { contract: "Y", priceUsd: 0.2493, decimals: 6 } } }] });
+    }
+    if (url.includes("/v2/fees/transfer")) return json(6);
+    throw new Error(`unstubbed URL in test: ${url}`);
+  }) as typeof fetch;
+  try {
+    const r = await runGuardian(WALLET, "dlmm_10");
+    const d = r.data as Record<string, unknown>;
+    check("a pool quoted in STX is priced in dollars through STX's price, not read as 300 percent out",
+      typeof d.pool_price_usd === "number" && Math.abs((d.pool_price_usd as number) - 0.293371) < 0.0001
+        && typeof d.slippage_pct === "number" && (d.slippage_pct as number) < 0.1 && d.slippage_ok === true,
+      JSON.stringify({ pool_price_usd: d.pool_price_usd, slippage_pct: d.slippage_pct, slippage_ok: d.slippage_ok }));
+  } finally {
+    globalThis.fetch = original;
+  }
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

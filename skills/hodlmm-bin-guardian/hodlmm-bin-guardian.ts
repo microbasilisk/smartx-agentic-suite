@@ -123,6 +123,8 @@ interface PoolStats {
   volume24hUsd:    number;
   liquidityUsd:    number;
   tokenXPriceUsd:  number;
+  /** The dollar price of the coin the pool quotes X in. The bin price is Y per X, so it is needed to make dollars. */
+  tokenYPriceUsd:  number;
   tokenXDecimals:  number;
   tokenYDecimals:  number;
   apr24h:          number;
@@ -252,45 +254,51 @@ async function fetchPoolStats(pool: HodlmmPool): Promise<PoolStats> {
   try {
     const data  = await fetchJson<AppPoolsResponse>(`${BITFLOW_HODLMM_API}/api/app/v1/pools`);
     const match = data.data?.find((p) => p.poolId === pool.pool_id);
-    if (!match) return { volume24hUsd: 0, liquidityUsd: 0, tokenXPriceUsd: 0, tokenXDecimals: 8, tokenYDecimals: 6, apr24h: 0 };
+    if (!match) return { volume24hUsd: 0, liquidityUsd: 0, tokenXPriceUsd: 0, tokenYPriceUsd: 0, tokenXDecimals: 8, tokenYDecimals: 6, apr24h: 0 };
     return {
       volume24hUsd:   match.volumeUsd1d,
       liquidityUsd:   match.tvlUsd,
       tokenXPriceUsd: match.tokens.tokenX.priceUsd,
+      tokenYPriceUsd: match.tokens.tokenY.priceUsd,
       tokenXDecimals: match.tokens.tokenX.decimals,
       tokenYDecimals: match.tokens.tokenY.decimals,
       apr24h:         match.apr24h,
     };
   } catch {
-    return { volume24hUsd: 0, liquidityUsd: 0, tokenXPriceUsd: 0, tokenXDecimals: 8, tokenYDecimals: 6, apr24h: 0 };
+    return { volume24hUsd: 0, liquidityUsd: 0, tokenXPriceUsd: 0, tokenYPriceUsd: 0, tokenXDecimals: 8, tokenYDecimals: 6, apr24h: 0 };
   }
 }
 
 /**
  * Compare HODLMM active-bin price vs Bitflow app pool token price.
  * Fully Bitflow-native, no external oracles.
+ *
+ * The bin price is Y per X, so it is a dollar figure only once multiplied by Y's dollar price. Without that, every
+ * pool not quoted in a dollar coin read as wildly out of line: stSTX/STX's bin price of 1.1768 STX per stSTX was
+ * compared with stSTX's $0.29 as about 300 percent divergence (Fable's review of the stSTX pool, 17 September 2026,
+ * the same fault the alpha engine fixed for STX/sBTC). Neither figure is rounded before the comparison: LEO is
+ * about $0.0001, where rounding to cents is a 100 percent error.
  */
-function checkSlippage(
+export function checkSlippage(
   activeBinPrice: number,
   xDecimals:      number,
   yDecimals:      number,
   tokenXPriceUsd: number,
+  tokenYPriceUsd: number,
 ): SlippageResult {
-  if (!tokenXPriceUsd) {
+  if (!(tokenXPriceUsd > 0) || !(tokenYPriceUsd > 0)) {
     return { ok: true, pct: 0, pool_price: 0, market_price: 0, source: "bitflow-price-unavailable" };
   }
 
-  // HODLMM bin price in USD: (raw / 1e8) * 10^(xDec - yDec)
-  const hodlmmPriceUsd = parseFloat(
-    ((activeBinPrice / PRICE_SCALE) * Math.pow(10, xDecimals - yDecimals)).toFixed(2)
-  );
+  // HODLMM bin price in USD: (raw / 1e8) * 10^(xDec - yDec) * Y's dollar price
+  const hodlmmPriceUsd = (activeBinPrice / PRICE_SCALE) * Math.pow(10, xDecimals - yDecimals) * tokenYPriceUsd;
   const pct = Math.abs(hodlmmPriceUsd - tokenXPriceUsd) / tokenXPriceUsd * 100;
 
   return {
     ok:           pct <= MAX_SLIPPAGE_PCT,
     pct:          parseFloat(pct.toFixed(4)),
-    pool_price:   hodlmmPriceUsd,
-    market_price: parseFloat(tokenXPriceUsd.toFixed(2)),
+    pool_price:   parseFloat(hodlmmPriceUsd.toPrecision(6)),
+    market_price: parseFloat(tokenXPriceUsd.toPrecision(6)),
     source:       "bitflow-app-price-vs-hodlmm-active-bin",
   };
 }
@@ -499,6 +507,7 @@ export async function runGuardian(wallet?: string, poolId?: string): Promise<{
     poolStats.tokenXDecimals,
     poolStats.tokenYDecimals,
     poolStats.tokenXPriceUsd,
+    poolStats.tokenYPriceUsd,
   );
 
   // ── Volume / refusal checks ──────────────────────────────────────────────────
