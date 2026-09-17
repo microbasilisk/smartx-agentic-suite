@@ -19,7 +19,7 @@ stacks-alpha-engine
 
 ## What it does
 
-Cross-protocol yield executor covering all 4 major Stacks DeFi protocols: Zest v2, Hermetica, Granite, and HODLMM. Scans 6 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC), maps yield opportunities into 3 tiers with YTG (Yield-to-Gas) profitability ratios, verifies sBTC reserve via BIP-341 P2TR derivation, checks 5 market safety gates plus the sBTC reserve, then executes deploy/withdraw/rebalance/migrate/emergency operations.
+Cross-protocol yield executor covering all 4 major Stacks DeFi protocols: Zest v2, Hermetica, Granite, and HODLMM. Scans 9 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC, and since 17 September 2026 stSTX, ZEST and LEO), maps yield opportunities into 3 tiers with YTG (Yield-to-Gas) profitability ratios, verifies sBTC reserve via BIP-341 P2TR derivation, checks 5 market safety gates plus the sBTC reserve, then executes deploy/withdraw/rebalance/migrate/emergency operations.
 
 Every write runs: **Scout -> Reserve -> Guardian -> Executor**. The single exception is `emergency`, which bypasses both gates deliberately so a position can be exited when the reserve check is failing.
 
@@ -106,7 +106,7 @@ withdraw zest                        # recover sBTC
 | Command | Type | Description |
 |---------|------|-------------|
 | `doctor` | read | 11 self-tests: crypto vectors, data sources, PoR, all protocol reads |
-| `scan` | read | Full report: 6 tokens, 4 protocols, 3-tier yields with YTG, PoR, safety gates |
+| `scan` | read | Full report: 9 tokens, 4 protocols, 3-tier yields with YTG, PoR, safety gates |
 | `pool-quote` | read | One HODLMM pool now: price, and the active bin's coin mix a two coin deposit matches with no fee |
 | `deploy` | write | Deploy capital to a protocol |
 | `withdraw` | write | Pull capital from a protocol |

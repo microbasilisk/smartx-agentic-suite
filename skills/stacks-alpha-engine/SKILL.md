@@ -15,7 +15,7 @@ metadata:
 
 ## What it does
 
-Cross-protocol yield executor covering **all 4 major Stacks DeFi protocols**: Zest v2, Hermetica, Granite, and HODLMM (Bitflow DLMM). Scans 6 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC) across the wallet, reads positions and live yields from all 4 protocols, maps yield opportunities into 3 tiers (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios**, verifies sBTC reserve integrity via BIP-341 P2TR derivation, checks 5 market safety gates and reports Yield-to-Gas economics without blocking on them, then executes deploy/withdraw/rebalance/migrate/emergency operations. Every write runs a mandatory safety pipeline: Scout -> Reserve -> Guardian -> Executor. The single exception is `emergency`, which bypasses both gates deliberately so a position can be exited when the reserve check is failing.
+Cross-protocol yield executor covering **all 4 major Stacks DeFi protocols**: Zest v2, Hermetica, Granite, and HODLMM (Bitflow DLMM). Scans 9 tokens (sBTC, STX, USDCx, USDh, sUSDh, aeUSDC, and since 17 September 2026 stSTX, ZEST and LEO, priced from Tenero and never pegged) across the wallet, reads positions and live yields from all 4 protocols, maps yield opportunities into 3 tiers (deploy now / swap first / acquire to unlock) with **YTG (Yield-to-Gas) profitability ratios**, verifies sBTC reserve integrity via BIP-341 P2TR derivation, checks 5 market safety gates and reports Yield-to-Gas economics without blocking on them, then executes deploy/withdraw/rebalance/migrate/emergency operations. Every write runs a mandatory safety pipeline: Scout -> Reserve -> Guardian -> Executor. The single exception is `emergency`, which bypasses both gates deliberately so a position can be exited when the reserve check is failing.
 
 **Protocol coverage:**
 
@@ -115,7 +115,7 @@ All commands output JSON to stdout:
 {
   "status": "ok" | "degraded" | "preview" | "refused" | "partial" | "error",
   "command": "scan" | "deploy" | "withdraw" | "rebalance" | "migrate" | "emergency",
-  "scout": { "status", "wallet", "available", "balances" (6 tokens), "positions" (4 protocols), "options" (3-tier, each with ytg_ratio + ytg_profitable), "best_move", "break_prices", "data_sources" },
+  "scout": { "status", "wallet", "available", "balances" (9 tokens), "positions" (4 protocols), "options" (3-tier, each with ytg_ratio + ytg_profitable), "best_move", "break_prices", "data_sources" },
   "reserve": { "signal": "GREEN|YELLOW|RED|DATA_UNAVAILABLE", "reserve_ratio", "score", "sbtc_circulating", "btc_reserve", "signer_address", "recommendation" },
   "guardian": { "can_proceed", "refusals", "slippage", "volume", "gas", "cooldown", "prices" },
   "action": { "description", "txids", "details": { "instructions": [...] } },
@@ -167,7 +167,7 @@ Rules a consumer can rely on:
 
 | Module | Role |
 |--------|------|
-| **Scout** | Wallet scan (6 tokens), positions (4 protocols), 3-tier yield options, break prices |
+| **Scout** | Wallet scan (9 tokens), positions (4 protocols), 3-tier yield options, break prices |
 | **Reserve** | P2TR derivation, BTC balance, GREEN/YELLOW/RED signal |
 | **Guardian** | Slippage, volume, gas, cooldown, price gates |
 | **Executor** | deploy, withdraw, rebalance, migrate, emergency |
@@ -176,7 +176,7 @@ Rules a consumer can rely on:
 
 | Command | Type | Description |
 |---------|------|-------------|
-| `scan` | read | Full report: 6 tokens, 4 protocols, 3-tier yields, PoR, safety gates |
+| `scan` | read | Full report: 9 tokens, 4 protocols, 3-tier yields, PoR, safety gates |
 | `pool-quote` | read | One HODLMM pool now: its price, and the coin mix of its active bin that a two coin deposit matches with no fee. Names no wallet |
 | `deploy` | write | Deploy capital to a protocol (with --token flag for specific token) |
 | `withdraw` | write | Pull capital from a specific protocol |
@@ -224,7 +224,7 @@ All 4 protocols have **zero trait_reference** requirements in their write paths.
 
 ## Safety Pipeline (every write)
 
-1. **Scout** reads wallet (6 tokens) + 4 protocols + yields + prices + YTG ratios
+1. **Scout** reads wallet (9 tokens) + 4 protocols + yields + prices + YTG ratios
 2. **Reserve (PoR)** verifies sBTC is fully backed by real BTC
 3. **Guardian** checks 5 gates: pool-vs-market divergence (<=0.5%), volume (>=$10K), gas (<=50 STX), cooldown (4h), prices. Relay health deferred to MCP runtime.
 4. **YTG economics** reports 7d projected yield against gas cost (informs, does not refuse)

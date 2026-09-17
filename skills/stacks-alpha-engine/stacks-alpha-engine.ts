@@ -134,6 +134,13 @@ const USDCX_TOKEN         = "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx";
 const AEUSDC_TOKEN        = "SP3Y2ZSH8P7D50B0VBTSX11S7XSG24M1VB9YFQA4K.token-aeusdc";
 const USDH_TOKEN          = "SPN5AKG35QZSK2M8GAMR4AFX45659RJHDW353HSG.usdh-token-v1";
 const SUSDH_TOKEN         = "SPN5AKG35QZSK2M8GAMR4AFX45659RJHDW353HSG.susdh-token-v1";
+// The coins of Bitflow's stSTX, ZEST and LEO pools. Read from chain 2026-09-17: `define-fungible-token` names
+// `ststx`, `zest` and `leo`, `get-decimals` 6 for all three, plain SIP-010 transfers with no fee or hook. ZEST is
+// Zest Protocol's own token (same deployer as its market); its symbol can be changed by the Zest DAO, its asset
+// name cannot, so nothing here keys on the symbol.
+const STSTX_TOKEN         = "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststx-token";
+const ZEST_TOKEN          = "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.zest-token";
+const LEO_TOKEN           = "SP1AY6K3PQV5MRT6R4S671NWW2FRVPKM0BR162CT6.leo-token";
 const SBTC_REGISTRY       = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4";
 const SBTC_REGISTRY_NAME  = "sbtc-registry";
 
@@ -231,6 +238,9 @@ const TOKENS: Record<string, TokenMeta> = {
   usdh:   { symbol: "USDh",   contract: USDH_TOKEN,   decimals: 8, ftSuffix: "::usdh" },
   susdh:  { symbol: "sUSDh",  contract: SUSDH_TOKEN,  decimals: 8, ftSuffix: "::susdh" },
   aeusdc: { symbol: "aeUSDC", contract: AEUSDC_TOKEN, decimals: 6, ftSuffix: "::aeUSDC" },
+  ststx:  { symbol: "stSTX",  contract: STSTX_TOKEN,  decimals: 6, ftSuffix: "::ststx" },
+  zest:   { symbol: "ZEST",   contract: ZEST_TOKEN,   decimals: 6, ftSuffix: "::zest" },
+  leo:    { symbol: "LEO",    contract: LEO_TOKEN,    decimals: 6, ftSuffix: "::leo" },
 };
 
 // Reverse lookup: token contract principal → TokenMeta. Used to derive asset_name + decimals
@@ -253,6 +263,8 @@ interface TokenBalance {
 interface WalletBalances {
   sbtc: TokenBalance; stx: TokenBalance; usdcx: TokenBalance;
   usdh: TokenBalance; susdh: TokenBalance; aeusdc: TokenBalance;
+  /** The coins of the stSTX, ZEST and LEO pools (17 September). Priced from Tenero, never pegged. */
+  ststx: TokenBalance; zest: TokenBalance; leo: TokenBalance;
 }
 
 /**
@@ -296,6 +308,10 @@ interface ScoutAvailability {
   price_sbtc: boolean;
   /** A usable STX price came back. False means the STX USD column is unknown. */
   price_stx: boolean;
+  /** Usable stSTX, ZEST and LEO prices came back. False means that coin's USD column is unknown. */
+  price_ststx: boolean;
+  price_zest: boolean;
+  price_leo: boolean;
   /** Plain names of the reads that did not return, for a person to read directly. */
   unavailable: string[];
 }
@@ -1087,6 +1103,17 @@ function verifyBech32mTestVectors(): { pass: boolean; detail: string } {
 // ==  SCOUT MODULE
 // =============================================================================
 
+/**
+ * One whole coin's dollar price from a Tenero token answer, `price.current_price` first, else `price_usd`, or 0 when
+ * neither is a positive finite number (0 is read as "no price", never as a quote).
+ */
+export function teneroQuoteUsd(body: unknown): number {
+  const d = (body as Record<string, Record<string, unknown>> | null)?.data;
+  const current = (d?.price as Record<string, unknown> | undefined)?.current_price;
+  const v = typeof current === "number" ? current : d?.price_usd;
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0;
+}
+
 async function scoutWallet(wallet: string): Promise<ScoutResult> {
   if (!/^SP[A-Z0-9]{30,}$/i.test(wallet)) {
     throw new Error("Invalid wallet address: must be Stacks mainnet (SP...)");
@@ -1095,10 +1122,13 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   const allSources: string[] = [];
 
   // -- Balances + prices ------------------------------------------------------
-  const [hiroBalance, teneroSbtc, teneroStx] = await Promise.all([
+  const [hiroBalance, teneroSbtc, teneroStx, teneroStstx, teneroZest, teneroLeo] = await Promise.all([
     fetchJson<Record<string, unknown>>(`${HIRO_API}/extended/v1/address/${wallet}/balances`).catch(() => null),
     fetchJson<Record<string, unknown>>(`${TENERO_API}/v1/stacks/tokens/${SBTC_TOKEN}`).catch(() => null),
     fetchJson<Record<string, unknown>>(`${TENERO_API}/v1/stacks/tokens/stx`).catch(() => null),
+    fetchJson<Record<string, unknown>>(`${TENERO_API}/v1/stacks/tokens/${STSTX_TOKEN}`).catch(() => null),
+    fetchJson<Record<string, unknown>>(`${TENERO_API}/v1/stacks/tokens/${ZEST_TOKEN}`).catch(() => null),
+    fetchJson<Record<string, unknown>>(`${TENERO_API}/v1/stacks/tokens/${LEO_TOKEN}`).catch(() => null),
   ]);
   if (hiroBalance) allSources.push("hiro-balances");
   if (teneroSbtc) allSources.push("tenero-sbtc-price");
@@ -1123,12 +1153,21 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   const aeUsdcMicro = ftBalance(AEUSDC_TOKEN);
   const usdhSats    = ftBalance(USDH_TOKEN);
   const susdhSats   = ftBalance(SUSDH_TOKEN);
+  const ststxMicro  = ftBalance(STSTX_TOKEN);
+  const zestMicro   = ftBalance(ZEST_TOKEN);
+  const leoMicro    = ftBalance(LEO_TOKEN);
 
   // Prices
   const sd = (teneroSbtc as Record<string, Record<string, unknown>>)?.data as Record<string, unknown> | undefined;
   const sbtcPrice = (sd?.price_usd as number) ?? ((sd?.price as Record<string, number>)?.current_price) ?? 0;
   const xd = (teneroStx as Record<string, Record<string, unknown>>)?.data as Record<string, unknown> | undefined;
   const stxPrice = (xd?.price_usd as number) ?? ((xd?.price as Record<string, number>)?.current_price) ?? 0;
+  // The three new coins read `price.current_price` first: `price_usd` is a rounded field, and one LEO is about
+  // $0.0001, where rounding is a zero or a tenfold error. Recorded 2026-09-17: stSTX current 0.29344 (price_usd
+  // 0.29276), ZEST 0.12820 (0.12818), LEO 0.00010273 (0.00010403). Anything not a positive number is no price.
+  const ststxPrice = teneroQuoteUsd(teneroStstx);
+  const zestPrice = teneroQuoteUsd(teneroZest);
+  const leoPrice = teneroQuoteUsd(teneroLeo);
 
   // A price of 0 is treated as "did not return", not as a quote. Both prices are
   // read through `?? 0`, so a dead feed, an empty body and a renamed field all
@@ -1137,15 +1176,26 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   // catches the schema-change case that a null check alone would miss.
   const priceSbtcAvailable = sbtcPrice > 0;
   const priceStxAvailable = stxPrice > 0;
+  const priceStstxAvailable = ststxPrice > 0;
+  const priceZestAvailable = zestPrice > 0;
+  const priceLeoAvailable = leoPrice > 0;
 
   const unavailable: string[] = [];
   if (!balancesAvailable)   unavailable.push("wallet balances (Hiro)");
   if (!priceSbtcAvailable)  unavailable.push("sBTC price (Tenero)");
   if (!priceStxAvailable)   unavailable.push("STX price (Tenero)");
+  // Said only when the wallet holds some: a missing price for a coin nobody here holds changes no figure, and
+  // listing it would mark every scan of every wallet as a partial read.
+  if (!priceStstxAvailable && ststxMicro > 0n) unavailable.push("stSTX price (Tenero)");
+  if (!priceZestAvailable && zestMicro > 0n)   unavailable.push("ZEST price (Tenero)");
+  if (!priceLeoAvailable && leoMicro > 0n)     unavailable.push("LEO price (Tenero)");
   const available: ScoutAvailability = {
     balances: balancesAvailable,
     price_sbtc: priceSbtcAvailable,
     price_stx: priceStxAvailable,
+    price_ststx: priceStstxAvailable,
+    price_zest: priceZestAvailable,
+    price_leo: priceLeoAvailable,
     unavailable,
   };
 
@@ -1160,6 +1210,9 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   const usdhAmt    = Number(usdhSats) / 1e8;
   const susdhAmt   = Number(susdhSats) / 1e8;
   const aeUsdcAmt  = Number(aeUsdcMicro) / 1e6;
+  const ststxAmt   = Number(ststxMicro) / 1e6;
+  const zestAmt    = Number(zestMicro) / 1e6;
+  const leoAmt     = Number(leoMicro) / 1e6;
 
   const balances: WalletBalances = {
     sbtc:   { amount: round(sbtcAmt, 8),   usd: round(sbtcAmt * sbtcPrice, 2),   atomic: sbtcSats.toString() },
@@ -1168,8 +1221,12 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
     usdh:   { amount: round(usdhAmt, 8),    usd: round(usdhAmt * usdhPrice, 2),   atomic: usdhSats.toString() },
     susdh:  { amount: round(susdhAmt, 8),   usd: round(susdhAmt * usdhPrice, 2),  atomic: susdhSats.toString() },
     aeusdc: { amount: round(aeUsdcAmt, 6),  usd: round(aeUsdcAmt * aeUsdcPrice, 2), atomic: aeUsdcMicro.toString() },
+    ststx:  { amount: round(ststxAmt, 6),   usd: round(ststxAmt * ststxPrice, 2), atomic: ststxMicro.toString() },
+    zest:   { amount: round(zestAmt, 6),    usd: round(zestAmt * zestPrice, 2),   atomic: zestMicro.toString() },
+    leo:    { amount: round(leoAmt, 6),     usd: round(leoAmt * leoPrice, 2),     atomic: leoMicro.toString() },
   };
-  const prices = { sbtc: round(sbtcPrice, 2), stx: round(stxPrice, 4), usdcx: 1.0, usdh: 1.0, aeusdc: 1.0 };
+  // Unrounded for the new coins: at LEO's price any fixed rounding is a zero.
+  const prices = { sbtc: round(sbtcPrice, 2), stx: round(stxPrice, 4), usdcx: 1.0, usdh: 1.0, aeusdc: 1.0, ststx: ststxPrice, zest: zestPrice, leo: leoPrice };
 
   // -- Positions in parallel --------------------------------------------------
   const [zest, hermetica, granite, hodlmm] = await Promise.all([
@@ -1186,6 +1243,9 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
     sbtc: priceSbtcAvailable ? prices.sbtc : null,
     stx: priceStxAvailable ? prices.stx : null,
     usdcx: 1, aeusdc: 1, usdh: 1,
+    ststx: priceStstxAvailable ? prices.ststx : null,
+    zest: priceZestAvailable ? prices.zest : null,
+    leo: priceLeoAvailable ? prices.leo : null,
   });
 
   // -- Fix Hermetica has_position from wallet sUSDh balance -------------------
@@ -1200,7 +1260,8 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   allSources.push(...optSrc);
 
   // -- Best move --------------------------------------------------------------
-  const walletUsd = balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd + balances.usdh.usd + balances.susdh.usd + balances.aeusdc.usd;
+  const walletUsd = balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd + balances.usdh.usd + balances.susdh.usd + balances.aeusdc.usd
+    + balances.ststx.usd + balances.zest.usd + balances.leo.usd;
   const move = bestMove(options);
   const bestOpt = move.best;
   let recommendation = "No yield opportunities available for your current holdings.";
@@ -1211,7 +1272,10 @@ async function scoutWallet(wallet: string): Promise<ScoutResult> {
   // some. The AMOUNT is known and correct; only its dollar value is missing, so
   // any total that silently drops it understates what they have.
   const unpricedHolding = (!priceSbtcAvailable && balances.sbtc.amount > 0)
-    || (!priceStxAvailable && balances.stx.amount > 0);
+    || (!priceStxAvailable && balances.stx.amount > 0)
+    || (!priceStstxAvailable && balances.ststx.amount > 0)
+    || (!priceZestAvailable && balances.zest.amount > 0)
+    || (!priceLeoAvailable && balances.leo.amount > 0);
 
   const outOfRange = hodlmm.positions.pools.filter(p => !p.in_range);
   if (outOfRange.length > 0) {
@@ -2040,7 +2104,7 @@ export function zestYieldOptions(balances: WalletBalances, zest: ZestPosition): 
 
 async function getYieldOptions(
   balances: WalletBalances,
-  prices: { sbtc: number; stx: number; usdcx: number; usdh: number; aeusdc: number },
+  prices: { sbtc: number; stx: number; usdcx: number; usdh: number; aeusdc: number; ststx: number; zest: number; leo: number },
   granite: GranitePosition,
   hermetica: HermeticaPosition,
   zest: ZestPosition,
@@ -2109,7 +2173,8 @@ async function getYieldOptions(
         const by = (balances as unknown as Record<string, TokenBalance>)[def.tokenY];
         const sized = sizeHodlmmOption(
           bx?.usd ?? 0, by?.usd ?? 0,
-          balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd + balances.usdh.usd + balances.aeusdc.usd,
+          balances.sbtc.usd + balances.stx.usd + balances.usdcx.usd + balances.usdh.usd + balances.aeusdc.usd
+            + balances.ststx.usd + balances.zest.usd + balances.leo.usd,
           tokenXMeta.symbol, tokenYMeta.symbol,
           bx?.amount ?? 0, by?.amount ?? 0,
         );
@@ -4001,7 +4066,7 @@ async function _runPipeline(wallet: string, command: string, opts: Record<string
     const amount = parseAtomicAmount(opts.amount);
     if (amount === null) return { status: "error", command, error: "Amount must be a positive whole number in the token's smallest unit, digits only (no decimal point, no exponent, no 0x)" };
     const token = opts.token ?? inferToken(protocol as Protocol);
-    const validTokens: Record<string, string[]> = { zest: ["sbtc", "stx", "usdcx"], hermetica: ["usdh", "sbtc", "usdcx", "stx"], granite: ["aeusdc", "usdcx"], hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc"] };
+    const validTokens: Record<string, string[]> = { zest: ["sbtc", "stx", "usdcx"], hermetica: ["usdh", "sbtc", "usdcx", "stx"], granite: ["aeusdc", "usdcx"], hodlmm: ["sbtc", "stx", "usdcx", "usdh", "aeusdc", "ststx", "zest", "leo"] };
     if (!validTokens[protocol].includes(token)) {
       return { status: "error", command, error: `${protocol} does not accept ${token}. Valid: ${validTokens[protocol].join(", ")}` };
     }
@@ -4714,14 +4779,21 @@ function renderReport(scout: ScoutResult, reserve: ReserveResult, guardian: Guar
   L.push(`| USDh    | ${pad(amt(scout.balances.usdh.amount), 18)} | ${usd(scout.balances.usdh, true)} |`);
   L.push(`| sUSDh   | ${pad(amt(scout.balances.susdh.amount), 18)} | ${usd(scout.balances.susdh, true)} |`);
   L.push(`| aeUSDC  | ${pad(amt(scout.balances.aeusdc.amount), 18)} | ${usd(scout.balances.aeusdc, true)} |`);
+  L.push(`| stSTX   | ${pad(amt(scout.balances.ststx.amount), 18)} | ${usd(scout.balances.ststx, avail.price_ststx)} |`);
+  L.push(`| ZEST    | ${pad(amt(scout.balances.zest.amount), 18)} | ${usd(scout.balances.zest, avail.price_zest)} |`);
+  L.push(`| LEO     | ${pad(amt(scout.balances.leo.amount), 18)} | ${usd(scout.balances.leo, avail.price_leo)} |`);
   // The total is the line a person reads first and remembers, so it is the line
   // held to the strictest test. It prints a figure only when every component of
   // it was measured. A missing price on a token they hold NONE of leaves the sum
   // exact, so that case still shows the number instead of hiding a good answer.
-  const walletUsd = round(scout.balances.sbtc.usd + scout.balances.stx.usd + scout.balances.usdcx.usd + scout.balances.usdh.usd + scout.balances.susdh.usd + scout.balances.aeusdc.usd, 2);
+  const walletUsd = round(scout.balances.sbtc.usd + scout.balances.stx.usd + scout.balances.usdcx.usd + scout.balances.usdh.usd + scout.balances.susdh.usd + scout.balances.aeusdc.usd
+    + scout.balances.ststx.usd + scout.balances.zest.usd + scout.balances.leo.usd, 2);
   const totalKnown = avail.balances
     && (avail.price_sbtc || scout.balances.sbtc.amount === 0)
-    && (avail.price_stx || scout.balances.stx.amount === 0);
+    && (avail.price_stx || scout.balances.stx.amount === 0)
+    && (avail.price_ststx || scout.balances.ststx.amount === 0)
+    && (avail.price_zest || scout.balances.zest.amount === 0)
+    && (avail.price_leo || scout.balances.leo.amount === 0);
   L.push(`| **Wallet Total** |              | ${totalKnown ? `**$${walletUsd}**` : "**unknown**"} |`);
   L.push("");
   if (avail.unavailable.length > 0) {
