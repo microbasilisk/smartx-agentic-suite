@@ -66,6 +66,18 @@ Transaction [`0xe1f1598b6355f9b7fbe54599ed11e0609a7d1af46265feb0c88482e145902cc5
 | Function | `withdraw` |
 | Block | 7,789,631 at 2026-04-29T17:27:21Z |
 
+**`zest-collateral-withdraw`, a whole Zest collateral position back to the wallet.**
+Transaction [`0xca780dea38b16a7c4a719060ec58c8d345397dbe989b90162332f2697cc8b2ff`](https://explorer.hiro.so/txid/0xca780dea38b16a7c4a719060ec58c8d345397dbe989b90162332f2697cc8b2ff?chain=mainnet), verified 2026-09-17. Planned by the skill, checked by SmartX at signing, and signed by the owner in their own wallet, closing a round trip that opened with a 5 USDCx Zest deposit through SmartX ([`0xab4d1392...231a`](https://explorer.hiro.so/txid/0xab4d13928311991db7bedc2ac0f7c9918361701018fa5ac1cfa285ffc938231a?chain=mainnet), 2026-09-16).
+
+| Field | Value |
+|---|---|
+| Status | success, `(ok u5000012)` |
+| Contract | `SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-8-market` |
+| Function | `collateral-remove-redeem` |
+| Sender | `SP2RGCKAQH0ZZD0WEVB38H128DZ1M2S5V3ST871NF` |
+| Post-conditions | deny mode: `v0-market-vault` and the market each send at least 4,987,928 zft, `v0-vault-usdc` sends at least 5,000,012 usdcx-token |
+| Block | 9,006,569 at 2026-09-17T00:43:35Z |
+
 **Multi-transaction proof run.** On 2026-04-22 a mainnet cycle exercised the write paths across the **Zest, Granite and Hermetica** skills, surfacing the Granite post-condition bugs documented in [SAFETY.md](SAFETY.md). Nine transactions are cited as proofs; the full window from block 7,702,816 to 7,703,650 contains 13 transactions including the deliberate failures, and cost 39,272 micro-STX in total, about $0.009 at the STX price on the day.
 
 | Leg | Transaction | Result |

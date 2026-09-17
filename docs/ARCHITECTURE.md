@@ -2,7 +2,7 @@
 
 ## Composition, not features
 
-These skills are not fourteen separate tools. They are stages in one pipeline, and the interesting behaviour comes from what they feed each other.
+These skills are not fifteen separate tools. They are stages in one pipeline, and the interesting behaviour comes from what they feed each other.
 
 The clearest example is `hodlmm-rebalance-arbiter`. On its own it does nothing: it reads no chain state and moves no capital. It consumes two independent signals, bin drift from `hodlmm-bin-guardian` and peg health from `sbtc-proof-of-reserve`, and collapses them into a single verdict of REBALANCE, BLOCKED or IN_RANGE. That verdict is what a write-capable skill acts on.
 

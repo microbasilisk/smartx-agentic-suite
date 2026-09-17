@@ -2,7 +2,7 @@
 
 **AI agent skills for Bitcoin DeFi on Stacks.**
 
-Fourteen skills that read live on-chain state, evaluate capital decisions against explicit safety gates, and produce actionable plans across the sBTC, HODLMM, Zest, Hermetica and Granite ecosystems. Five have been merged into the official AIBTC skill registry. Four have write paths proven on Stacks mainnet with real capital, each resolving to a transaction you can look up in [docs/PROVENANCE.md](docs/PROVENANCE.md).
+Fifteen skills that read live on-chain state, evaluate capital decisions against explicit safety gates, and produce actionable plans across the sBTC, HODLMM, Zest, Hermetica and Granite ecosystems. Five have been merged into the official AIBTC skill registry. Five have write paths proven on Stacks mainnet with real capital, each resolving to a transaction you can look up in [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
 This is the skill layer that [SmartX](https://smartx.finance) runs on.
 
@@ -35,6 +35,7 @@ The skills compose into a full liquidity management pipeline. Each stage consume
 | **Correct** | `hodlmm-inventory-balancer` | Restores token ratio after one sided swap flow, gated on a 4 hour per pool cooldown |
 | **Exit** | `hodlmm-position-exit` | Pure withdrawal back to raw wallet balances, no redeploy |
 | **Exit** | `hodlmm-emergency-exit` | Full withdrawal when peg and drift signals converge |
+| **Exit** | `zest-collateral-withdraw` | Takes all of one coin out of Zest collateral, as an unsigned transaction the wallet holder signs |
 | **Identity** | `bns-agent-manager` | On-chain `.btc` name registration, transfer and management |
 
 ## Safety model
@@ -49,12 +50,13 @@ Three ideas run through every skill. They are documented in full in [docs/SAFETY
 
 ## Proven on mainnet
 
-These are not simulations. The four skills whose write paths have executed on mainnet:
+These are not simulations. The five skills whose write paths have executed on mainnet:
 
 - **`hodlmm-position-exit`** executed a live mainnet exit on 2026-04-19 at block 7,663,125, calling `withdraw-liquidity-same-multi` on `dlmm-liquidity-router-v-1-1`. Status success. Transaction [`be20b594...632e9811`](https://explorer.hiro.so/txid/0xbe20b59464b94286cd6478483fcdf41b2eec21b2c496ed821aa004fd632e9811?chain=mainnet).
 - **`hodlmm-inventory-balancer`** completed a three leg criterion-met rebalance on `dlmm_1` on 2026-04-18, moving the position from a 50% deviation to 0.05%. The withdraw and redeposit legs carry no post-conditions by design, because those router calls move liquidity across many bins; the bound on them is enforced at the contract level through `min-dlp`. A separate proof swap, `0xf4f49328...`, is what demonstrates the post-condition envelope pinned on both the send and receive sides.
 - **`hermetica-yield-rotator`** closed a full leveraged yield cycle end to end, including the silo claim path. Transaction `0xe1f1598b...` on 2026-04-29, `staking-silo-v1-1.withdraw`, status success.
 - **`stacks-alpha-engine`** drove the multi-transaction proof run of 2026-04-22 across Zest, Granite and Hermetica, which is also what surfaced the Granite post-condition bugs documented in [docs/SAFETY.md](docs/SAFETY.md). Nine transactions are cited as proofs, including the deliberate failures kept as bug evidence.
+- **`zest-collateral-withdraw`** planned a whole USDCx Zest position that the owner signed through SmartX in their own wallet on 2026-09-17 at block 9,006,569: `v0-8-market.collateral-remove-redeem` in deny mode, 5.000012 USDCx back. Transaction [`ca780dea...8cc8b2ff`](https://explorer.hiro.so/txid/0xca780dea38b16a7c4a719060ec58c8d345397dbe989b90162332f2697cc8b2ff?chain=mainnet).
 
 Full record with pull request links in [docs/PROVENANCE.md](docs/PROVENANCE.md).
 
@@ -65,7 +67,7 @@ Five skills are merged into the official [AIBTC skill registry](https://github.c
 ## Repository layout
 
 ```
-skills/     14 production skills, each with SKILL.md, AGENT.md, README.md and a TypeScript implementation
+skills/     15 production skills, each with SKILL.md, AGENT.md, README.md and a TypeScript implementation
 archive/    superseded and deprecated work, kept with a written explanation
 docs/       architecture, safety model and provenance
 ```
@@ -85,15 +87,15 @@ Skills read live on-chain state through the Hiro API and protocol-native endpoin
 
 This is working software that moves real value on a live network. It is offered as open source under the MIT license, without warranty. Read the code and understand the gates before running any write path against your own capital.
 
-Two different statuses apply to these skills and they are worth keeping apart. As standalone software, the write paths listed above have executed on mainnet. As a library inside [SmartX](https://smartx.finance), none is yet **live**, and the fourteen do not all sit in the same place. These fourteen are also no longer the whole of SmartX's library: it now also carries skills from the aibtc core registry and from the Bitflow developer, admitted on authorship and held in review until each has been run. The table below is about these fourteen only:
+Two different statuses apply to these skills and they are worth keeping apart. As standalone software, the write paths listed above have executed on mainnet. As a library inside [SmartX](https://smartx.finance), a path is labelled **live** only once it has been walked and signed through SmartX by a real wallet, and three paths from this suite have been: `stacks-alpha-engine`'s HODLMM two coin deposit and its Zest deposit, and `zest-collateral-withdraw`'s Zest withdraw. The fifteen do not all sit in the same place, and they are no longer the whole of SmartX's library: it also carries skills from the aibtc core registry and from the Bitflow developer, admitted on authorship and held in review until each has been run. The table below is about these fifteen only:
 
 | Status in SmartX | Count | What it means |
 |---|---:|---|
-| Under review | 11 | Runs and reaches its data sources, correctness not yet validated against a real position |
+| Under review | 12 | Runs and reaches its data sources, correctness not yet validated against a real position |
 | In conversion | 2 | Needs a caller parameter or a plan-emitting change before it can be offered. `hermetica-yield-rotator` and `hodlmm-inventory-balancer` |
 | Out of scope | 1 | `bns-agent-manager`, identity rather than asset management |
 
-Of the 11 under review, the console will select from **9**. `hodlmm-position-exit` and `hodlmm-move-liquidity` run, but they still sign for themselves, so SmartX does not offer them until they emit a plan for the wallet holder to sign instead. SmartX shows the status on every answer it returns.
+Of the 12 under review, the console will select from **10**. `hodlmm-position-exit` and `hodlmm-move-liquidity` run, but they still sign for themselves, so SmartX does not offer them until they emit a plan for the wallet holder to sign instead. SmartX shows the status on every answer it returns.
 
 ### Which copy SmartX actually runs, updated 2026-09-11
 
@@ -118,8 +120,12 @@ these. Those registry copies would have started in place of the ones SmartX
 actually measured when it vetted them, so these two are held here until the
 registry copies are measured in turn.
 
+`zest-collateral-withdraw` joined the pinned list on 2026-09-17, when it moved here
+from our registry fork. It exists only in this repository now, so this copy is the
+one SmartX runs.
+
 This repository is therefore the showcase it was built to be, and the source of
-truth for one skill rather than for all fourteen.
+truth for the skills it holds that the registries do not, rather than for all fifteen.
 
 ## Related
 
